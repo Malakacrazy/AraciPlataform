@@ -1,0 +1,219 @@
+// Skeleton data model for Fase 0 — covers the core entities of the four
+// modules (Office integration is not modeled here; it links to Google
+// Workspace resources by external ID, not stored data). To be refined
+// during Fase 0 discovery with Giulia. See docs/fase-0/data-model.md.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Tenant: the architecture firm using the platform. Every domain record
+// hangs off an Account so the schema supports multiple firms later
+// without a redesign, even though Giulia is the only tenant today.
+model Account {
+  id             String   @id @default(cuid())
+  name           String
+  cnpj           String?
+  taxRegimeAnexo String? // "III" | "V" — Simples Nacional annex
+  fatorRPercent  Decimal? // last computed folha/receita 12m ratio, for the Fator R simulator
+  createdAt      DateTime @default(now())
+
+  users     User[]
+  clients   Client[]
+  projects  Project[]
+  products  Product[]
+}
+
+model User {
+  id          String   @id @default(cuid())
+  accountId   String
+  account     Account  @relation(fields: [accountId], references: [id])
+  email       String   @unique
+  name        String
+  role        String // admin | architect | designer | freelancer | ...
+  specialty   String?
+  costPerHour Decimal?
+  googleId    String?  @unique
+  createdAt   DateTime @default(now())
+
+  timeEntries       TimeEntry[]
+  projectMembership ProjectMember[]
+}
+
+// CRM: pessoa física/jurídica captada como lead ou já cliente
+model Client {
+  id        String   @id @default(cuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id])
+  name      String
+  document  String? // CPF/CNPJ
+  email     String?
+  phone     String?
+  source    String? // site | whatsapp | instagram | indicacao | email | telefone
+  createdAt DateTime @default(now())
+
+  opportunities Opportunity[]
+  projects      Project[]
+}
+
+// CRM: oportunidade no pipeline (kanban)
+model Opportunity {
+  id             String    @id @default(cuid())
+  clientId       String
+  client         Client    @relation(fields: [clientId], references: [id])
+  stage          String
+  feeModel       String // percentual_cub | valor_m2 | hora_tecnica | fixo | recorrente
+  estimatedValue Decimal?
+  wonAt          DateTime?
+  lostAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  proposals Proposal[]
+  project   Project?
+}
+
+model Proposal {
+  id            String       @id @default(cuid())
+  opportunityId String
+  opportunity   Opportunity  @relation(fields: [opportunityId], references: [id])
+  value         Decimal
+  status        String // draft | sent | signed | expired
+  sentAt        DateTime?
+  signedAt      DateTime?
+}
+
+// ERP Arquitetura: projeto ativo, geralmente criado a partir de uma
+// Opportunity ganha (conversão automática, sem redigitação)
+model Project {
+  id            String       @id @default(cuid())
+  accountId     String
+  account       Account      @relation(fields: [accountId], references: [id])
+  clientId      String
+  client        Client       @relation(fields: [clientId], references: [id])
+  opportunityId String?      @unique
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id])
+  name          String
+  status        String
+  feeModel      String
+  createdAt     DateTime     @default(now())
+
+  phases      ProjectPhase[]
+  members     ProjectMember[]
+  timeEntries TimeEntry[]
+  invoices    Invoice[]
+  areas       Area[]
+}
+
+model ProjectPhase {
+  id        String    @id @default(cuid())
+  projectId String
+  project   Project   @relation(fields: [projectId], references: [id])
+  name      String // Estudo Preliminar | Anteprojeto | Projeto Executivo | ...
+  order     Int
+  startDate DateTime?
+  dueDate   DateTime?
+  budget    Decimal?
+
+  tasks       Task[]
+  timeEntries TimeEntry[]
+}
+
+model Task {
+  id         String       @id @default(cuid())
+  phaseId    String
+  phase      ProjectPhase @relation(fields: [phaseId], references: [id])
+  title      String
+  assigneeId String?
+  status     String
+  dueDate    DateTime?
+}
+
+model ProjectMember {
+  id            String  @id @default(cuid())
+  projectId     String
+  project       Project @relation(fields: [projectId], references: [id])
+  userId        String
+  user          User    @relation(fields: [userId], references: [id])
+  roleOnProject String?
+
+  @@unique([projectId, userId])
+}
+
+// Timesheet: horas faturáveis/não faturáveis por colaborador, projeto e fase
+model TimeEntry {
+  id           String        @id @default(cuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id])
+  projectId    String
+  project      Project       @relation(fields: [projectId], references: [id])
+  phaseId      String?
+  phase        ProjectPhase? @relation(fields: [phaseId], references: [id])
+  date         DateTime
+  hours        Decimal
+  billable     Boolean       @default(true)
+  activityType String // projeto | administrativo | comercial
+  approvedAt   DateTime?
+  approvedById String?
+}
+
+model Invoice {
+  id         String    @id @default(cuid())
+  projectId  String
+  project    Project   @relation(fields: [projectId], references: [id])
+  amount     Decimal
+  status     String // pendente | emitida | paga
+  nfseNumber String? // número da NFS-e emitida via parceiro fiscal
+  dueDate    DateTime?
+  issuedAt   DateTime?
+  paidAt     DateTime?
+}
+
+// FF&E: ambiente/área do projeto ao qual produtos são especificados
+model Area {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id])
+  name String // ex.: Sala de estar, Quarto principal, Cozinha
+
+  specifications ProductSpecification[]
+}
+
+// FF&E: catálogo de produtos, populado manualmente ou via web scraper
+model Product {
+  id           String   @id @default(cuid())
+  accountId    String
+  account      Account  @relation(fields: [accountId], references: [id])
+  name         String
+  supplier     String?
+  price        Decimal?
+  dimensions   String?
+  finish       String?
+  leadTimeDays Int?
+  imageUrl     String?
+  sourceUrl    String? // origem quando capturado via web scraper
+  isGeneric    Boolean  @default(false) // placeholder quando o SKU ainda não foi escolhido
+  createdAt    DateTime @default(now())
+
+  specifications ProductSpecification[]
+}
+
+// FF&E: linha do carrinho de compras — produto especificado em uma área,
+// com preço/markup e aprovação do cliente. A soma das linhas aprovadas é
+// o orçamento final (planilha de itens e valores) que flui para o ERP.
+model ProductSpecification {
+  id            String   @id @default(cuid())
+  areaId        String
+  area          Area     @relation(fields: [areaId], references: [id])
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id])
+  quantity      Int      @default(1)
+  unitPrice     Decimal?
+  markupPercent Decimal?
+  clientApproved Boolean @default(false)
+  clientComment String?
+  createdAt     DateTime @default(now())
+}
