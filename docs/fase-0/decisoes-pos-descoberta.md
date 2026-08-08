@@ -55,7 +55,7 @@ custos fixos mensais do estúdio → overhead por hora faturável
 salário + encargos por papel, horas faturáveis/mês → custo direto/hora
 custo direto/hora + overhead → custo total/hora
 custo total/hora × (1 + margem-alvo) / (1 − carga tributária) → tarifa/hora
-      (aba 02 — margem-alvo hoje: 30%; carga tributária: ainda não configurada)
+      (aba 02 — margem-alvo hoje: 30%; carga tributária: 6%)
 
 horas base por papel × estágio, calibradas em projeto baseline
       (aba 03)
@@ -153,9 +153,10 @@ Domínio corporativo Google Workspace confirmado: `studioaraci.com.br` —
 já preenchido em `apps/web/src/lib/auth.ts` (`hd` restringindo o login a
 esse domínio).
 
+Carga tributária da fórmula de tarifa/hora (aba 02): **6%**.
+
 ## Pendências abertas (não travam Fase 0, mas travam Fase 1 em algum ponto)
 
-- Carga tributária efetiva a usar na fórmula de tarifa/hora (aba 02).
 - Calibração real dos custos fixos do estúdio e das horas base por
   estágio (hoje são placeholders na planilha).
 - Reconciliação dos nomes de papel da equipe entre o PEP e a planilha.

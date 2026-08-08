@@ -39,5 +39,9 @@ O questionário de descoberta já foi respondido — `docs/fase-0/decisoes-pos-d
 resume o que mudou no schema/spec por causa disso (PEP real de 5 estágios,
 motor de precificação) e o que ainda está em aberto.
 
+`docs/fase-0/roadmap-atualizado.md` reescopa o que falta de Fase 0 até o
+go-live com base nisso — o que cresceu, o que encolheu, e o que ainda
+depende de decisão da Giulia antes de virar prazo.
+
 `docs/fase-0/prototipo-navegavel.html` é o protótipo navegável de baixa
 fidelidade — abra o arquivo direto no navegador, sem precisar rodar o projeto.

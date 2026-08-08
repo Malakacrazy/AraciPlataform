@@ -99,10 +99,10 @@ calcularProposta(input: {
 
 Os inputs (`RoleRate`, os scores de complexidade de uma oportunidade, as
 horas base por papel/estágio) são dados reais a persistir; o overhead
-mensal do estúdio, a margem-alvo e a carga tributária que compõem
-`RoleRate.hourlyRate` ficam calibrados fora do produto por enquanto (a
-própria planilha) até valer a pena construir uma tela de configuração
-para isso — não é prioridade de Fase 1.
+mensal do estúdio, a margem-alvo (30%) e a carga tributária (6%) que
+compõem `RoleRate.hourlyRate` ficam calibrados fora do produto por
+enquanto (a própria planilha) até valer a pena construir uma tela de
+configuração para isso — não é prioridade de Fase 1.
 
 **Números da planilha hoje são placeholders**, não dados reais do estúdio
 (a própria aba de instruções da planilha diz isso) — aluguel, software e
