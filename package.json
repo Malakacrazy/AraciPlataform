@@ -12,6 +12,7 @@
   "scripts": {
     "dev": "npm run dev --workspace=apps/web",
     "build": "npm run build --workspace=apps/web",
+    "test": "npm run test --workspace=apps/web",
     "db:generate": "npm run generate --workspace=packages/db",
     "db:migrate": "npm run migrate:dev --workspace=packages/db"
   },
