@@ -34,12 +34,11 @@ assumia), isso é dito explicitamente.
   original pedia, e ainda não aconteceu.
 - Montar a equipe (ou decidir modelo: CLT/PJ, software house, freelancers
   — o plano original já apontava esse trade-off, segue em aberto).
-- Reconciliar nomes de papel da equipe entre `PEP_Interior.md` e a
-  planilha de precificação (afeta como `RoleRate.role` é populado).
 - Calibrar os números da planilha de precificação (custos fixos reais do
   estúdio, horas base reais por papel/estágio) — hoje são placeholders.
-- Escolher parceiro fiscal (Asaas, eNotas, NFE.io, Focus NFe) — bloqueia
-  o início real da Fase 2, não precisa ser decidido antes disso.
+- Obter o certificado A1 do estúdio antes da Fase 2 (emissão de NFS-e via
+  `nfewizard-io`, já decidido — ver `decisoes-pos-descoberta.md` #4).
+  Boleto/Pix segue em aberto separadamente.
 
 ## Fase 1 — MVP: ERP + CRM
 
@@ -81,8 +80,10 @@ não um detalhe de implementação.
 Sem mudança de escopo em relação ao plano original, mas com inputs reais
 agora disponíveis em vez de hipotéticos:
 
-- Integração com o parceiro fiscal escolhido (NFS-e/boleto/Pix) atrás da
-  interface única já especificada em `modules/erp/fiscal/`.
+- Integração com `nfewizard-io` para NFS-e (decidido, self-hosted,
+  certificado A1 do estúdio) atrás da interface única já especificada em
+  `modules/erp/fiscal/`; boleto/Pix segue como fornecedor separado, ainda
+  não escolhido.
 - Faturamento por estágio aprovado (`Invoice.phaseId`), não por marco
   genérico — já modelado no schema.
 - Simulador de Fator R: usa Anexo III e receita média ~R$ 7.000/mês como
@@ -129,7 +130,8 @@ original previa.
 ## Decisões que ainda faltam antes de motivar prazos
 
 Estimar duração por fase de forma responsável exige, no mínimo: equipe
-confirmada (tamanho e regime de contratação), parceiro fiscal escolhido,
-e a decisão de integração do Captura. Nenhum desses é uma lacuna de
-informação técnica — são decisões de negócio da Giulia, então ficam como
+confirmada (tamanho e regime de contratação) e a decisão de integração do
+Captura (emissão de NFS-e já decidida — ver `decisoes-pos-descoberta.md`
+#4). Nenhum desses é uma lacuna de informação técnica — são decisões de
+negócio da Giulia, então ficam como
 próximos passos, não como suposições deste documento.

@@ -49,11 +49,14 @@ Restrições relevantes do plano:
 ## Consequências / pontos em aberto para a Fase 0
 
 - Escolher provedor de hospedagem com atenção a residência de dados no
-  Brasil (dado que o CRM guarda dados pessoais de clientes — LGPD).
-- Confirmar como a emissão de NFS-e será feita antes da Fase 2: SaaS
-  gerenciado (Asaas, eNotas, NFE.io, Focus NFe) ou biblioteca própria
-  contra SEFAZ/prefeitura (nfewizard-io, self-hosted, exige certificado
-  A1 do estúdio) — ver `decisoes-pos-descoberta.md` #4 para o trade-off.
+  Brasil (dado que o CRM guarda dados pessoais de clientes — LGPD) e,
+  agora, a suporte a JDK — `nfewizard-io` (decidido para NFS-e, ver
+  `decisoes-pos-descoberta.md` #4) usa JDK para validação completa de
+  schema XSD; sem JDK no ambiente (ex.: Vercel), cai no validador
+  JS-based com menos garantia.
+- Emissão de NFS-e: decidido — `nfewizard-io`, self-hosted, certificado
+  A1 do estúdio (não um SaaS gerenciado). Boleto/Pix (cobrança) segue em
+  aberto separadamente — ver `decisoes-pos-descoberta.md` #4.
 - Avaliar se a comunicação frontend↔backend deve migrar de Route Handlers
   soltos para algo tipado ponta a ponta (ex. tRPC) conforme a superfície de
   API cresce — não necessário para o escopo do MVP.

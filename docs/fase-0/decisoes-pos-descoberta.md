@@ -92,33 +92,30 @@ conta). A fórmula em si (overhead, margem, impostos) vira função pura em
 (custos fixos, papel/tarifa, scores de complexidade) e o resultado
 (proposta calculada) são dados.
 
-**Reconciliação de papéis — resolvida (proposta, a confirmar rápido com a
-Giulia):** os papéis da equipe divergiam entre os dois documentos — o PEP
-fala em "Designer Sênior/Pleno/Júnior" e "Especificador FF&E"; a planilha
-fala em "Arquiteto Sênior/Pleno/Júnior" e "Coordenador BIM". Adotado o
-PEP como fonte de verdade (é o documento de processo real do estúdio,
-explicitamente de Interior Design), não a planilha (que tem cara de
-template genérico de escritório de arquitetura/BIM adaptado às pressas —
-o próprio PEP diz "Sem componente BIM — fluxo CAD + SketchUp/3D",
-contradizendo a existência de um "Coordenador BIM"):
+**Reconciliação de papéis — confirmada pela Giulia.** A primeira versão
+deste documento propunha adotar "Designer" (raciocínio: o PEP usa esse
+termo de forma consistente, e o estúdio é de Interior Design) — **essa
+leitura estava errada**. Confirmado diretamente: é "Arquiteto" em todos
+os níveis, sem Coordenador BIM, e sem "Especificador FF&E" como papel
+próprio (a especificação de FF&E é feita pelos papéis de Arquiteto
+existentes, não por uma função dedicada).
 
-| Papel canônico | Papel na planilha (a atualizar) |
-|---|---|
-| Designer/Arquiteto Líder (RT) | Arquiteto Líder (RT) |
-| Coordenador de Projeto | Coordenador de Projeto (sem mudança) |
-| Designer Sênior | Arquiteto Sênior |
-| Designer Pleno | Arquiteto Pleno |
-| Designer Júnior | Arquiteto Júnior |
-| Estagiário | Estagiário (sem mudança) |
-| Especificador FF&E | *(não existia na planilha — adicionar)* |
-| Lead 3D / Visualização | Lead 3D / Visualização (sem mudança) |
-| ~~Coordenador BIM~~ | Removido — contradiz o PEP |
+| Papel canônico |
+|---|
+| Arquiteto Líder (RT) |
+| Coordenador de Projeto |
+| Arquiteto Sênior |
+| Arquiteto Pleno |
+| Arquiteto Júnior |
+| Estagiário |
+| Lead 3D / Visualização |
 
-"Designer/Arquiteto Líder (RT)" mantém os dois termos de propósito, não
-por indecisão — é o único papel onde o PEP usa essa barra, porque a
-matrícula de RT pode ser CAU (arquitetura) ou ABD/registro de design
-(§9, "Direitos autorais... Lei 12.378/10 do CAU ou registro ABD"); para
-todos os outros papéis o PEP usa só "Designer", de forma consistente.
+Isso essencialmente confirma a planilha de precificação como já estava
+(menos o Coordenador BIM, que segue removido — contradiz o PEP: "Sem
+componente BIM — fluxo CAD + SketchUp/3D"), não o PEP. Lição para não
+repetir: inferir a partir de qual documento "parece" mais autoritativo é
+pior do que perguntar — o palpite anterior tinha uma lógica plausível e
+mesmo assim estava invertido.
 
 Lista canônica em código: `apps/web/src/lib/roles.ts`
 (`CANONICAL_ROLES`) — referência para seed/UI, não uma trava no schema
@@ -165,12 +162,15 @@ tiver números reais de custo/margem. Consultoria contábil vai revisar
 antes do go-live (resposta 10) — já era a recomendação do plano, agora
 confirmada como plano real, não só sugestão.
 
-**Candidato a parceiro fiscal identificado**:
+**Decidido**: emissão de **NFS-e** via
 [nfewizard-org/nfewizard-io](https://github.com/nfewizard-org/nfewizard-io)
-— mas não é um "parceiro" no sentido de Asaas/eNotas/NFE.io/Focus NFe
-(as opções que o ADR original considerava). É uma **biblioteca Node.js
-open source** que fala direto com os webservices da SEFAZ/prefeitura —
-sem intermediário SaaS. Isso muda o trade-off, não só a escolha:
+— não um parceiro SaaS (Asaas/eNotas/NFE.io/Focus NFe ficam descartados
+para esse fim). É uma **biblioteca Node.js open source** que fala direto
+com os webservices da SEFAZ/prefeitura, sem intermediário — e o estúdio
+vai hospedar o próprio **certificado digital A1**. Isso não cobre
+boleto/Pix (cobrança), que continua em aberto separadamente, com um
+fornecedor possivelmente diferente. Isso muda o trade-off da emissão
+fiscal, não só a escolha do provedor:
 
 - **Sem custo de assinatura**, mas o estúdio passa a ser responsável por
   possuir e custodiar um **certificado digital A1** (arquivo `.pfx` +
@@ -201,11 +201,14 @@ sem intermediário SaaS. Isso muda o trade-off, não só a escolha:
   próprio README) — risco de continuidade diferente de um fornecedor SaaS
   com SLA.
 
-**Não é uma decisão fechada** — é uma opção real e gratuita que resolve
-exatamente o requisito mais específico do plano (NFS-e Nacional), mas
-troca custo de assinatura por responsabilidade operacional (certificado
-próprio, acompanhar uma lib em fase de testes). Continua sendo uma
-decisão da Giulia: nfewizard-io self-hosted vs. um parceiro SaaS gerenciado.
+Consequência direta de hospedar o certificado: o arquivo `.pfx` e a senha
+são segredo, não configuração — nunca em `.env.example`, nunca commitado,
+nunca logado (`nfewizard-io` já grava logs em disco por padrão —
+`pathLogs`/`armazenarLogs` precisam de cuidado para não vazar dado
+sensível em texto claro). Guardar em variável de ambiente/secrets manager
+do ambiente de produção, igual a `DATABASE_URL`/`NEXTAUTH_SECRET` hoje.
+Renovação anual do certificado A1 vira uma tarefa operacional recorrente
+do estúdio, não só um detalhe técnico único de setup.
 
 ## 5. Escopo e Office
 
@@ -225,10 +228,9 @@ Carga tributária da fórmula de tarifa/hora (aba 02): **6%**.
 
 - Calibração real dos custos fixos do estúdio e das horas base por
   estágio (hoje são placeholders na planilha).
-- Confirmação rápida da Giulia sobre a reconciliação de papéis proposta
-  no item 2 (baixo risco — é só nomenclatura, fácil de corrigir depois).
-- Escolha final entre nfewizard-io (self-hosted) e um parceiro SaaS de
-  NFS-e — ver item 4.
+- Obter o certificado A1 do estúdio (emissão + custódia) antes de
+  implementar a integração fiscal na Fase 2 — bloqueia o início real
+  daquela fase, não a Fase 0/1.
 - Decidir, na Fase 3, como a captura da extensão Captura chega até a
   plataforma (extensão passa a chamar a API própria vs. a plataforma
   reimplementa a extração vs. os dois convivem por um tempo).
