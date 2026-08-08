@@ -47,7 +47,7 @@ verbos — a detalhar por tela na Fase 0/1):
 |---|---|
 | CRM | `clients`, `opportunities`, `proposals`, `proposals/:id/stages`, `role-rates` — **implementado** |
 | ERP Arquitetura | `projects`, `projects/:id/phases`, `projects/:id/phases/:phaseId/approve`, `projects/:id/phases/:phaseId/invoice`, `invoices`, `time-entries`, `time-entries/:id/approve`, `projects/:id/members`, `users` — **implementado** (núcleo de ERP completo para Fase 1) |
-| FF&E | `products`, `projects/:id/areas`, `areas/:id/specifications` |
+| FF&E | `products`, `projects/:id/areas`, `areas/:id/specifications`, `specifications/:id`, `projects/:id/ffe-checkout` — **implementado** |
 
 Os recursos de CRM e o núcleo de ERP (projetos, gates, faturamento,
 timesheet) já têm rota real (`apps/web/src/app/api/v1/`) e regra de
@@ -60,16 +60,29 @@ concluído e aprovado" para faturamento — `POST
 não tiver `approvedAt`. `TimeEntry` segue a mesma lógica de trava: uma
 vez aprovado (`POST /time-entries/:id/approve`), não pode mais ser
 editado ou apagado — só existe o registro histórico. Não existe um
-endpoint para criar `Project` ou `Invoice` do zero — nascem só via
-`Opportunity.wonAt` e via gate aprovado, respectivamente, por design.
-`userId` de um `TimeEntry` vem sempre da sessão (quem lança é quem está
-autenticado), nunca do corpo da requisição.
+endpoint para criar `Project` do zero — nasce só via `Opportunity.wonAt`.
+`Invoice` tem dois pontos de criação, os dois automáticos, nunca um POST
+genérico: gate de estágio aprovado (`modules/erp/invoices.ts`) e checkout
+do carrinho de FF&E (fluxo #3, `modules/ffe/specifications.ts` —
+`approveCartToInvoiceDraft`, sem `phaseId` porque não é um estágio do
+PEP). `userId` de um `TimeEntry` vem sempre da sessão (quem lança é quem
+está autenticado), nunca do corpo da requisição.
+
+O módulo FF&E segue o mesmo padrão: `Product` é catálogo por conta,
+`Area` pertence a um `Project`, `ProductSpecification` liga os dois com
+quantidade/preço/markup. `POST /projects/:id/ffe-checkout` recebe uma
+lista de `specificationIds`, recusa (422 `MISSING_PRICE`) se algum item
+não tiver `unitPrice` definido — não dá pra somar orçamento com preço em
+aberto — marca os itens como `clientApproved` e gera a fatura numa
+transação (`prisma.$transaction`) para não deixar itens aprovados sem
+fatura correspondente se algo falhar no meio.
 
 Verificado com um smoke test HTTP real (`npm run smoke-test`, ver README)
-contra Postgres local de verdade — não só build/typecheck (40 checks,
+contra Postgres local de verdade — não só build/typecheck (51 checks,
 incluindo gate fora de ordem, canal inválido, faturar um estágio sem
-gate aprovado, editar um lançamento de horas já aprovado, e adicionar o
-mesmo membro duas vezes num projeto). O
+gate aprovado, editar um lançamento de horas já aprovado, adicionar o
+mesmo membro duas vezes num projeto, e fazer checkout de um item sem
+preço). O
 smoke test encontrou e corrigiu um bug real: violação de FK constraint
 com o driver adapter do Prisma 7 chega como `P2039`, não o `P2003`
 clássico do query engine antigo — `errorResponse()` em
@@ -100,13 +113,15 @@ internas, não só um desejo de produto:
 2. `Project` criado → módulo FF&E passa a permitir criar `Area` para
    aquele projeto (não há cópia de dado, só a FK já existir).
 3. `ProductSpecification.clientApproved = true` em lote (checkout do
-   carrinho) → gera/atualiza um `Invoice` rascunho no ERP com o total
-   aprovado (`modules/ffe/approveCartToInvoiceDraft`).
+   carrinho) → gera um `Invoice` no ERP com o total aprovado
+   (`modules/ffe/specifications.ts`, `approveCartToInvoiceDraft`) —
+   **implementado**, `POST /projects/:id/ffe-checkout`.
 4. `ProjectPhase.approvedAt` setado (gate aprovado por e-mail, conforme o
-   PEP) → gera/atualiza o `Invoice` daquele estágio, respeitando "forma de
-   medição: por estágio concluído e aprovado" (`modules/erp/invoicePhase`).
-   Um gate sem `approvedAt` não deve ser faturável — a UI de faturamento
-   bloqueia o estágio até lá, não só sugere.
+   PEP) → gera o `Invoice` daquele estágio, respeitando "forma de medição:
+   por estágio concluído e aprovado" (`modules/erp/invoices.ts`,
+   `createInvoiceForPhase`) — **implementado**,
+   `POST /projects/:id/phases/:phaseId/invoice`. Um gate sem `approvedAt`
+   não é faturável — a API recusa (422), não só a UI sugere.
 
 ## Motor de precificação (CRM)
 

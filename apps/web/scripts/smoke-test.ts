@@ -368,6 +368,95 @@ async function main() {
     listMembersAfterRemoveRes.body
   );
 
+  const product1Res = await api("/api/v1/products", {
+    method: "POST",
+    body: JSON.stringify({ name: "Sofá Modular Nuvem", supplier: "Móveis Bertolucci", price: 8200 }),
+  });
+  report("POST /products → 201", product1Res.status === 201, product1Res.body);
+  const product1Id = product1Res.body?.data?.id;
+
+  const product2Res = await api("/api/v1/products", {
+    method: "POST",
+    body: JSON.stringify({ name: "Luminária Pendente Latão", isGeneric: true }),
+  });
+  report(
+    "POST /products (produto genérico, sem preço) → 201",
+    product2Res.status === 201 && product2Res.body?.data?.isGeneric === true,
+    product2Res.body
+  );
+  const product2Id = product2Res.body?.data?.id;
+
+  const areaRes = await api(`/api/v1/projects/${projectId}/areas`, {
+    method: "POST",
+    body: JSON.stringify({ name: "Sala de Estar" }),
+  });
+  report("POST /projects/:id/areas → 201", areaRes.status === 201, areaRes.body);
+  const areaId = areaRes.body?.data?.id;
+
+  const listAreasRes = await api(`/api/v1/projects/${projectId}/areas`);
+  report(
+    "GET /projects/:id/areas inclui a área recém-criada",
+    listAreasRes.status === 200 && listAreasRes.body?.data?.some((a: any) => a.id === areaId),
+    listAreasRes.body
+  );
+
+  const spec1Res = await api(`/api/v1/areas/${areaId}/specifications`, {
+    method: "POST",
+    body: JSON.stringify({ productId: product1Id, quantity: 1, unitPrice: 8200, markupPercent: 0.1 }),
+  });
+  report("POST /areas/:id/specifications → 201", spec1Res.status === 201, spec1Res.body);
+  const spec1Id = spec1Res.body?.data?.id;
+
+  const spec2Res = await api(`/api/v1/areas/${areaId}/specifications`, {
+    method: "POST",
+    body: JSON.stringify({ productId: product2Id }), // sem unitPrice — SKU genérico ainda sem preço
+  });
+  report("POST /areas/:id/specifications (produto genérico, sem unitPrice) → 201", spec2Res.status === 201, spec2Res.body);
+  const spec2Id = spec2Res.body?.data?.id;
+
+  const checkoutMissingPriceRes = await api(`/api/v1/projects/${projectId}/ffe-checkout`, {
+    method: "POST",
+    body: JSON.stringify({ specificationIds: [spec2Id] }),
+  });
+  report(
+    "Checkout de item sem unitPrice → 422 MISSING_PRICE",
+    checkoutMissingPriceRes.status === 422 && checkoutMissingPriceRes.body?.error?.code === "MISSING_PRICE",
+    checkoutMissingPriceRes.body
+  );
+
+  const checkoutRes = await api(`/api/v1/projects/${projectId}/ffe-checkout`, {
+    method: "POST",
+    body: JSON.stringify({ specificationIds: [spec1Id] }),
+  });
+  report(
+    "Checkout do carrinho FF&E → 201, gera Invoice (1 × 8200 × 1.10 = 9020)",
+    checkoutRes.status === 201 && Math.abs(Number(checkoutRes.body?.data?.amount) - 9020) < 0.01,
+    checkoutRes.body
+  );
+  const ffeInvoiceId = checkoutRes.body?.data?.id;
+
+  const specsAfterCheckoutRes = await api(`/api/v1/areas/${areaId}/specifications`);
+  const spec1AfterCheckout = specsAfterCheckoutRes.body?.data?.find((s: any) => s.id === spec1Id);
+  report(
+    "Fluxo automático: checkout marca a especificação como clientApproved",
+    spec1AfterCheckout?.clientApproved === true,
+    spec1AfterCheckout
+  );
+
+  const ffeInvoiceListRes = await api(`/api/v1/invoices?projectId=${projectId}`);
+  report(
+    "A fatura de FF&E aparece em GET /invoices sem phaseId (não é um estágio do PEP)",
+    ffeInvoiceListRes.body?.data?.some((inv: any) => inv.id === ffeInvoiceId && inv.phaseId === null),
+    ffeInvoiceListRes.body
+  );
+
+  const deleteProductInUseRes = await api(`/api/v1/products/${product1Id}`, { method: "DELETE" });
+  report(
+    "DELETE /products/:id em uso por uma especificação → 409 CONFLICT (não 500)",
+    deleteProductInUseRes.status === 409 && deleteProductInUseRes.body?.error?.code === "CONFLICT",
+    deleteProductInUseRes.body
+  );
+
   const deleteConflict = await api(`/api/v1/clients/${clientId}`, { method: "DELETE" });
   report(
     "DELETE /clients/:id com oportunidade vinculada → 409 CONFLICT (não 500)",

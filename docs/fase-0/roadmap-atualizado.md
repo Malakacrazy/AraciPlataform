@@ -100,21 +100,22 @@ agora disponíveis em vez de hipotéticos:
 
 Escopo **menor** do que o plano original assumia, por dois motivos
 confirmados na descoberta: sem migração da Canoa, e sem construir um
-scraper do zero (o Captura já existe e funciona para 18 lojas). O que
-sobra de trabalho real:
+scraper do zero (o Captura já existe e funciona para 18 lojas). O núcleo
+de API já está pronto — o que sobra é mais estreito do que o roadmap
+original previa:
 
+- **Implementado**: catálogo (`Product`, com suporte a placeholder
+  genérico), especificação por ambiente (`Area` → `ProductSpecification`
+  com quantidade/preço/markup), e o carrinho/checkout —
+  `POST /projects/:id/ffe-checkout` marca os itens aprovados e gera a
+  fatura de FF&E automaticamente (recusa itens sem preço definido).
 - Decidir e implementar a integração com o Captura — das três opções em
   `especificacao-tecnica.md`, a que menos retrabalho gera é a extensão
   passar a enviar para `POST /api/v1/products` (exige autenticar a
   extensão contra a API própria, ainda não desenhado).
-- Catálogo (`Product`), especificação por ambiente (`Area` →
-  `ProductSpecification`), já modelados.
 - Tear sheets, moodboards, modo de apresentação por link — ainda não
   modelados no schema (ver `data-model.md`), ficam para o desenho desta
   fase.
-- Carrinho/aprovação do cliente e o fluxo automático para rascunho de
-  fatura no ERP (`modules/ffe/approveCartToInvoiceDraft`) — já
-  especificado.
 
 ## Fase 4 — Integrações avançadas, BI & mobile
 
