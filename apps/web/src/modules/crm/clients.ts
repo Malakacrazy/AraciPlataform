@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { prisma } from "@araci/db";
-import { NotFoundError } from "../../lib/api";
+import { NotFoundError } from "@/lib/api";
 
 export const clientInputSchema = z.object({
   name: z.string().min(1, "Nome é obrigatório."),

@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { errorResponse } from "../../../../lib/api";
-import { requireSessionAccount } from "../../../../lib/session";
+import { errorResponse } from "@/lib/api";
+import { requireSessionAccount } from "@/lib/session";
 import {
   createOpportunity,
   listOpportunities,
   opportunityInputSchema,
-} from "../../../../modules/crm/opportunities";
+} from "@/modules/crm/opportunities";
 
 export async function GET() {
   try {

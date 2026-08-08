@@ -46,17 +46,33 @@ verbos — a detalhar por tela na Fase 0/1):
 | Módulo | Recursos |
 |---|---|
 | CRM | `clients`, `opportunities`, `proposals`, `proposals/:id/stages`, `role-rates` — **implementado** |
-| ERP Arquitetura | `projects`, `projects/:id/phases`, `projects/:id/members`, `time-entries`, `invoices` |
+| ERP Arquitetura | `projects`, `projects/:id/phases`, `projects/:id/phases/:phaseId/approve`, `projects/:id/phases/:phaseId/invoice`, `invoices`, `time-entries`, `time-entries/:id/approve` — **implementado**; `projects/:id/members` — pendente |
 | FF&E | `products`, `projects/:id/areas`, `areas/:id/specifications` |
 
-Os recursos de CRM já têm rota real (`apps/web/src/app/api/v1/`) e regra de
-negócio em `modules/crm/`, incluindo o fluxo automático #1
-(`convertOpportunityToProject`). Verificado com um smoke test HTTP real
-(`npm run smoke-test`, ver README) contra Postgres local de verdade — não
-só build/typecheck. O smoke test encontrou e corrigiu um bug real:
-violação de FK constraint com o driver adapter do Prisma 7 chega como
-`P2039`, não o `P2003` clássico do query engine antigo — `errorResponse()`
-em `apps/web/src/lib/api.ts` trata os dois.
+Os recursos de CRM e o núcleo de ERP (projetos, gates, faturamento,
+timesheet) já têm rota real (`apps/web/src/app/api/v1/`) e regra de
+negócio em `modules/crm/` e `modules/erp/`, incluindo o fluxo automático
+#1 (`convertOpportunityToProject`), o #4 (aprovação de gate, sequencial —
+não dá pra aprovar o gate de um estágio antes do anterior, e o canal é
+restrito a e-mail/reunião presencial, nunca WhatsApp), e "por estágio
+concluído e aprovado" para faturamento — `POST
+.../phases/:phaseId/invoice` recusa (422) se o gate daquele estágio ainda
+não tiver `approvedAt`. `TimeEntry` segue a mesma lógica de trava: uma
+vez aprovado (`POST /time-entries/:id/approve`), não pode mais ser
+editado ou apagado — só existe o registro histórico. Não existe um
+endpoint para criar `Project` ou `Invoice` do zero — nascem só via
+`Opportunity.wonAt` e via gate aprovado, respectivamente, por design.
+`userId` de um `TimeEntry` vem sempre da sessão (quem lança é quem está
+autenticado), nunca do corpo da requisição.
+
+Verificado com um smoke test HTTP real (`npm run smoke-test`, ver README)
+contra Postgres local de verdade — não só build/typecheck (33 checks,
+incluindo gate fora de ordem, canal inválido, faturar um estágio sem
+gate aprovado, e editar um lançamento de horas já aprovado). O
+smoke test encontrou e corrigiu um bug real: violação de FK constraint
+com o driver adapter do Prisma 7 chega como `P2039`, não o `P2003`
+clássico do query engine antigo — `errorResponse()` em
+`apps/web/src/lib/api.ts` trata os dois.
 
 Convenção de resposta de erro (a fixar como padrão desde o primeiro
 endpoint real, para não divergir entre módulos):

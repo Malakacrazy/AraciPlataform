@@ -152,6 +152,153 @@ async function main() {
     { projectIdFirst, projectIdSecond }
   );
 
+  const projectId = wonOpportunity?.project?.id;
+
+  const projectRes = await api(`/api/v1/projects/${projectId}`);
+  report("GET /projects/:id → 200 com 5 fases", projectRes.status === 200 && projectRes.body?.data?.phases?.length === 5, projectRes.body);
+
+  const listProjectsRes = await api("/api/v1/projects");
+  report(
+    "GET /projects inclui o projeto recém-criado",
+    listProjectsRes.status === 200 && listProjectsRes.body?.data?.some((p: any) => p.id === projectId),
+    listProjectsRes.body
+  );
+
+  const phasesRes = await api(`/api/v1/projects/${projectId}/phases`);
+  const phases = phasesRes.body?.data ?? [];
+  report(
+    "GET /projects/:id/phases → 5 fases em ordem, todas contratadas",
+    phasesRes.status === 200 && phases.length === 5 && phases.every((p: any) => p.contracted),
+    phases.map((p: any) => p.stage)
+  );
+  const [firstPhase, secondPhase] = phases.sort((a: any, b: any) => a.order - b.order);
+
+  const outOfOrderApproval = await api(`/api/v1/projects/${projectId}/phases/${secondPhase.id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ approvalChannel: "email" }),
+  });
+  report(
+    "Aprovar a 2ª fase antes da 1ª → 422 GATE_OUT_OF_ORDER (gates são sequenciais)",
+    outOfOrderApproval.status === 422 && outOfOrderApproval.body?.error?.code === "GATE_OUT_OF_ORDER",
+    outOfOrderApproval.body
+  );
+
+  const whatsappApproval = await api(`/api/v1/projects/${projectId}/phases/${firstPhase.id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ approvalChannel: "whatsapp" }),
+  });
+  report(
+    "Aprovar via 'whatsapp' → 400 (canal inválido; PEP só aceita email/reunião presencial)",
+    whatsappApproval.status === 400,
+    whatsappApproval.body
+  );
+
+  const firstApproval = await api(`/api/v1/projects/${projectId}/phases/${firstPhase.id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ approvalChannel: "email" }),
+  });
+  report(
+    "Aprovar a 1ª fase por e-mail → 200, approvedAt setado",
+    firstApproval.status === 200 && !!firstApproval.body?.data?.approvedAt,
+    firstApproval.body
+  );
+
+  const secondApprovalNow = await api(`/api/v1/projects/${projectId}/phases/${secondPhase.id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ approvalChannel: "reuniao_presencial" }),
+  });
+  report(
+    "Com a 1ª aprovada, aprovar a 2ª agora funciona → 200",
+    secondApprovalNow.status === 200 && !!secondApprovalNow.body?.data?.approvedAt,
+    secondApprovalNow.body
+  );
+
+  const thirdPhase = phases[2]; // ainda não aprovada
+  const invoiceOnUnapproved = await api(`/api/v1/projects/${projectId}/phases/${thirdPhase.id}/invoice`, {
+    method: "POST",
+    body: JSON.stringify({ amount: 1000 }),
+  });
+  report(
+    "Faturar um estágio sem gate aprovado → 422 PHASE_NOT_APPROVED",
+    invoiceOnUnapproved.status === 422 && invoiceOnUnapproved.body?.error?.code === "PHASE_NOT_APPROVED",
+    invoiceOnUnapproved.body
+  );
+
+  const invoiceRes = await api(`/api/v1/projects/${projectId}/phases/${firstPhase.id}/invoice`, {
+    method: "POST",
+    body: JSON.stringify({ amount: 902.98 }),
+  });
+  report(
+    "Faturar um estágio com gate aprovado → 201",
+    invoiceRes.status === 201 && invoiceRes.body?.data?.status === "pendente",
+    invoiceRes.body
+  );
+  const invoiceId = invoiceRes.body?.data?.id;
+
+  const invoicesListRes = await api(`/api/v1/invoices?projectId=${projectId}`);
+  report(
+    "GET /invoices?projectId= inclui a fatura recém-criada",
+    invoicesListRes.status === 200 && invoicesListRes.body?.data?.some((inv: any) => inv.id === invoiceId),
+    invoicesListRes.body
+  );
+
+  const invoiceStatusRes = await api(`/api/v1/invoices/${invoiceId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "emitida", nfseNumber: "NFSe-0001" }),
+  });
+  report(
+    "PATCH /invoices/:id marca como emitida com número da NFS-e",
+    invoiceStatusRes.status === 200 && invoiceStatusRes.body?.data?.status === "emitida" && invoiceStatusRes.body?.data?.nfseNumber === "NFSe-0001",
+    invoiceStatusRes.body
+  );
+
+  const timeEntryRes = await api("/api/v1/time-entries", {
+    method: "POST",
+    body: JSON.stringify({
+      projectId,
+      phaseId: firstPhase.id,
+      date: new Date().toISOString(),
+      hours: 3,
+      activityType: "projeto",
+    }),
+  });
+  report("POST /time-entries → 201", timeEntryRes.status === 201, timeEntryRes.body);
+  const timeEntryId = timeEntryRes.body?.data?.id;
+
+  const timeEntryUpdateRes = await api(`/api/v1/time-entries/${timeEntryId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ hours: 4 }),
+  });
+  report(
+    "PATCH /time-entries/:id antes da aprovação → 200, horas atualizadas",
+    timeEntryUpdateRes.status === 200 && Number(timeEntryUpdateRes.body?.data?.hours) === 4,
+    timeEntryUpdateRes.body
+  );
+
+  const timeEntryApproveRes = await api(`/api/v1/time-entries/${timeEntryId}/approve`, { method: "POST" });
+  report(
+    "POST /time-entries/:id/approve → 200, approvedAt setado",
+    timeEntryApproveRes.status === 200 && !!timeEntryApproveRes.body?.data?.approvedAt,
+    timeEntryApproveRes.body
+  );
+
+  const timeEntryEditAfterApproval = await api(`/api/v1/time-entries/${timeEntryId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ hours: 8 }),
+  });
+  report(
+    "Editar lançamento já aprovado → 422 TIME_ENTRY_APPROVED",
+    timeEntryEditAfterApproval.status === 422 && timeEntryEditAfterApproval.body?.error?.code === "TIME_ENTRY_APPROVED",
+    timeEntryEditAfterApproval.body
+  );
+
+  const timeEntriesListRes = await api(`/api/v1/time-entries?projectId=${projectId}`);
+  report(
+    "GET /time-entries?projectId= inclui o lançamento",
+    timeEntriesListRes.status === 200 && timeEntriesListRes.body?.data?.some((e: any) => e.id === timeEntryId),
+    timeEntriesListRes.body
+  );
+
   const deleteConflict = await api(`/api/v1/clients/${clientId}`, { method: "DELETE" });
   report(
     "DELETE /clients/:id com oportunidade vinculada → 409 CONFLICT (não 500)",

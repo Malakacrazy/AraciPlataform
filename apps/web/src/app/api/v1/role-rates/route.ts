@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { errorResponse } from "../../../../lib/api";
-import { requireSessionAccount } from "../../../../lib/session";
-import { listRoleRates, roleRateInputSchema, upsertRoleRate } from "../../../../modules/crm/role-rates";
+import { errorResponse } from "@/lib/api";
+import { requireSessionAccount } from "@/lib/session";
+import { listRoleRates, roleRateInputSchema, upsertRoleRate } from "@/modules/crm/role-rates";
 
 export async function GET() {
   try {

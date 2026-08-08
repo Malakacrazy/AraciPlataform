@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { prisma } from "@araci/db";
-import { NotFoundError } from "../../lib/api";
+import { NotFoundError } from "@/lib/api";
 
 export const roleRateInputSchema = z.object({
   role: z.string().min(1),

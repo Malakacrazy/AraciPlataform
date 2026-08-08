@@ -1,5 +1,43 @@
+import { z } from "zod";
 import { prisma } from "@araci/db";
-import { PEP_STAGE_ORDER } from "../../lib/pep";
+import { NotFoundError } from "@/lib/api";
+import { PEP_STAGE_ORDER } from "@/lib/pep";
+
+export const projectUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  status: z.string().min(1).optional(), // free-form, ex.: "ativo" | "pausado" | "encerrado"
+});
+
+export type ProjectUpdateInput = z.infer<typeof projectUpdateSchema>;
+
+export function listProjects(accountId: string) {
+  return prisma.project.findMany({
+    where: { accountId },
+    include: { client: true, phases: { orderBy: { order: "asc" } } },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function getProject(accountId: string, id: string) {
+  const project = await prisma.project.findFirst({
+    where: { id, accountId },
+    include: { client: true, phases: { orderBy: { order: "asc" } } },
+  });
+  if (!project) {
+    throw new NotFoundError("Projeto");
+  }
+  return project;
+}
+
+export async function updateProject(accountId: string, id: string, input: ProjectUpdateInput) {
+  await getProject(accountId, id);
+  return prisma.project.update({ where: { id }, data: input });
+}
+
+export async function deleteProject(accountId: string, id: string) {
+  await getProject(accountId, id);
+  await prisma.project.delete({ where: { id } });
+}
 
 export interface CreateProjectFromOpportunityInput {
   accountId: string;

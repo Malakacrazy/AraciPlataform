@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ProjectStageName, prisma } from "@araci/db";
-import { ApiError, NotFoundError } from "../../lib/api";
+import { ApiError, NotFoundError } from "@/lib/api";
 import { getOpportunity } from "./opportunities";
 import { calcularProposta } from "./pricing";
 

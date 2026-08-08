@@ -1,5 +1,5 @@
 import { ProjectStageName } from "@araci/db";
-import { PEP_STAGE_ORDER } from "../../lib/pep";
+import { PEP_STAGE_ORDER } from "@/lib/pep";
 
 // Implements the studio's real pricing pipeline documented in
 // docs/fase-0/especificacao-tecnica.md ("Motor de precificação") and

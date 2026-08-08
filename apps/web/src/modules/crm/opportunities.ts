@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { prisma } from "@araci/db";
-import { NotFoundError } from "../../lib/api";
+import { NotFoundError } from "@/lib/api";
 import { getClient } from "./clients";
 
 export const opportunityInputSchema = z.object({

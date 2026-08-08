@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { errorResponse } from "../../../../lib/api";
-import { requireSessionAccount } from "../../../../lib/session";
-import { createProposal, listProposals, proposalInputSchema } from "../../../../modules/crm/proposals";
+import { errorResponse } from "@/lib/api";
+import { requireSessionAccount } from "@/lib/session";
+import { createProposal, listProposals, proposalInputSchema } from "@/modules/crm/proposals";
 
 export async function GET(request: NextRequest) {
   try {

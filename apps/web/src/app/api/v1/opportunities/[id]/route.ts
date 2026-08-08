@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { errorResponse } from "../../../../../lib/api";
-import { requireSessionAccount } from "../../../../../lib/session";
-import { convertOpportunityToProject } from "../../../../../modules/crm/convertOpportunityToProject";
+import { errorResponse } from "@/lib/api";
+import { requireSessionAccount } from "@/lib/session";
+import { convertOpportunityToProject } from "@/modules/crm/convertOpportunityToProject";
 import {
   deleteOpportunity,
   getOpportunity,
   opportunityInputSchema,
   updateOpportunity,
-} from "../../../../../modules/crm/opportunities";
+} from "@/modules/crm/opportunities";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
