@@ -131,22 +131,34 @@ cálculo é real; os valores de entrada ainda não foram calibrados.
   marcos). Cada integração é um escopo OAuth incremental — não pedir
   todos os escopos no login inicial, só o mínimo (perfil) e solicitar
   Drive/Gmail/Calendar quando o usuário ativar aquele recurso. O estúdio
-  usa só Google Workspace (resposta 14) e tem domínio corporativo próprio
-  (resposta 15), então o login deve restringir por `hd` — falta o nome
-  exato do domínio para preencher `apps/web/src/lib/auth.ts` (TODO lá).
+  usa só Google Workspace (resposta 14); o login já restringe por `hd` ao
+  domínio `studioaraci.com.br` (resposta 15) em `apps/web/src/lib/auth.ts`.
 - **Parceiro fiscal (NFS-e/boleto/Pix)**: ainda não escolhido (pergunta
   9). Sabemos o regime (Simples Nacional, Anexo III) e a receita média
   (~R$ 7.000/mês, resposta 8), o que já ajuda a calibrar o simulador de
   Fator R quando o parceiro for escolhido. A integração fica atrás de uma
   interface única em `modules/erp/fiscal/` para trocar de provedor sem
   reescrever o módulo financeiro.
-- **Web scraper (FF&E)**: a resposta 12 revelou que **já existe um
-  protótipo em outro repositório** — não é uma construção do zero na Fase
-  3. Local do repositório ainda não identificado; quando localizado,
-  avaliar se dá para reaproveitar como está ou só a lógica de extração.
-  Roda como job assíncrono (não bloqueia a requisição do usuário) —
-  captura preço/imagem/dimensões de uma URL de fornecedor e popula um
-  `Product` com `sourceUrl` preenchido.
+- **Captura de produtos (FF&E)**: já existe um protótipo funcional —
+  [Malakacrazy/Captura](https://github.com/Malakacrazy/Captura), extensão
+  de Chrome (Manifest V3, JS puro) que injeta um botão em páginas de
+  produto de 18 lojas brasileiras (Leroy Merlin, Tok&Stok, Camicado,
+  Dexco, Deca, Electrolux, Brastemp, entre outras), extrai nome/marca/
+  SKU/preço/imagem via seletor por loja com fallback JSON-LD/Open
+  Graph/varredura de texto, e já gera PDF de orçamento com a identidade
+  "Studio Araci" — tudo local no navegador, sem backend. Isso muda o
+  desenho original ("job assíncrono no backend capturando por URL"): a
+  captura já acontece no navegador do usuário, não em um worker do
+  servidor. Três caminhos possíveis para a Fase 3, nenhum decidido ainda:
+  1. a extensão passa a enviar os itens capturados para `POST /api/v1/products`
+     em vez de (ou além de) salvar só no Chrome Storage;
+  2. a plataforma reimplementa a extração no backend, usando a lista de
+     18 lojas e os seletores da extensão como ponto de partida;
+  3. os dois convivem — extensão para captura ad-hoc durante navegação,
+     backend para reprocessar/atualizar itens já cadastrados.
+  A opção 1 é a que menos retrabalho gera (reaproveita a extração já
+  validada nas 18 lojas), mas exige autenticação da extensão contra a
+  API própria — não avaliado ainda.
 - **Migração da Canoa Supply**: removida do escopo (resposta 11) — não é
   mais um ponto de integração a construir.
 
@@ -171,9 +183,9 @@ fonte completa:
 
 O questionário de descoberta foi respondido — ver
 `docs/fase-0/decisoes-pos-descoberta.md` para o que mudou e o que ainda
-está em aberto (parceiro fiscal, domínio Google Workspace, localização do
-scraper, carga tributária da fórmula de precificação, nomenclatura de
-papel da equipe). Contrato exato de request/response por endpoint,
-wireframes atualizados com o motor de precificação real e diagramas de
-sequência dos quatro fluxos automáticos ficam para depois que esses
-últimos itens forem resolvidos.
+está em aberto (parceiro fiscal, carga tributária da fórmula de
+precificação, nomenclatura de papel da equipe, e como a extensão Captura
+se conecta à plataforma na Fase 3). Contrato exato de request/response por
+endpoint, wireframes atualizados com o motor de precificação real e
+diagramas de sequência dos quatro fluxos automáticos ficam para depois
+que esses últimos itens forem resolvidos.

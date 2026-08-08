@@ -107,8 +107,22 @@ necessário importar dados da Canoa Supply — o risco de "reconstruir FF&E
 do zero" que o plano apontava como maior risco do roadmap fica menor.
 
 Resposta 12: já existe um **protótipo de web scraper em outro repositório**
-— a Fase 3 não parte do zero nesse ponto. Ainda não sei qual repositório é
-esse; fica como pendência para você indicar antes da Fase 3.
+— [Malakacrazy/Captura](https://github.com/Malakacrazy/Captura), projeto
+"Studio Araci · Orçamento FF&E". Vale ajustar a expectativa de arquitetura
+que a `especificacao-tecnica.md` original tinha ("roda como job
+assíncrono no backend"): não é isso. É uma **extensão de Chrome**
+(Manifest V3, JS puro, sem backend) que injeta um botão flutuante nas
+páginas de produto de 18 lojas brasileiras (Leroy Merlin, Tok&Stok,
+Camicado, Dexco, Deca, Electrolux, Brastemp, entre outras), extrai nome/
+marca/SKU/preço/imagem com seletor específico por loja e fallback
+genérico via JSON-LD/Open Graph/varredura de texto, e já gera PDF de
+orçamento com a identidade visual "Studio Araci" — tudo salvo localmente
+no navegador (Chrome Storage API), sem persistir em nenhum backend hoje.
+
+Isso muda a pergunta de arquitetura da Fase 3: não é "construir um scraper
+do zero", é "decidir como uma captura que já roda no navegador do usuário
+chega até o `Product`/`ProductSpecification` da plataforma" — ver opções
+em `especificacao-tecnica.md`. Essa decisão fica para a Fase 3, não agora.
 
 Resposta 13 mostra dois canais de aprovação com pesos diferentes: itens
 menores por WhatsApp, itens maiores por e-mail após reunião. Isso não
@@ -135,15 +149,16 @@ forte que "escolha deliberada de posicionamento" do plano original, é
 também uma limitação operacional atual. Uso paralelo da Canoa (resposta
 17) segue em aberto.
 
-Domínio corporativo Google Workspace existe (resposta 15) — falta o nome
-exato do domínio para preencher a restrição `hd` em
-`apps/web/src/lib/auth.ts` (deixei um TODO lá, não inventei o valor).
+Domínio corporativo Google Workspace confirmado: `studioaraci.com.br` —
+já preenchido em `apps/web/src/lib/auth.ts` (`hd` restringindo o login a
+esse domínio).
 
 ## Pendências abertas (não travam Fase 0, mas travam Fase 1 em algum ponto)
 
-- Nome exato do domínio Google Workspace (para `hd` no login).
-- Localização do repositório com o protótipo de web scraper.
 - Carga tributária efetiva a usar na fórmula de tarifa/hora (aba 02).
 - Calibração real dos custos fixos do estúdio e das horas base por
   estágio (hoje são placeholders na planilha).
 - Reconciliação dos nomes de papel da equipe entre o PEP e a planilha.
+- Decidir, na Fase 3, como a captura da extensão Captura chega até a
+  plataforma (extensão passa a chamar a API própria vs. a plataforma
+  reimplementa a extração vs. os dois convivem por um tempo).

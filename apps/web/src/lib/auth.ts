@@ -4,16 +4,14 @@ import GoogleProvider from "next-auth/providers/google";
 // SSO stub for the Office module requirement ("Login único via conta
 // Google Workspace"). GOOGLE_CLIENT_ID/SECRET are unset until Fase 0
 // provisions real OAuth credentials — see apps/web/.env.example.
-// Discovery (docs/fase-0/descoberta-questionario.md, resposta 15)
-// confirmed the studio has a single corporate Workspace domain, so `hd`
-// should be set — but the exact domain string wasn't given, so it's left
-// unset rather than guessed. Fill in before Fase 1 sign-in testing.
+// `hd` restricts sign-in to the studio's Workspace domain (confirmed in
+// discovery, resposta 15).
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID ?? "",
       clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-      // authorization: { params: { hd: "TODO: dominio-do-workspace.com.br" } },
+      authorization: { params: { hd: "studioaraci.com.br" } },
     }),
   ],
   session: { strategy: "jwt" },
