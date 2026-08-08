@@ -5,18 +5,21 @@
   "engines": {
     "node": ">=20"
   },
+  "packageManager": "npm@12.0.1",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace=apps/web",
-    "build": "npm run build --workspace=apps/web",
-    "test": "npm run test --workspace=apps/web",
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
     "db:generate": "npm run generate --workspace=packages/db",
     "db:migrate": "npm run migrate:dev --workspace=packages/db",
     "db:local": "npm run db:local:start --workspace=packages/db",
-    "smoke-test": "npm run smoke-test --workspace=apps/web"
+    "smoke-test:api": "npm run smoke-test --workspace=apps/api",
+    "smoke-test:web": "npm run smoke-test --workspace=apps/web",
+    "smoke-test": "npm run smoke-test:api && npm run smoke-test:web"
   },
   "allowScripts": {
     "@prisma/engines@7.9.1": true,
@@ -24,5 +27,8 @@
     "unrs-resolver@1.12.2": true,
     "@embedded-postgres/windows-x64@18.4.0-beta.17": true,
     "esbuild@0.28.1": true
+  },
+  "devDependencies": {
+    "turbo": "^2.10.9"
   }
 }

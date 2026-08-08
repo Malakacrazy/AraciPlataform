@@ -1,0 +1,85 @@
+import { Injectable } from '@nestjs/common';
+import { z } from 'zod';
+import { PrismaService } from '../prisma/prisma.service';
+import { NotFoundError } from '../common/api-error';
+import { PEP_STAGE_ORDER } from '../pep';
+
+export const projectUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  status: z.string().min(1).optional(), // free-form, ex.: "ativo" | "pausado" | "encerrado"
+});
+
+export type ProjectUpdateInput = z.infer<typeof projectUpdateSchema>;
+
+export interface CreateProjectFromOpportunityInput {
+  accountId: string;
+  clientId: string;
+  opportunityId: string;
+  name: string;
+  feeModel: string;
+}
+
+@Injectable()
+export class ProjectsService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  listProjects(accountId: string) {
+    return this.prisma.db.project.findMany({
+      where: { accountId },
+      include: { client: true, phases: { orderBy: { order: 'asc' } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getProject(accountId: string, id: string) {
+    const project = await this.prisma.db.project.findFirst({
+      where: { id, accountId },
+      include: { client: true, phases: { orderBy: { order: 'asc' } } },
+    });
+    if (!project) {
+      throw new NotFoundError('Projeto');
+    }
+    return project;
+  }
+
+  async updateProject(accountId: string, id: string, input: ProjectUpdateInput) {
+    await this.getProject(accountId, id);
+    return this.prisma.db.project.update({ where: { id }, data: input });
+  }
+
+  async deleteProject(accountId: string, id: string) {
+    await this.getProject(accountId, id);
+    await this.prisma.db.project.delete({ where: { id } });
+  }
+
+  // Chamado por CrmModule (OpportunitiesService.convertToProject) — não
+  // exposto diretamente por nenhuma rota de CRM, respeitando a regra de
+  // que um módulo só acessa dados de outro através de um serviço
+  // exportado do módulo dono (especificacao-tecnica.md, "Limites dos
+  // módulos").
+  //
+  // Semeia as 5 ProjectPhase do PEP, todas `contracted: true` por padrão —
+  // isso deveria vir da Proposal assinada (quais estágios o cliente
+  // realmente contratou), mas ainda não há um jeito de saber qual Proposal
+  // foi a aceita. Ver decisoes-pos-descoberta.md para o acompanhamento.
+  createProjectFromOpportunity(input: CreateProjectFromOpportunityInput) {
+    return this.prisma.db.project.create({
+      data: {
+        accountId: input.accountId,
+        clientId: input.clientId,
+        opportunityId: input.opportunityId,
+        name: input.name,
+        feeModel: input.feeModel,
+        status: 'ativo',
+        phases: {
+          create: PEP_STAGE_ORDER.map((stage, index) => ({
+            stage,
+            contracted: true,
+            order: index + 1,
+          })),
+        },
+      },
+      include: { phases: true },
+    });
+  }
+}

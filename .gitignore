@@ -4,6 +4,8 @@ node_modules/
 out/
 dist/
 build/
+coverage/
+.turbo/
 *.tsbuildinfo
 .pgdata/
 .env

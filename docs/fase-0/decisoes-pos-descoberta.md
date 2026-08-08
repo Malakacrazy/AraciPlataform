@@ -88,7 +88,7 @@ produção.
 desconto; nova tabela `ProposalStage` (linha por estágio contratado,
 espelhando a aba 05); nova tabela `RoleRate` (papel → tarifa/hora por
 conta). A fórmula em si (overhead, margem, impostos) vira função pura em
-`modules/crm/pricing.ts`, não fica persistida como estado — só os inputs
+`apps/api/src/crm/pricing.ts`, não fica persistida como estado — só os inputs
 (custos fixos, papel/tarifa, scores de complexidade) e o resultado
 (proposta calculada) são dados.
 

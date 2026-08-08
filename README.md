@@ -10,10 +10,14 @@ descrito no plano — scaffold inicial, não um produto funcional.
 ## Estrutura
 
 ```
-apps/web/       Next.js (App Router, TypeScript) — app web + API própria
-packages/db/    Prisma + PostgreSQL — schema de dados compartilhado
+apps/web/       Next.js (App Router, TypeScript) — login (NextAuth) + proxy BFF, sem lógica de negócio
+apps/api/       NestJS — API própria (CRM/ERP/FF&E), porta 3001
+packages/db/    Prisma + PostgreSQL — schema de dados compartilhado, consumido pelos dois apps
 docs/fase-0/    ADR de stack, notas do modelo de dados, questionário de descoberta
 ```
+
+Backend separado de frontend desde a ADR 0002 (`docs/fase-0/adr-0002-nestjs-turborepo.md`)
+— o navegador nunca fala com `apps/api` diretamente, só com o proxy em `apps/web`.
 
 ## Rodando localmente
 
@@ -25,24 +29,25 @@ dados persistidos em `packages/db/.pgdata` (gitignored):
 npm install
 cp packages/db/.env.example packages/db/.env
 cp apps/web/.env.example apps/web/.env.local    # preencha as credenciais Google OAuth
+cp apps/api/.env.example apps/api/.env          # INTERNAL_API_SECRET precisa bater com o de apps/web
 npm run db:local          # deixa rodando num terminal; Ctrl+C para parar
 npm run db:migrate        # noutro terminal, uma vez (ou após mudar o schema)
-npm run dev
+npm run dev                # turbo sobe apps/web (3000) e apps/api (3001) juntos
 ```
 
-A página inicial e o build funcionam sem banco configurado; as rotas de
-API precisam do Postgres local rodando.
+`apps/web` funciona sem banco configurado para a página inicial e o login;
+as rotas de API (via `apps/api`) precisam do Postgres local rodando.
 
 ## Smoke test
 
-`npm run smoke-test` bate de verdade em `/api/v1/*` (client HTTP real,
-banco real) com o servidor de dev rodando. Como não há credenciais reais
-do Google OAuth configuradas, o script forja um cookie de sessão do
-NextAuth usando o mesmo `NEXTAUTH_SECRET` do servidor — não abre
-navegador nem depende do fluxo OAuth. Cobre o fluxo completo: criar
-cliente → oportunidade → proposta (motor de precificação) → marcar como
-ganha → checar que o projeto e as 5 fases do PEP foram criados
-automaticamente — além de casos de erro (401, 404, 400, 409).
+`npm run smoke-test` roda os dois: `apps/api/scripts/smoke-test.ts` (51
+checks, cobertura completa de regra de negócio — cliente → oportunidade →
+proposta com motor de precificação → marcar como ganha → projeto e 5
+fases do PEP criados automaticamente, além de casos de erro 401/404/400/409)
+bate direto em `apps/api` forjando o token interno via `jose`; e
+`apps/web/scripts/smoke-test.ts` (5 checks) prova só o proxy BFF, forjando
+um cookie de sessão do NextAuth com o mesmo `NEXTAUTH_SECRET`. Nenhum dos
+dois abre navegador nem depende do fluxo OAuth real.
 
 ## Decisões e próximos passos
 

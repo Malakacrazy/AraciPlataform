@@ -1,43 +1,55 @@
 # Especificação técnica detalhada — Fase 0
 
-Complementa `adr-0001-stack.md` (por que este stack) e `data-model.md` (o
+Complementa `adr-0001-stack.md` (por que a base do stack — Postgres,
+Prisma, Auth.js) e `adr-0002-nestjs-turborepo.md` (por que backend
+separado, revertendo a decisão original de monólito) e `data-model.md` (o
 que o schema cobre). Este documento descreve como os módulos se
-comunicam, o formato da API própria, e os requisitos não-funcionais que
-a Fase 1 em diante precisa respeitar. Como o resto da Fase 0, é uma
-proposta a validar — não uma decisão fechada.
+comunicam, o formato da API própria, e os requisitos não-funcionais.
+Como o resto da Fase 0, é uma proposta a validar — não uma decisão
+fechada, exceto onde já implementado (marcado abaixo).
 
-## Limites dos módulos dentro do monólito
+## Limites dos módulos
 
-Os quatro módulos vivem no mesmo app Next.js (`apps/web`), mas como
-áreas de código isoladas, não como camadas emaranhadas:
+Desde a ADR 0002, os quatro módulos vivem em `apps/api` (NestJS), não
+mais no mesmo app que a UI. `apps/web` só tem login (NextAuth) e um
+proxy BFF — nenhuma lógica de negócio.
 
 ```
-apps/web/src/
-  app/api/<modulo>/...     rotas HTTP (route handlers)
-  modules/<modulo>/        regras de negócio e acesso a dados do módulo
-  app/(dashboard)/<modulo>/  páginas/UI do módulo
+apps/api/src/
+  <modulo>/*.controller.ts   rotas HTTP
+  <modulo>/*.service.ts      regras de negócio e acesso a dados (via PrismaService)
+  <modulo>/<modulo>.module.ts
 ```
 
-Regra: um módulo só acessa dados de outro através de uma função exportada
-de `modules/<outro-modulo>/`, nunca importando o Prisma client de outro
-módulo diretamente nem fazendo query direta a uma tabela "de fora". Isso
-mantém a promessa da Fase 0 do plano — extrair um módulo para um serviço
-separado no futuro (ex. Procurement) sem reescrever os outros três.
+Regra: um módulo só acessa dados de outro através de um Service
+exportado pelo `@Module` dono (injetado via DI do Nest — ex.:
+`OpportunitiesService` injeta `ProjectsService` para a conversão
+automática), nunca importando `PrismaService` para consultar uma tabela
+"de fora" do módulo dono. Isso mantém a promessa da Fase 0 do plano —
+extrair um módulo para um serviço separado no futuro (ex. Procurement)
+sem reescrever os outros três; agora é reforçado pelo próprio grafo de
+DI do Nest, não só convenção.
 
-O módulo Office não tem `modules/office/` com tabelas próprias — ele é
-uma camada de integração (Google APIs) chamada pelos outros módulos
-quando precisam vincular um arquivo/e-mail/evento a um registro.
+O módulo Office não tem módulo próprio com tabelas — ele é uma camada de
+integração (Google APIs) chamada pelos outros módulos quando precisam
+vincular um arquivo/e-mail/evento a um registro.
 
 ## Formato da API própria
 
-REST sob `/api/v1/<recurso>`, JSON, autenticado via sessão do Auth.js
-(cookie) para chamadas do próprio app web; suporte a token Bearer fica
-reservado para quando existir um consumidor externo real (app mobile,
-Fase 4), para não construir autenticação de API sem um cliente que a use.
+REST sob `/v1/<recurso>` em `apps/api` (porta 3001 em dev), JSON.
+`apps/web` expõe o mesmo formato em `/api/v1/<recurso>` (porta 3000) via
+proxy — o navegador nunca fala com `apps/api` diretamente.
+
+Autenticação: `apps/web` confirma a sessão NextAuth real e forja um
+token interno de vida curta (JWT HS256, `INTERNAL_API_SECRET`) por
+requisição; `apps/api` valida esse token com um `AuthGuard` global (toda
+rota exige autenticação por padrão, `@Public()` é a única exceção — hoje
+só `/health`). Ver `adr-0002-nestjs-turborepo.md` para o raciocínio de
+segurança completo (por que BFF em vez de `apps/api` ter login próprio).
 
 Todo recurso é implicitamente escopado à `Account` do usuário autenticado
 — nenhum endpoint aceita `accountId` como parâmetro do cliente, ele vem
-da sessão. Isso evita a classe de bug mais comum em SaaS multi-tenant
+do token. Isso evita a classe de bug mais comum em SaaS multi-tenant
 (vazamento de dado entre contas por um filtro esquecido).
 
 Endpoints previstos por módulo (nomes de recurso, não a lista final de

@@ -60,7 +60,7 @@ não um detalhe de implementação.
   multiplicador, desconto de pacote); os 6 cenários da aba 06 como
   templates pré-configurados no builder de propostas.
 - **CRM → ERP**: conversão automática de oportunidade ganha em projeto
-  (`modules/crm/convertOpportunityToProject`), já especificada.
+  (`OpportunitiesService.convertToProject` em `apps/api`), já implementada.
 - **ERP — Projetos**: `Project`, os 5 `ProjectPhase` do PEP com
   `contracted`/`order`/`budget`; visão de cronograma (Gantt/Kanban/
   Calendário conforme o plano original, sem mudança aqui).
@@ -83,9 +83,9 @@ Sem mudança de escopo em relação ao plano original, mas com inputs reais
 agora disponíveis em vez de hipotéticos:
 
 - Integração com `nfewizard-io` para NFS-e (decidido, self-hosted,
-  certificado A1 do estúdio) atrás da interface única já especificada em
-  `modules/erp/fiscal/`; boleto/Pix segue como fornecedor separado, ainda
-  não escolhido.
+  certificado A1 do estúdio) atrás de um módulo fiscal dedicado a
+  construir em `apps/api` (ainda não implementado); boleto/Pix segue
+  como fornecedor separado, ainda não escolhido.
 - Faturamento por estágio aprovado (`Invoice.phaseId`), não por marco
   genérico — já modelado no schema.
 - Simulador de Fator R: usa Anexo III e receita média ~R$ 7.000/mês como

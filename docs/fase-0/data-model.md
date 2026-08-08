@@ -72,7 +72,7 @@ deixados de fora para não travar uma estrutura errada cedo demais:
 - Campos da Reforma Tributária (CST-IBS, CST-CBS, cClassTrib) — o plano
   recomenda adicioná-los a partir da Fase 2, não antes
 - Nomenclatura de papel/função da equipe — reconciliada (ver
-  `decisoes-pos-descoberta.md` #2 e `apps/web/src/lib/roles.ts`);
+  `decisoes-pos-descoberta.md` #2 e `apps/api/src/roles.ts`);
   `RoleRate.role` continua string livre por design, não por pendência
 - Migração de dados da Canoa Supply: **removida do escopo** — a resposta
   11 do questionário de descoberta confirmou que não é necessária

@@ -2,10 +2,12 @@
   "name": "@araci/db",
   "version": "0.0.1",
   "private": true,
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "generate": "prisma generate",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
     "migrate:dev": "prisma migrate dev",
     "studio": "prisma studio",
     "db:local:start": "tsx scripts/local-postgres.ts"

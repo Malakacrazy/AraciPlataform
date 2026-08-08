@@ -1,6 +1,10 @@
 # ADR 0001 — Stack técnico inicial
 
-Status: proposto (a validar em Fase 0)
+Status: proposto (a validar em Fase 0) — **parcialmente revertido por
+[ADR 0002](./adr-0002-nestjs-turborepo.md)**: a decisão de monólito
+Next.js + npm workspaces (bullets "Monorepo" e "Aplicação web full-stack
+única" abaixo) não vale mais. O resto deste documento (Postgres/Prisma,
+Auth.js, decisão de NFS-e etc.) continua valendo.
 
 ## Contexto
 
@@ -20,13 +24,16 @@ Restrições relevantes do plano:
 
 ## Decisão
 
-- **Monorepo** com npm workspaces (`apps/*`, `packages/*`). pnpm/Turborepo
+- ~~**Monorepo** com npm workspaces (`apps/*`, `packages/*`). pnpm/Turborepo
   foram considerados, mas não instalados no ambiente sem privilégios de
-  admin; npm workspaces resolve o mesmo problema sem dependência extra.
-- **Aplicação web full-stack única**: Next.js 16 (App Router, TypeScript),
+  admin; npm workspaces resolve o mesmo problema sem dependência extra.~~
+  Revertido — Turborepo entrou depois (ADR 0002), sem o problema de
+  privilégios que existia com pnpm.
+- ~~**Aplicação web full-stack única**: Next.js 16 (App Router, TypeScript),
   em vez de frontend e backend separados. Para uma equipe de 1–2 devs, um
   monólito bem organizado reduz a superfície de operação; os módulos
-  (Office/CRM/ERP/FF&E) continuam separáveis em rotas/serviços internos.
+  (Office/CRM/ERP/FF&E) continuam separáveis em rotas/serviços internos.~~
+  Revertido — ver ADR 0002 para o porquê.
 - **Banco de dados**: PostgreSQL, acessado via Prisma ORM (`packages/db`).
   Modelo multi-tenant por `Account` (conta/empresa) desde o primeiro schema.
 - **Autenticação**: Auth.js / NextAuth v4 (estável; a v5 segue em beta) com
@@ -37,11 +44,13 @@ Restrições relevantes do plano:
 
 ## Alternativas consideradas
 
-- **Backend separado (NestJS) + frontend Next.js**: mais próximo de "API
+- ~~**Backend separado (NestJS) + frontend Next.js**: mais próximo de "API
   própria" em espírito, mas dobra a operação (dois deploys, dois times de
   config) para um time de 1–2 devs. Descartado por ora; a estrutura em
   `apps/` e `packages/db` isolado permite migrar para isso depois sem
-  redesenhar o modelo de dados.
+  redesenhar o modelo de dados.~~ Essa previsão se confirmou (a estrutura
+  isolada permitiu migrar sem redesenhar o schema), mas a decisão em si
+  foi revertida — ver ADR 0002.
 - **Supabase/Firebase como BaaS**: acelera Fase 1, mas particularidades
   fiscais brasileiras (NFS-e, Fator R) exigem lógica de negócio própria de
   qualquer forma, reduzindo o ganho de um BaaS genérico.
