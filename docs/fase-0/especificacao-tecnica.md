@@ -45,9 +45,18 @@ verbos — a detalhar por tela na Fase 0/1):
 
 | Módulo | Recursos |
 |---|---|
-| CRM | `clients`, `opportunities`, `proposals`, `proposals/:id/stages`, `role-rates` |
+| CRM | `clients`, `opportunities`, `proposals`, `proposals/:id/stages`, `role-rates` — **implementado** |
 | ERP Arquitetura | `projects`, `projects/:id/phases`, `projects/:id/members`, `time-entries`, `invoices` |
 | FF&E | `products`, `projects/:id/areas`, `areas/:id/specifications` |
+
+Os recursos de CRM já têm rota real (`apps/web/src/app/api/v1/`) e regra de
+negócio em `modules/crm/`. Duas lacunas conhecidas, não escondidas: (1)
+`modules/crm/convertOpportunityToProject` ainda não existe — marcar uma
+oportunidade como ganha (`wonAt`) não cria projeto no ERP ainda, mesmo o
+fluxo automático #1 acima já estando especificado; (2) sem Postgres local
+configurado neste ambiente, a verificação foi build + typecheck + os
+testes de `modules/crm/pricing.ts`, não uma chamada HTTP real de ponta a
+ponta — vale um smoke test assim que houver um banco de dev disponível.
 
 Convenção de resposta de erro (a fixar como padrão desde o primeiro
 endpoint real, para não divergir entre módulos):

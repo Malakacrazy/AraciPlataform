@@ -11,4 +11,12 @@ if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }
 
-export * from "@prisma/client";
+// Type-only wildcard: erased at compile time, so it doesn't trip up
+// bundlers trying to statically analyze a CJS module's runtime exports.
+export type * from "@prisma/client";
+// Runtime enum/namespace values (needed as values, not just types) must be
+// named explicitly instead of wildcarded — see the "export * used with
+// ... CommonJS module" Turbopack warning this replaces. Prisma's error
+// classes live under the `Prisma` namespace (Prisma.PrismaClientKnownRequestError),
+// not as top-level exports.
+export { ProjectStageName, Prisma } from "@prisma/client";
