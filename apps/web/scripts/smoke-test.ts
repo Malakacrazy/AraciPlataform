@@ -299,6 +299,75 @@ async function main() {
     timeEntriesListRes.body
   );
 
+  // Segunda identidade: mesma conta (a única existente neste banco de
+  // dev), usuário diferente — para testar atribuição de equipe de forma
+  // que signifique algo (adicionar a si mesmo como membro não provaria
+  // muito).
+  const email2 = `smoke-test-2-${Date.now()}@studioaraci.com.br`;
+  const token2 = await encode({ secret: SECRET, token: { name: "Smoke Test 2", email: email2, sub: email2 } });
+  const cookie2 = `next-auth.session-token=${token2}`;
+  async function api2(path: string, init: RequestInit = {}) {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", Cookie: cookie2, ...(init.headers ?? {}) },
+    });
+    let body: any = null;
+    try {
+      body = await res.json();
+    } catch {
+      // 204 etc.
+    }
+    return { status: res.status, body };
+  }
+  await api2("/api/v1/clients"); // dispara o bootstrap do segundo usuário na mesma conta
+
+  const usersListRes = await api("/api/v1/users");
+  const user2 = usersListRes.body?.data?.find((u: any) => u.email === email2);
+  report("GET /users lista os dois usuários da conta (bootstrap funcionou para os dois)", !!user2, usersListRes.body);
+
+  const userPatchRes = await api(`/api/v1/users/${user2.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ role: "Arquiteto Pleno", specialty: "FF&E", costPerHour: 45 }),
+  });
+  report(
+    "PATCH /users/:id atualiza papel/especialidade/custo-hora",
+    userPatchRes.status === 200 && userPatchRes.body?.data?.role === "Arquiteto Pleno",
+    userPatchRes.body
+  );
+
+  const addMemberRes = await api(`/api/v1/projects/${projectId}/members`, {
+    method: "POST",
+    body: JSON.stringify({ userId: user2.id, roleOnProject: "Especificação FF&E" }),
+  });
+  report("POST /projects/:id/members → 201", addMemberRes.status === 201, addMemberRes.body);
+
+  const addMemberAgainRes = await api(`/api/v1/projects/${projectId}/members`, {
+    method: "POST",
+    body: JSON.stringify({ userId: user2.id }),
+  });
+  report(
+    "Adicionar o mesmo membro de novo → 409 ALREADY_MEMBER",
+    addMemberAgainRes.status === 409 && addMemberAgainRes.body?.error?.code === "ALREADY_MEMBER",
+    addMemberAgainRes.body
+  );
+
+  const listMembersRes = await api(`/api/v1/projects/${projectId}/members`);
+  report(
+    "GET /projects/:id/members inclui o novo membro",
+    listMembersRes.status === 200 && listMembersRes.body?.data?.some((m: any) => m.userId === user2.id),
+    listMembersRes.body
+  );
+
+  const removeMemberRes = await api(`/api/v1/projects/${projectId}/members/${user2.id}`, { method: "DELETE" });
+  report("DELETE /projects/:id/members/:userId → 204", removeMemberRes.status === 204, removeMemberRes.body);
+
+  const listMembersAfterRemoveRes = await api(`/api/v1/projects/${projectId}/members`);
+  report(
+    "Após remover, GET /projects/:id/members não inclui mais o membro",
+    listMembersAfterRemoveRes.status === 200 && !listMembersAfterRemoveRes.body?.data?.some((m: any) => m.userId === user2.id),
+    listMembersAfterRemoveRes.body
+  );
+
   const deleteConflict = await api(`/api/v1/clients/${clientId}`, { method: "DELETE" });
   report(
     "DELETE /clients/:id com oportunidade vinculada → 409 CONFLICT (não 500)",

@@ -70,10 +70,12 @@ não um detalhe de implementação.
 - **ERP — Timesheet**: apontamento de horas por projeto/fase — greenfield,
   nada a migrar (resposta 6 do questionário confirma que não existe
   registro de horas hoje).
-- **ERP — Equipe**: cadastro de equipe e papel — depende da reconciliação
-  de nomenclatura de papel pendente na Fase 0.
+- **ERP — Equipe**: cadastro de equipe/papel e alocação por projeto —
+  **implementado** (`users`, `projects/:id/members`), usando a
+  nomenclatura de papel já reconciliada.
 - **Office inicial**: Drive/Calendar vinculados a projeto/cliente (Gmail
-  fica para a Fase 4, conforme o plano original).
+  fica para a Fase 4, conforme o plano original) — **ainda não
+  implementado**, único item de Fase 1 sem rota real.
 
 ## Fase 2 — Financeiro & Fiscal
 

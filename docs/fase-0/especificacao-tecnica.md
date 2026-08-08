@@ -46,7 +46,7 @@ verbos — a detalhar por tela na Fase 0/1):
 | Módulo | Recursos |
 |---|---|
 | CRM | `clients`, `opportunities`, `proposals`, `proposals/:id/stages`, `role-rates` — **implementado** |
-| ERP Arquitetura | `projects`, `projects/:id/phases`, `projects/:id/phases/:phaseId/approve`, `projects/:id/phases/:phaseId/invoice`, `invoices`, `time-entries`, `time-entries/:id/approve` — **implementado**; `projects/:id/members` — pendente |
+| ERP Arquitetura | `projects`, `projects/:id/phases`, `projects/:id/phases/:phaseId/approve`, `projects/:id/phases/:phaseId/invoice`, `invoices`, `time-entries`, `time-entries/:id/approve`, `projects/:id/members`, `users` — **implementado** (núcleo de ERP completo para Fase 1) |
 | FF&E | `products`, `projects/:id/areas`, `areas/:id/specifications` |
 
 Os recursos de CRM e o núcleo de ERP (projetos, gates, faturamento,
@@ -66,9 +66,10 @@ endpoint para criar `Project` ou `Invoice` do zero — nascem só via
 autenticado), nunca do corpo da requisição.
 
 Verificado com um smoke test HTTP real (`npm run smoke-test`, ver README)
-contra Postgres local de verdade — não só build/typecheck (33 checks,
+contra Postgres local de verdade — não só build/typecheck (40 checks,
 incluindo gate fora de ordem, canal inválido, faturar um estágio sem
-gate aprovado, e editar um lançamento de horas já aprovado). O
+gate aprovado, editar um lançamento de horas já aprovado, e adicionar o
+mesmo membro duas vezes num projeto). O
 smoke test encontrou e corrigiu um bug real: violação de FK constraint
 com o driver adapter do Prisma 7 chega como `P2039`, não o `P2003`
 clássico do query engine antigo — `errorResponse()` em
