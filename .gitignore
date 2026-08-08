@@ -5,6 +5,7 @@ out/
 dist/
 build/
 *.tsbuildinfo
+.pgdata/
 .env
 .env.local
 .env.*.local

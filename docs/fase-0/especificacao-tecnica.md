@@ -50,13 +50,13 @@ verbos — a detalhar por tela na Fase 0/1):
 | FF&E | `products`, `projects/:id/areas`, `areas/:id/specifications` |
 
 Os recursos de CRM já têm rota real (`apps/web/src/app/api/v1/`) e regra de
-negócio em `modules/crm/`. Duas lacunas conhecidas, não escondidas: (1)
-`modules/crm/convertOpportunityToProject` ainda não existe — marcar uma
-oportunidade como ganha (`wonAt`) não cria projeto no ERP ainda, mesmo o
-fluxo automático #1 acima já estando especificado; (2) sem Postgres local
-configurado neste ambiente, a verificação foi build + typecheck + os
-testes de `modules/crm/pricing.ts`, não uma chamada HTTP real de ponta a
-ponta — vale um smoke test assim que houver um banco de dev disponível.
+negócio em `modules/crm/`, incluindo o fluxo automático #1
+(`convertOpportunityToProject`). Verificado com um smoke test HTTP real
+(`npm run smoke-test`, ver README) contra Postgres local de verdade — não
+só build/typecheck. O smoke test encontrou e corrigiu um bug real:
+violação de FK constraint com o driver adapter do Prisma 7 chega como
+`P2039`, não o `P2003` clássico do query engine antigo — `errorResponse()`
+em `apps/web/src/lib/api.ts` trata os dois.
 
 Convenção de resposta de erro (a fixar como padrão desde o primeiro
 endpoint real, para não divergir entre módulos):

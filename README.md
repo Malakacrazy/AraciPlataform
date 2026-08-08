@@ -17,16 +17,32 @@ docs/fase-0/    ADR de stack, notas do modelo de dados, questionário de descobe
 
 ## Rodando localmente
 
+Não é preciso instalar PostgreSQL à parte — `packages/db` roda um Postgres
+embarcado (via `embedded-postgres`, sem Docker, sem instalador) com os
+dados persistidos em `packages/db/.pgdata` (gitignored):
+
 ```
 npm install
-cp packages/db/.env.example packages/db/.env   # ajuste DATABASE_URL
-cp apps/web/.env.example apps/web/.env.local    # credenciais Google OAuth
-npm run db:generate
+cp packages/db/.env.example packages/db/.env
+cp apps/web/.env.example apps/web/.env.local    # preencha as credenciais Google OAuth
+npm run db:local          # deixa rodando num terminal; Ctrl+C para parar
+npm run db:migrate        # noutro terminal, uma vez (ou após mudar o schema)
 npm run dev
 ```
 
-Requer PostgreSQL local (ou remoto) para as rotas que usam `@araci/db`; a
-página inicial e o build funcionam sem banco configurado.
+A página inicial e o build funcionam sem banco configurado; as rotas de
+API precisam do Postgres local rodando.
+
+## Smoke test
+
+`npm run smoke-test` bate de verdade em `/api/v1/*` (client HTTP real,
+banco real) com o servidor de dev rodando. Como não há credenciais reais
+do Google OAuth configuradas, o script forja um cookie de sessão do
+NextAuth usando o mesmo `NEXTAUTH_SECRET` do servidor — não abre
+navegador nem depende do fluxo OAuth. Cobre o fluxo completo: criar
+cliente → oportunidade → proposta (motor de precificação) → marcar como
+ganha → checar que o projeto e as 5 fases do PEP foram criados
+automaticamente — além de casos de erro (401, 404, 400, 409).
 
 ## Decisões e próximos passos
 

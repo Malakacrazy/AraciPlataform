@@ -41,11 +41,13 @@ export function errorResponse(error: unknown): NextResponse {
     );
   }
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    // P2003: FK constraint (ex.: deletar um Client com Opportunity
-    // vinculada) — 409, não 500, porque não é um bug, é um conflito real
-    // de estado que o chamador pode resolver (apagar as dependências
-    // primeiro).
-    if (error.code === "P2003") {
+    // FK constraint (ex.: deletar um Client com Opportunity vinculada) —
+    // 409, não 500, porque não é um bug, é um conflito real de estado que
+    // o chamador pode resolver (apagar as dependências primeiro). P2003 é
+    // o código clássico do query engine; com o driver adapter (Prisma 7 +
+    // @prisma/adapter-pg), a mesma violação chega como P2039 — confirmado
+    // rodando o smoke test de verdade contra Postgres, não documentação.
+    if (error.code === "P2003" || error.code === "P2039") {
       return NextResponse.json(
         {
           error: {
