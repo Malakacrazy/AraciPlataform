@@ -165,12 +165,21 @@ cálculo é real; os valores de entrada ainda não foram calibrados.
   Drive/Gmail/Calendar quando o usuário ativar aquele recurso. O estúdio
   usa só Google Workspace (resposta 14); o login já restringe por `hd` ao
   domínio `studioaraci.com.br` (resposta 15) em `apps/web/src/lib/auth.ts`.
-- **Parceiro fiscal (NFS-e/boleto/Pix)**: ainda não escolhido (pergunta
-  9). Sabemos o regime (Simples Nacional, Anexo III) e a receita média
-  (~R$ 7.000/mês, resposta 8), o que já ajuda a calibrar o simulador de
-  Fator R quando o parceiro for escolhido. A integração fica atrás de uma
-  interface única em `modules/erp/fiscal/` para trocar de provedor sem
-  reescrever o módulo financeiro.
+- **NFS-e/boleto/Pix**: ainda não fechado, mas o leque mudou de "qual SaaS
+  (Asaas/eNotas/NFE.io/Focus NFe)" para uma segunda opção estrutural —
+  [nfewizard-io](https://github.com/nfewizard-org/nfewizard-io), uma
+  biblioteca Node.js open source (GPL-3.0) que fala direto com SEFAZ/
+  prefeitura via certificado A1 próprio, sem SaaS intermediário. Já mira
+  NFS-e Nacional especificamente, mas o módulo de NFSe (`@nfewizard/nfse`)
+  está em fase de testes, com uma issue aberta sobre qual perfil de
+  assinatura XML a SEFIN Nacional aceita — ver
+  `decisoes-pos-descoberta.md` #4 para o trade-off completo (custo de
+  assinatura vs. responsabilidade de manter certificado + acompanhar uma
+  lib em beta). Sabemos o regime (Simples Nacional, Anexo III) e a
+  receita média (~R$ 7.000/mês, resposta 8), o que já ajuda a calibrar o
+  simulador de Fator R quando essa escolha for fechada. A integração fica
+  atrás de uma interface única em `modules/erp/fiscal/` para trocar de
+  provedor (SaaS ou lib própria) sem reescrever o módulo financeiro.
 - **Captura de produtos (FF&E)**: já existe um protótipo funcional —
   [Malakacrazy/Captura](https://github.com/Malakacrazy/Captura), extensão
   de Chrome (Manifest V3, JS puro) que injeta um botão em páginas de

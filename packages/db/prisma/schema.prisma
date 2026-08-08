@@ -46,9 +46,11 @@ model Account {
 // Hourly rate per role, already net of overhead/margin/tax (the output of
 // the pricing spreadsheet's "tarifa/hora" calculation, aba 02). The
 // formula that produces this value is code (modules/crm/pricing.ts), not
-// stored — only the final rate is persisted. Role names are pending
-// reconciliation between PEP_Interior.md and the pricing sheet (they
-// currently disagree — see decisoes-pos-descoberta.md, item 2).
+// stored — only the final rate is persisted. `role` stays a free string
+// (not an enum) since the team's real roster will vary; the canonical
+// naming reconciled between PEP_Interior.md and the pricing sheet lives
+// in apps/web/src/lib/roles.ts (CANONICAL_ROLES) — see
+// decisoes-pos-descoberta.md, item 2, for the reasoning.
 model RoleRate {
   id         String   @id @default(cuid())
   accountId  String

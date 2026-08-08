@@ -92,13 +92,38 @@ conta). A fórmula em si (overhead, margem, impostos) vira função pura em
 (custos fixos, papel/tarifa, scores de complexidade) e o resultado
 (proposta calculada) são dados.
 
-**Conflito a resolver com a Giulia, não a inventar aqui:** os papéis da
-equipe divergem entre os dois documentos — o PEP fala em "Designer
-Sênior/Pleno/Júnior" e "Especificador FF&E"; a planilha fala em "Arquiteto
-Sênior/Pleno/Júnior" e "Coordenador BIM" (não há BIM no escopo do PEP, que
-é explícito: "Sem componente BIM — fluxo CAD + SketchUp/3D"). Os nomes de
-papel no schema devem esperar essa reconciliação em vez de escolher um dos
-dois lados agora.
+**Reconciliação de papéis — resolvida (proposta, a confirmar rápido com a
+Giulia):** os papéis da equipe divergiam entre os dois documentos — o PEP
+fala em "Designer Sênior/Pleno/Júnior" e "Especificador FF&E"; a planilha
+fala em "Arquiteto Sênior/Pleno/Júnior" e "Coordenador BIM". Adotado o
+PEP como fonte de verdade (é o documento de processo real do estúdio,
+explicitamente de Interior Design), não a planilha (que tem cara de
+template genérico de escritório de arquitetura/BIM adaptado às pressas —
+o próprio PEP diz "Sem componente BIM — fluxo CAD + SketchUp/3D",
+contradizendo a existência de um "Coordenador BIM"):
+
+| Papel canônico | Papel na planilha (a atualizar) |
+|---|---|
+| Designer/Arquiteto Líder (RT) | Arquiteto Líder (RT) |
+| Coordenador de Projeto | Coordenador de Projeto (sem mudança) |
+| Designer Sênior | Arquiteto Sênior |
+| Designer Pleno | Arquiteto Pleno |
+| Designer Júnior | Arquiteto Júnior |
+| Estagiário | Estagiário (sem mudança) |
+| Especificador FF&E | *(não existia na planilha — adicionar)* |
+| Lead 3D / Visualização | Lead 3D / Visualização (sem mudança) |
+| ~~Coordenador BIM~~ | Removido — contradiz o PEP |
+
+"Designer/Arquiteto Líder (RT)" mantém os dois termos de propósito, não
+por indecisão — é o único papel onde o PEP usa essa barra, porque a
+matrícula de RT pode ser CAU (arquitetura) ou ABD/registro de design
+(§9, "Direitos autorais... Lei 12.378/10 do CAU ou registro ABD"); para
+todos os outros papéis o PEP usa só "Designer", de forma consistente.
+
+Lista canônica em código: `apps/web/src/lib/roles.ts`
+(`CANONICAL_ROLES`) — referência para seed/UI, não uma trava no schema
+(`RoleRate.role` continua string livre). Calibrar a planilha de
+precificação com esses nomes é uma tarefa de planilha, fora deste repo.
 
 ## 3. FF&E — sem migração da Canoa, scraper já existe
 
@@ -136,10 +161,51 @@ precisa (por ora) do mesmo rigor de canal que `ProjectPhase`.
 
 Anexo III confirmado, receita média ~R$ 7.000/mês (resposta 8) — útil para
 calibrar o simulador de Fator R depois que a planilha de precificação
-tiver números reais de custo/margem. Nenhum parceiro fiscal escolhido
-ainda (resposta 9) — mantém a decisão em aberto no ADR. Consultoria
-contábil vai revisar antes do go-live (resposta 10) — já era a
-recomendação do plano, agora confirmada como plano real, não só sugestão.
+tiver números reais de custo/margem. Consultoria contábil vai revisar
+antes do go-live (resposta 10) — já era a recomendação do plano, agora
+confirmada como plano real, não só sugestão.
+
+**Candidato a parceiro fiscal identificado**:
+[nfewizard-org/nfewizard-io](https://github.com/nfewizard-org/nfewizard-io)
+— mas não é um "parceiro" no sentido de Asaas/eNotas/NFE.io/Focus NFe
+(as opções que o ADR original considerava). É uma **biblioteca Node.js
+open source** que fala direto com os webservices da SEFAZ/prefeitura —
+sem intermediário SaaS. Isso muda o trade-off, não só a escolha:
+
+- **Sem custo de assinatura**, mas o estúdio passa a ser responsável por
+  possuir e custodiar um **certificado digital A1** (arquivo `.pfx` +
+  senha) em nome do CNPJ — hoje isso não existe no processo do estúdio.
+- O módulo de NFS-e vive num pacote separado, `@nfewizard/nfse`, e o
+  próprio README o marca como **"em fase de testes"** — não é hardened
+  para produção ainda.
+- Ele já mira especificamente a **NFS-e Nacional** (SEFIN Nacional, DPS —
+  Declaração de Prestação de Serviços), que é exatamente o requisito que
+  o plano original apontou como obrigatório desde janeiro de 2026 — bom
+  sinal de que o mantenedor acompanha a mudança regulatória certa. Mas há
+  uma issue aberta e sem solução definitiva sobre qual perfil de
+  assinatura XML (XMLDSig) a SEFIN Nacional aceita para a DPS — o
+  exemplo oficial da lib troca entre 4 perfis distintos "para testar qual
+  funciona", o que é um sinal real de instabilidade nessa integração
+  específica, não só um rótulo de "beta" genérico.
+- Validação de schema XSD completa exige JDK no ambiente (tem um modo
+  alternativo sem JDK, `validateSchemaJsBased`, mas com menos garantia).
+  Isso importa para onde a Fase 2 for hospedada (Vercel, por exemplo, não
+  tem JDK).
+- Licença **GPL-3.0** (copyleft). Para uso como dependência de um backend
+  privado que não é redistribuído (o caso daqui — é um SaaS interno, não
+  um produto distribuído a terceiros), a leitura comum é que isso não
+  obriga a abrir o código da plataforma (diferente de AGPL, que mira
+  justamente uso via rede). Isso não é parecer jurídico — vale confirmar
+  com a consultoria contábil/jurídica antes de depender disso, não supor.
+- Mantida por uma única pessoa majoritariamente (projeto pede doação no
+  próprio README) — risco de continuidade diferente de um fornecedor SaaS
+  com SLA.
+
+**Não é uma decisão fechada** — é uma opção real e gratuita que resolve
+exatamente o requisito mais específico do plano (NFS-e Nacional), mas
+troca custo de assinatura por responsabilidade operacional (certificado
+próprio, acompanhar uma lib em fase de testes). Continua sendo uma
+decisão da Giulia: nfewizard-io self-hosted vs. um parceiro SaaS gerenciado.
 
 ## 5. Escopo e Office
 
@@ -159,7 +225,10 @@ Carga tributária da fórmula de tarifa/hora (aba 02): **6%**.
 
 - Calibração real dos custos fixos do estúdio e das horas base por
   estágio (hoje são placeholders na planilha).
-- Reconciliação dos nomes de papel da equipe entre o PEP e a planilha.
+- Confirmação rápida da Giulia sobre a reconciliação de papéis proposta
+  no item 2 (baixo risco — é só nomenclatura, fácil de corrigir depois).
+- Escolha final entre nfewizard-io (self-hosted) e um parceiro SaaS de
+  NFS-e — ver item 4.
 - Decidir, na Fase 3, como a captura da extensão Captura chega até a
   plataforma (extensão passa a chamar a API própria vs. a plataforma
   reimplementa a extração vs. os dois convivem por um tempo).

@@ -50,8 +50,10 @@ Restrições relevantes do plano:
 
 - Escolher provedor de hospedagem com atenção a residência de dados no
   Brasil (dado que o CRM guarda dados pessoais de clientes — LGPD).
-- Confirmar qual parceiro fiscal (Asaas, eNotas, NFE.io ou Focus NFe) será
-  integrado para emissão de NFS-e antes da Fase 2.
+- Confirmar como a emissão de NFS-e será feita antes da Fase 2: SaaS
+  gerenciado (Asaas, eNotas, NFE.io, Focus NFe) ou biblioteca própria
+  contra SEFAZ/prefeitura (nfewizard-io, self-hosted, exige certificado
+  A1 do estúdio) — ver `decisoes-pos-descoberta.md` #4 para o trade-off.
 - Avaliar se a comunicação frontend↔backend deve migrar de Route Handlers
   soltos para algo tipado ponta a ponta (ex. tRPC) conforme a superfície de
   API cresce — não necessário para o escopo do MVP.

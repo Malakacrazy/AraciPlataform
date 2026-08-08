@@ -71,9 +71,9 @@ deixados de fora para não travar uma estrutura errada cedo demais:
 - Indicador de sustentabilidade/pegada de carbono por produto
 - Campos da Reforma Tributária (CST-IBS, CST-CBS, cClassTrib) — o plano
   recomenda adicioná-los a partir da Fase 2, não antes
-- Nomenclatura final de papel/função da equipe — PEP e planilha de
-  precificação usam nomes diferentes hoje (`RoleRate.role` fica como
-  string livre até isso ser reconciliado com a Giulia)
+- Nomenclatura de papel/função da equipe — reconciliada (ver
+  `decisoes-pos-descoberta.md` #2 e `apps/web/src/lib/roles.ts`);
+  `RoleRate.role` continua string livre por design, não por pendência
 - Migração de dados da Canoa Supply: **removida do escopo** — a resposta
   11 do questionário de descoberta confirmou que não é necessária
 
