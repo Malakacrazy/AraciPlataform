@@ -12,10 +12,21 @@ para não passar a falsa impressão de que o modelo está fechado.
   início" do plano.
 - **CRM**: `Client` → `Opportunity` (pipeline) → `Proposal`. `Opportunity`
   ganha vira `Project` via `opportunityId` único (mapeia a conversão
-  automática lead→projeto descrita no plano).
+  automática lead→projeto descrita no plano). `Proposal` carrega o
+  resultado do motor de precificação real do estúdio (`complexityMultiplier`,
+  `packageDiscountPercent`) e `ProposalStage` espelha, linha a linha, o
+  "Configurador" da planilha de precificação — ver
+  `especificacao-tecnica.md` para o pipeline completo do cálculo.
 - **ERP Arquitetura**: `Project` → `ProjectPhase` → `Task`; `ProjectMember`
   liga `User` a `Project`; `TimeEntry` é o apontamento de horas;
-  `Invoice` é o faturamento por projeto.
+  `Invoice` é o faturamento por projeto (opcionalmente por `ProjectPhase`,
+  já que o PEP fatura por estágio concluído e aprovado). `ProjectPhase.stage`
+  usa o enum `ProjectStageName` com os 5 estágios reais do PEP do estúdio
+  (Captação e Alinhamento → Briefing → Criação e Conceito → Detalhamento de
+  Acabamentos → Executivo), não os 3 nomes genéricos do plano original —
+  ver `decisoes-pos-descoberta.md` #1. `approvedAt`/`approvalChannel`
+  existem porque a aprovação de gate do PEP é formal (e-mail, nunca
+  WhatsApp) e condiciona o faturamento daquele estágio.
 - **FF&E**: `Area` (ambiente do projeto) → `ProductSpecification` (linha do
   carrinho) → `Product` (catálogo). A soma das `ProductSpecification` com
   `clientApproved = true` é o orçamento/planilha final — não existe uma
@@ -24,6 +35,17 @@ para não passar a falsa impressão de que o modelo está fechado.
   Drive, e-mails do Gmail e eventos do Calendar são referenciados por ID
   externo a partir de outras entidades (não incluído neste esqueleto) — o
   plano é explícito que a plataforma não deve recriar o Workspace.
+
+## RoleRate: por que a tarifa/hora é dado, mas a fórmula não é
+
+`RoleRate.hourlyRate` guarda o resultado final do cálculo de tarifa/hora
+por papel (custo direto + overhead, com margem e impostos aplicados). O
+cálculo em si — overhead mensal do estúdio, margem-alvo, carga tributária
+— não vira tabela: são poucos números que mudam raramente, calculados uma
+vez e aplicados como função em `modules/crm/pricing.ts`. Guardar cada
+etapa intermediária do cálculo como linha de banco criaria estado
+duplicado sem necessidade (a mesma razão pela qual não existe uma tabela
+"Cart" separada em FF&E).
 
 ## Campos fiscais incluídos de propósito
 
@@ -49,6 +71,11 @@ deixados de fora para não travar uma estrutura errada cedo demais:
 - Indicador de sustentabilidade/pegada de carbono por produto
 - Campos da Reforma Tributária (CST-IBS, CST-CBS, cClassTrib) — o plano
   recomenda adicioná-los a partir da Fase 2, não antes
+- Nomenclatura final de papel/função da equipe — PEP e planilha de
+  precificação usam nomes diferentes hoje (`RoleRate.role` fica como
+  string livre até isso ser reconciliado com a Giulia)
+- Migração de dados da Canoa Supply: **removida do escopo** — a resposta
+  11 do questionário de descoberta confirmou que não é necessária
 
 ## Multi-tenancy: decisão pendente
 

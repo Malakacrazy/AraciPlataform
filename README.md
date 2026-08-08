@@ -31,5 +31,13 @@ página inicial e o build funcionam sem banco configurado.
 ## Decisões e próximos passos
 
 Ver `docs/fase-0/adr-0001-stack.md` (por que este stack), `docs/fase-0/data-model.md`
-(o que o schema cobre e o que ainda falta) e `docs/fase-0/descoberta-questionario.md`
-(perguntas a validar com a Giulia antes de avançar para a Fase 1).
+(o que o schema cobre e o que ainda falta), `docs/fase-0/especificacao-tecnica.md`
+(limites dos módulos, formato da API, requisitos não-funcionais) e
+`docs/fase-0/descoberta-questionario.md` (perguntas validadas com a Giulia).
+
+O questionário de descoberta já foi respondido — `docs/fase-0/decisoes-pos-descoberta.md`
+resume o que mudou no schema/spec por causa disso (PEP real de 5 estágios,
+motor de precificação) e o que ainda está em aberto.
+
+`docs/fase-0/prototipo-navegavel.html` é o protótipo navegável de baixa
+fidelidade — abra o arquivo direto no navegador, sem precisar rodar o projeto.

@@ -1,7 +1,9 @@
 // Skeleton data model for Fase 0 — covers the core entities of the four
 // modules (Office integration is not modeled here; it links to Google
-// Workspace resources by external ID, not stored data). To be refined
-// during Fase 0 discovery with Giulia. See docs/fase-0/data-model.md.
+// Workspace resources by external ID, not stored data). Updated after the
+// Fase 0 discovery answers confirmed the real 5-stage PEP methodology and
+// pricing engine — see docs/fase-0/decisoes-pos-descoberta.md and
+// docs/fase-0/data-model.md.
 
 generator client {
   provider = "prisma-client-js"
@@ -9,6 +11,18 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// The 5 stages of the studio's real PEP (Plano de Execução de Projeto),
+// adapted from RIBA Plan of Work 2020 — see docs/fase-0/PEP_Interior.md.
+// Not every project contracts every stage (see ProjectPhase.contracted /
+// ProposalStage.contracted).
+enum ProjectStageName {
+  CAPTACAO_ALINHAMENTO
+  BRIEFING
+  CRIACAO_CONCEITO
+  DETALHAMENTO_ACABAMENTOS
+  EXECUTIVO
 }
 
 // Tenant: the architecture firm using the platform. Every domain record
@@ -26,6 +40,24 @@ model Account {
   clients   Client[]
   projects  Project[]
   products  Product[]
+  roleRates RoleRate[]
+}
+
+// Hourly rate per role, already net of overhead/margin/tax (the output of
+// the pricing spreadsheet's "tarifa/hora" calculation, aba 02). The
+// formula that produces this value is code (modules/crm/pricing.ts), not
+// stored — only the final rate is persisted. Role names are pending
+// reconciliation between PEP_Interior.md and the pricing sheet (they
+// currently disagree — see decisoes-pos-descoberta.md, item 2).
+model RoleRate {
+  id         String   @id @default(cuid())
+  accountId  String
+  account    Account  @relation(fields: [accountId], references: [id])
+  role       String
+  hourlyRate Decimal
+  updatedAt  DateTime @updatedAt
+
+  @@unique([accountId, role])
 }
 
 model User {
@@ -66,7 +98,7 @@ model Opportunity {
   clientId       String
   client         Client    @relation(fields: [clientId], references: [id])
   stage          String
-  feeModel       String // percentual_cub | valor_m2 | hora_tecnica | fixo | recorrente
+  feeModel       String // hora_tecnica (only one in real use today) | percentual_cub | valor_m2 | fixo | recorrente — see decisoes-pos-descoberta.md #2
   estimatedValue Decimal?
   wonAt          DateTime?
   lostAt         DateTime?
@@ -76,14 +108,38 @@ model Opportunity {
   project   Project?
 }
 
+// Value is the final computed price (aba 05 "PREÇO FINAL DE PROPOSTA");
+// complexityMultiplier and packageDiscountPercent are carried alongside it
+// so the breakdown stays inspectable without recomputing from ProposalStage.
 model Proposal {
-  id            String       @id @default(cuid())
-  opportunityId String
-  opportunity   Opportunity  @relation(fields: [opportunityId], references: [id])
-  value         Decimal
-  status        String // draft | sent | signed | expired
-  sentAt        DateTime?
-  signedAt      DateTime?
+  id                     String       @id @default(cuid())
+  opportunityId          String
+  opportunity            Opportunity  @relation(fields: [opportunityId], references: [id])
+  value                  Decimal
+  status                 String // draft | sent | signed | expired
+  complexityMultiplier   Decimal? // 0.70x–1.50x, from the 5-dimension complexity score (aba 04)
+  packageDiscountPercent Decimal? // 10% when 4+ stages are contracted together (aba 05)
+  sentAt                 DateTime?
+  signedAt               DateTime?
+
+  stages ProposalStage[]
+}
+
+// One row per PEP stage in a proposal — mirrors the spreadsheet's
+// "Configurador" (aba 05): which stages are contracted, their baseline
+// hours, and hours/cost after the complexity multiplier.
+model ProposalStage {
+  id            String           @id @default(cuid())
+  proposalId    String
+  proposal      Proposal         @relation(fields: [proposalId], references: [id])
+  stage         ProjectStageName
+  contracted    Boolean          @default(true)
+  baseHours     Decimal
+  adjustedHours Decimal
+  baseCost      Decimal
+  adjustedCost  Decimal
+
+  @@unique([proposalId, stage])
 }
 
 // ERP Arquitetura: projeto ativo, geralmente criado a partir de uma
@@ -108,18 +164,26 @@ model Project {
   areas       Area[]
 }
 
+// A stage of the PEP applied to a specific project. `approvedAt` /
+// `approvalChannel` record the formal gate approval the PEP requires
+// (§3.2: written approval only — email counts, WhatsApp does not) before
+// the next stage can start and before this stage can be invoiced.
 model ProjectPhase {
-  id        String    @id @default(cuid())
-  projectId String
-  project   Project   @relation(fields: [projectId], references: [id])
-  name      String // Estudo Preliminar | Anteprojeto | Projeto Executivo | ...
-  order     Int
-  startDate DateTime?
-  dueDate   DateTime?
-  budget    Decimal?
+  id              String           @id @default(cuid())
+  projectId       String
+  project         Project          @relation(fields: [projectId], references: [id])
+  stage           ProjectStageName
+  contracted      Boolean          @default(true) // not every project contracts every stage
+  order           Int
+  startDate       DateTime?
+  dueDate         DateTime?
+  budget          Decimal?
+  approvedAt      DateTime?
+  approvalChannel String? // "email" | "reuniao_presencial" — WhatsApp is not a valid gate approval per the PEP
 
   tasks       Task[]
   timeEntries TimeEntry[]
+  invoices    Invoice[]
 }
 
 model Task {
@@ -160,10 +224,16 @@ model TimeEntry {
   approvedById String?
 }
 
+// Billing is per stage completed and approved (PEP §0, "Forma de
+// medição"), so an invoice usually ties to the ProjectPhase whose gate was
+// just approved. phaseId is optional to still allow non-stage invoices
+// (e.g. FF&E budget draft-invoices from modules/ffe/approveCartToInvoiceDraft).
 model Invoice {
-  id         String    @id @default(cuid())
+  id         String        @id @default(cuid())
   projectId  String
-  project    Project   @relation(fields: [projectId], references: [id])
+  project    Project       @relation(fields: [projectId], references: [id])
+  phaseId    String?
+  phase      ProjectPhase? @relation(fields: [phaseId], references: [id])
   amount     Decimal
   status     String // pendente | emitida | paga
   nfseNumber String? // número da NFS-e emitida via parceiro fiscal
