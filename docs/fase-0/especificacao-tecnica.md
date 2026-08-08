@@ -72,7 +72,14 @@ internas, não só um desejo de produto:
 
 1. `Opportunity.wonAt` setado → cria `Project` com `clientId`,
    `feeModel` e `accountId` já copiados da oportunidade
-   (`modules/crm/convertOpportunityToProject`).
+   (`modules/crm/convertOpportunityToProject`) — **implementado**,
+   disparado pelo `PATCH /api/v1/opportunities/:id` quando o corpo seta
+   `wonAt`. `Opportunity` ganhou um campo `title` que faltava no schema
+   original (sem ele não havia como nomear o `Project` criado). As 5
+   `ProjectPhase` do PEP são semeadas com `contracted: true` por padrão —
+   ainda não puxam quais estágios a Proposal assinada realmente contratou
+   (não há hoje um jeito de identificar "a proposta aceita" de uma
+   oportunidade); fica como próximo passo.
 2. `Project` criado → módulo FF&E passa a permitir criar `Area` para
    aquele projeto (não há cópia de dado, só a FK já existir).
 3. `ProductSpecification.clientApproved = true` em lote (checkout do

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { errorResponse } from "../../../../../lib/api";
 import { requireSessionAccount } from "../../../../../lib/session";
+import { convertOpportunityToProject } from "../../../../../modules/crm/convertOpportunityToProject";
 import {
   deleteOpportunity,
   getOpportunity,
@@ -37,7 +38,15 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
       wonAt: body.wonAt === undefined ? undefined : body.wonAt === null ? null : new Date(body.wonAt),
       lostAt: body.lostAt === undefined ? undefined : body.lostAt === null ? null : new Date(body.lostAt),
     });
-    return NextResponse.json({ data: opportunity });
+
+    // Fluxo automático #1 (especificacao-tecnica.md): marcar como ganha
+    // converte em projeto, sem redigitação. Idempotente, então repetir o
+    // PATCH com o mesmo wonAt não cria um segundo projeto.
+    if (opportunity.wonAt) {
+      await convertOpportunityToProject(accountId, id);
+    }
+
+    return NextResponse.json({ data: await getOpportunity(accountId, id) });
   } catch (error) {
     return errorResponse(error);
   }

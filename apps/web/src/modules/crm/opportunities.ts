@@ -5,6 +5,7 @@ import { getClient } from "./clients";
 
 export const opportunityInputSchema = z.object({
   clientId: z.string().min(1),
+  title: z.string().min(1), // vira Project.name na conversão automática
   // Estágio do kanban de CRM (novo_lead | qualificacao | proposta_enviada |
   // negociacao | ganho | perdido) — NÃO confundir com ProjectStageName
   // (os 5 estágios do PEP do ERP). São dois conceitos de "estágio"
@@ -19,7 +20,7 @@ export type OpportunityInput = z.infer<typeof opportunityInputSchema>;
 export function listOpportunities(accountId: string) {
   return prisma.opportunity.findMany({
     where: { client: { accountId } },
-    include: { client: true },
+    include: { client: true, project: true },
     orderBy: { createdAt: "desc" },
   });
 }
@@ -27,7 +28,7 @@ export function listOpportunities(accountId: string) {
 export async function getOpportunity(accountId: string, id: string) {
   const opportunity = await prisma.opportunity.findFirst({
     where: { id, client: { accountId } },
-    include: { client: true },
+    include: { client: true, project: true },
   });
   if (!opportunity) {
     throw new NotFoundError("Oportunidade");
@@ -40,11 +41,11 @@ export async function createOpportunity(accountId: string, input: OpportunityInp
   return prisma.opportunity.create({ data: input });
 }
 
-// wonAt/lostAt podem ser setados aqui, mas isso ainda NÃO dispara a
-// conversão automática em Project (modules/crm/convertOpportunityToProject
-// da especificacao-tecnica.md) — essa função não existe ainda. Marcar uma
-// oportunidade como ganha hoje não cria projeto nenhum; é uma lacuna
-// conhecida, não um comportamento silencioso.
+// Só atualiza a Opportunity em si. A conversão automática em Project
+// (convertOpportunityToProject) é disparada pela rota PATCH depois de um
+// update bem-sucedido que sete wonAt — não fica aqui dentro para manter
+// esta função com uma única responsabilidade (update) e testável sem
+// precisar simular a criação de projeto.
 export async function updateOpportunity(
   accountId: string,
   id: string,

@@ -1,4 +1,5 @@
 import { ProjectStageName } from "@araci/db";
+import { PEP_STAGE_ORDER } from "../../lib/pep";
 
 // Implements the studio's real pricing pipeline documented in
 // docs/fase-0/especificacao-tecnica.md ("Motor de precificação") and
@@ -92,14 +93,6 @@ export interface ProposalResult {
   value: number;
 }
 
-const STAGE_ORDER: ProjectStageName[] = [
-  ProjectStageName.CAPTACAO_ALINHAMENTO,
-  ProjectStageName.BRIEFING,
-  ProjectStageName.CRIACAO_CONCEITO,
-  ProjectStageName.DETALHAMENTO_ACABAMENTOS,
-  ProjectStageName.EXECUTIVO,
-];
-
 const PACKAGE_DISCOUNT_MIN_STAGES = 4;
 const PACKAGE_DISCOUNT_PERCENT = 0.1;
 
@@ -118,7 +111,7 @@ export function calcularProposta(input: {
   const rateByRole = new Map(input.roleRates.map((r) => [r.role, r.hourlyRate]));
   const contractedSet = new Set(input.contractedStages);
 
-  const stages: ProposalStageResult[] = STAGE_ORDER.map((stage) => {
+  const stages: ProposalStageResult[] = PEP_STAGE_ORDER.map((stage) => {
     const hoursForStage = input.roleHours.filter((rh) => rh.stage === stage);
     const baseHours = hoursForStage.reduce((sum, rh) => sum + rh.hours, 0);
     const baseCost = hoursForStage.reduce((sum, rh) => {

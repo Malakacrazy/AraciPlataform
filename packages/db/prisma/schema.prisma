@@ -97,6 +97,7 @@ model Opportunity {
   id             String    @id @default(cuid())
   clientId       String
   client         Client    @relation(fields: [clientId], references: [id])
+  title          String // ex.: "Apto Vila Madalena" — vira Project.name na conversão automática, sem redigitação
   stage          String
   feeModel       String // hora_tecnica (only one in real use today) | percentual_cub | valor_m2 | fixo | recorrente — see decisoes-pos-descoberta.md #2
   estimatedValue Decimal?
