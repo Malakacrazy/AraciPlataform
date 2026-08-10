@@ -54,30 +54,41 @@ estágios, desconto de pacote, cenários comparativos). Isso é trabalho de
 produto real (a aba 06 já tem os 6 cenários nomeados com notas de venda),
 não um detalhe de implementação.
 
-- **Auth**: SSO Google já funciona no código; falta só credenciais OAuth
-  reais (`GOOGLE_CLIENT_ID`/`SECRET`) provisionadas no Google Cloud
-  Console do domínio `studioaraci.com.br`.
-- **CRM — Pipeline**: `Client`, `Opportunity`, captação multicanal,
-  kanban por estágio.
-- **CRM — Motor de precificação**: tela de configuração de `RoleRate` por
-  papel; formulário de scores de complexidade (5 dimensões); configurador
-  de estágios contratados computando `ProposalStage` (horas base ×
-  multiplicador, desconto de pacote); os 6 cenários da aba 06 como
-  templates pré-configurados no builder de propostas.
+- **Auth**: SSO Google — **implementado e verificado com credenciais OAuth
+  reais** (não é mais um item em aberto; ver "Office inicial" abaixo, que
+  reaproveita o mesmo login).
+- **CRM — Pipeline**: `Client`, `Opportunity`, captação multicanal, kanban
+  por estágio — **API e UI implementadas** (`/clients`, `/opportunities`),
+  incluindo o fluxo de conversão automática (ver abaixo) visível na tela.
+- **CRM — Motor de precificação**: **API e UI implementadas**
+  (`/opportunities/:id`) — configuração de `RoleRate` por papel
+  (`/role-rates`), formulário de scores de complexidade (5 dimensões),
+  configurador de estágios contratados computando `ProposalStage` (horas
+  base × multiplicador, desconto de pacote), transição de status
+  draft/sent/signed. Não incluído: os 6 cenários da aba 06 como templates
+  pré-configurados no builder — fica para uma iteração futura, não bloqueia
+  o uso real do motor.
 - **CRM → ERP**: conversão automática de oportunidade ganha em projeto
-  (`OpportunitiesService.convertToProject` em `apps/api`), já implementada.
+  (`OpportunitiesService.convertToProject` em `apps/api`) — implementada e
+  visível na UI (marcar "Ganho" no pipeline gera o projeto e mostra o link
+  direto para ele).
 - **ERP — Projetos**: `Project`, os 5 `ProjectPhase` do PEP com
-  `contracted`/`order`/`budget`; visão de cronograma (Gantt/Kanban/
-  Calendário conforme o plano original, sem mudança aqui).
-- **ERP — Gates**: campo de aprovação (`approvedAt`/`approvalChannel`) na
-  UI de cada fase, com o prazo de 7 dias úteis do PEP visível; bloqueio
-  de avançar de estágio sem aprovação registrada.
-- **ERP — Timesheet**: apontamento de horas por projeto/fase — greenfield,
-  nada a migrar (resposta 6 do questionário confirma que não existe
-  registro de horas hoje).
+  `contracted`/`order`/`budget` — **API e UI implementadas** (`/projects`,
+  `/projects/:id`: orçado × realizado por projeto, cronograma por fase).
+  Visão só em lista/detalhe, não Gantt/Kanban/Calendário — o plano original
+  citava as três, nenhuma construída ainda.
+- **ERP — Gates**: campo de aprovação (`approvedAt`/`approvalChannel`) —
+  **API e UI implementadas**, com bloqueio de avançar de estágio sem
+  aprovação registrada (`GATE_OUT_OF_ORDER`) e faturamento por fase
+  aprovada direto na tela do projeto.
+- **ERP — Timesheet**: apontamento de horas por projeto/fase — **API e UI
+  implementadas** (`/timesheet`): lançamento manual (sem cronômetro
+  start/stop ainda) e aprovação por gestor.
 - **ERP — Equipe**: cadastro de equipe/papel e alocação por projeto —
-  **implementado** (`users`, `projects/:id/members`), usando a
-  nomenclatura de papel já reconciliada.
+  **implementado** (`users`, `projects/:id/members`), API e UI
+  (`/team`, seção Equipe em `/projects/:id`), usando a nomenclatura de
+  papel já reconciliada. Sem planejamento de capacidade/matching de
+  competências ainda — só cadastro e alocação direta.
 - **Office inicial**: Drive/Calendar vinculados a projeto/cliente (Gmail
   fica para a Fase 4, conforme o plano original) — **implementado e
   verificado com credenciais OAuth reais**, ponta a ponta. API
