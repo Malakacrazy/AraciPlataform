@@ -19,4 +19,4 @@ export type * from "@prisma/client";
 // ... CommonJS module" Turbopack warning this replaces. Prisma's error
 // classes live under the `Prisma` namespace (Prisma.PrismaClientKnownRequestError),
 // not as top-level exports.
-export { ProjectStageName, Prisma } from "@prisma/client";
+export { ProjectStageName, OfficeLinkProvider, OfficeLinkEntityType, Prisma } from "@prisma/client";

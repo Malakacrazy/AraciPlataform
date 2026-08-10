@@ -1,6 +1,8 @@
 // Skeleton data model for Fase 0 — covers the core entities of the four
-// modules (Office integration is not modeled here; it links to Google
-// Workspace resources by external ID, not stored data). Updated after the
+// modules. Office does not duplicate Google Workspace data (no cached
+// Drive file contents, no Calendar event bodies) — OfficeLink below only
+// stores the external reference (id/url/title) needed to show a link in
+// the UI; the source of truth stays in Drive/Calendar. Updated after the
 // Fase 0 discovery answers confirmed the real 5-stage PEP methodology and
 // pricing engine — see docs/fase-0/decisoes-pos-descoberta.md and
 // docs/fase-0/data-model.md.
@@ -25,6 +27,16 @@ enum ProjectStageName {
   EXECUTIVO
 }
 
+enum OfficeLinkProvider {
+  DRIVE
+  CALENDAR
+}
+
+enum OfficeLinkEntityType {
+  PROJECT
+  CLIENT
+}
+
 // Tenant: the architecture firm using the platform. Every domain record
 // hangs off an Account so the schema supports multiple firms later
 // without a redesign, even though Giulia is the only tenant today.
@@ -36,11 +48,12 @@ model Account {
   fatorRPercent  Decimal? // last computed folha/receita 12m ratio, for the Fator R simulator
   createdAt      DateTime @default(now())
 
-  users     User[]
-  clients   Client[]
-  projects  Project[]
-  products  Product[]
-  roleRates RoleRate[]
+  users       User[]
+  clients     Client[]
+  projects    Project[]
+  products    Product[]
+  roleRates   RoleRate[]
+  officeLinks OfficeLink[]
 }
 
 // Hourly rate per role, already net of overhead/margin/tax (the output of
@@ -289,4 +302,24 @@ model ProductSpecification {
   clientApproved Boolean @default(false)
   clientComment String?
   createdAt     DateTime @default(now())
+}
+
+// Office: referência a um arquivo do Drive ou evento do Calendar vinculado
+// a um Project ou Client. Sem FK direta para entityId — é polimórfico
+// (Project ou Client conforme entityType) — o escopo de conta e a
+// existência do alvo são validados na service layer, mesmo padrão já
+// usado para escopar sub-recursos ao Project dono (ex.: Area).
+model OfficeLink {
+  id         String               @id @default(cuid())
+  accountId  String
+  account    Account              @relation(fields: [accountId], references: [id])
+  entityType OfficeLinkEntityType
+  entityId   String
+  provider   OfficeLinkProvider
+  externalId String // Drive fileId ou Calendar eventId
+  url        String
+  title      String
+  createdAt  DateTime             @default(now())
+
+  @@index([accountId, entityType, entityId])
 }

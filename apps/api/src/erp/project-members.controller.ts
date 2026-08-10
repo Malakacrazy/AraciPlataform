@@ -1,5 +1,17 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post } from '@nestjs/common';
-import { ProjectMembersService, addMemberSchema, type AddMemberInput } from './project-members.service';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+} from '@nestjs/common';
+import {
+  ProjectMembersService,
+  addMemberSchema,
+  type AddMemberInput,
+} from './project-members.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -13,7 +25,10 @@ export class ProjectMembersController {
     @SessionAccount() { accountId }: SessionAccountType,
     @Param('projectId') projectId: string,
   ) {
-    const data = await this.projectMembersService.listMembers(accountId, projectId);
+    const data = await this.projectMembersService.listMembers(
+      accountId,
+      projectId,
+    );
     return { data };
   }
 
@@ -24,7 +39,11 @@ export class ProjectMembersController {
     @Param('projectId') projectId: string,
     @Body(new ZodValidationPipe(addMemberSchema)) input: AddMemberInput,
   ) {
-    const data = await this.projectMembersService.addMember(accountId, projectId, input);
+    const data = await this.projectMembersService.addMember(
+      accountId,
+      projectId,
+      input,
+    );
     return { data };
   }
 

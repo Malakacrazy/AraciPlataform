@@ -1,5 +1,19 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
-import { TimeEntriesService, timeEntryInputSchema, type TimeEntryInput } from './time-entries.service';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
+import {
+  TimeEntriesService,
+  timeEntryInputSchema,
+  type TimeEntryInput,
+} from './time-entries.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -14,7 +28,10 @@ export class TimeEntriesController {
     @Query('projectId') projectId?: string,
     @Query('userId') userId?: string,
   ) {
-    const data = await this.timeEntriesService.listTimeEntries(accountId, { projectId, userId });
+    const data = await this.timeEntriesService.listTimeEntries(accountId, {
+      projectId,
+      userId,
+    });
     return { data };
   }
 
@@ -25,7 +42,11 @@ export class TimeEntriesController {
     @SessionAccount() { accountId, userId }: SessionAccountType,
     @Body(new ZodValidationPipe(timeEntryInputSchema)) input: TimeEntryInput,
   ) {
-    const data = await this.timeEntriesService.createTimeEntry(accountId, userId, input);
+    const data = await this.timeEntriesService.createTimeEntry(
+      accountId,
+      userId,
+      input,
+    );
     return { data };
   }
 
@@ -33,15 +54,23 @@ export class TimeEntriesController {
   async update(
     @SessionAccount() { accountId }: SessionAccountType,
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(timeEntryInputSchema.partial())) input: Partial<TimeEntryInput>,
+    @Body(new ZodValidationPipe(timeEntryInputSchema.partial()))
+    input: Partial<TimeEntryInput>,
   ) {
-    const data = await this.timeEntriesService.updateTimeEntry(accountId, id, input);
+    const data = await this.timeEntriesService.updateTimeEntry(
+      accountId,
+      id,
+      input,
+    );
     return { data };
   }
 
   @Delete(':id')
   @HttpCode(204)
-  async remove(@SessionAccount() { accountId }: SessionAccountType, @Param('id') id: string) {
+  async remove(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
     await this.timeEntriesService.deleteTimeEntry(accountId, id);
   }
 
@@ -55,7 +84,11 @@ export class TimeEntriesController {
     @SessionAccount() { accountId, userId }: SessionAccountType,
     @Param('id') id: string,
   ) {
-    const data = await this.timeEntriesService.approveTimeEntry(accountId, id, userId);
+    const data = await this.timeEntriesService.approveTimeEntry(
+      accountId,
+      id,
+      userId,
+    );
     return { data };
   }
 }

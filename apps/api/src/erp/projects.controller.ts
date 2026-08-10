@@ -1,5 +1,17 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch } from '@nestjs/common';
-import { ProjectsService, projectUpdateSchema, type ProjectUpdateInput } from './projects.service';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+} from '@nestjs/common';
+import {
+  ProjectsService,
+  projectUpdateSchema,
+  type ProjectUpdateInput,
+} from './projects.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -18,7 +30,10 @@ export class ProjectsController {
   }
 
   @Get(':id')
-  async get(@SessionAccount() { accountId }: SessionAccountType, @Param('id') id: string) {
+  async get(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
     const data = await this.projectsService.getProject(accountId, id);
     return { data };
   }
@@ -35,7 +50,10 @@ export class ProjectsController {
 
   @Delete(':id')
   @HttpCode(204)
-  async remove(@SessionAccount() { accountId }: SessionAccountType, @Param('id') id: string) {
+  async remove(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
     await this.projectsService.deleteProject(accountId, id);
   }
 }

@@ -1,5 +1,17 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post } from '@nestjs/common';
-import { RoleRatesService, roleRateInputSchema, type RoleRateInput } from './role-rates.service';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+} from '@nestjs/common';
+import {
+  RoleRatesService,
+  roleRateInputSchema,
+  type RoleRateInput,
+} from './role-rates.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -28,7 +40,10 @@ export class RoleRatesController {
 
   @Delete(':id')
   @HttpCode(204)
-  async remove(@SessionAccount() { accountId }: SessionAccountType, @Param('id') id: string) {
+  async remove(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
     await this.roleRatesService.deleteRoleRate(accountId, id);
   }
 }

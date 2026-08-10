@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   InvoicesService,
   createInvoiceSchema,
@@ -24,7 +33,12 @@ export class PhaseInvoiceController {
     @Param('phaseId') phaseId: string,
     @Body(new ZodValidationPipe(createInvoiceSchema)) input: CreateInvoiceInput,
   ) {
-    const data = await this.invoicesService.createInvoiceForPhase(accountId, projectId, phaseId, input);
+    const data = await this.invoicesService.createInvoiceForPhase(
+      accountId,
+      projectId,
+      phaseId,
+      input,
+    );
     return { data };
   }
 }
@@ -46,7 +60,10 @@ export class InvoicesController {
   }
 
   @Get(':id')
-  async get(@SessionAccount() { accountId }: SessionAccountType, @Param('id') id: string) {
+  async get(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
     const data = await this.invoicesService.getInvoice(accountId, id);
     return { data };
   }
@@ -55,9 +72,14 @@ export class InvoicesController {
   async updateStatus(
     @SessionAccount() { accountId }: SessionAccountType,
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(invoiceStatusUpdateSchema)) input: InvoiceStatusUpdate,
+    @Body(new ZodValidationPipe(invoiceStatusUpdateSchema))
+    input: InvoiceStatusUpdate,
   ) {
-    const data = await this.invoicesService.updateInvoiceStatus(accountId, id, input);
+    const data = await this.invoicesService.updateInvoiceStatus(
+      accountId,
+      id,
+      input,
+    );
     return { data };
   }
 }

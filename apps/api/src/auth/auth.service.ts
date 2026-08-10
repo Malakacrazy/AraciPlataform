@@ -12,7 +12,9 @@ export class AuthService {
   constructor(private readonly prisma: PrismaService) {}
 
   async ensureAccountAndUser(email: string, name: string) {
-    const existingUser = await this.prisma.db.user.findUnique({ where: { email } });
+    const existingUser = await this.prisma.db.user.findUnique({
+      where: { email },
+    });
     if (existingUser) {
       return existingUser;
     }

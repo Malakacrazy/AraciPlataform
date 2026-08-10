@@ -70,9 +70,14 @@ export class ProposalsService {
   // cadastradas na conta e persiste o resultado — Proposal + uma
   // ProposalStage por estágio, espelhando a aba 05 da planilha.
   async createProposal(accountId: string, input: ProposalInput) {
-    await this.opportunitiesService.getOpportunity(accountId, input.opportunityId); // 404 se a oportunidade não é desta conta
+    await this.opportunitiesService.getOpportunity(
+      accountId,
+      input.opportunityId,
+    ); // 404 se a oportunidade não é desta conta
 
-    const roleRates = await this.prisma.db.roleRate.findMany({ where: { accountId } });
+    const roleRates = await this.prisma.db.roleRate.findMany({
+      where: { accountId },
+    });
     if (roleRates.length === 0) {
       throw new ApiError(
         'NO_ROLE_RATES',
@@ -85,7 +90,10 @@ export class ProposalsService {
       roleHours: input.roleHours,
       complexityScores: input.complexityScores,
       contractedStages: input.contractedStages,
-      roleRates: roleRates.map((r) => ({ role: r.role, hourlyRate: Number(r.hourlyRate) })),
+      roleRates: roleRates.map((r) => ({
+        role: r.role,
+        hourlyRate: Number(r.hourlyRate),
+      })),
     });
 
     return this.prisma.db.proposal.create({
@@ -110,14 +118,22 @@ export class ProposalsService {
     });
   }
 
-  async updateProposalStatus(accountId: string, id: string, input: ProposalStatusUpdate) {
+  async updateProposalStatus(
+    accountId: string,
+    id: string,
+    input: ProposalStatusUpdate,
+  ) {
     await this.getProposal(accountId, id);
     return this.prisma.db.proposal.update({
       where: { id },
       data: {
         status: input.status,
         sentAt:
-          input.sentAt === undefined ? undefined : input.sentAt === null ? null : new Date(input.sentAt),
+          input.sentAt === undefined
+            ? undefined
+            : input.sentAt === null
+              ? null
+              : new Date(input.sentAt),
         signedAt:
           input.signedAt === undefined
             ? undefined

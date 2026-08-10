@@ -23,7 +23,9 @@ export const specificationUpdateSchema = z.object({
   clientComment: z.string().optional(),
 });
 
-export type SpecificationUpdateInput = z.infer<typeof specificationUpdateSchema>;
+export type SpecificationUpdateInput = z.infer<
+  typeof specificationUpdateSchema
+>;
 
 @Injectable()
 export class SpecificationsService {
@@ -54,7 +56,11 @@ export class SpecificationsService {
     return spec;
   }
 
-  async createSpecification(accountId: string, areaId: string, input: SpecificationInput) {
+  async createSpecification(
+    accountId: string,
+    areaId: string,
+    input: SpecificationInput,
+  ) {
     await this.areasService.getArea(accountId, areaId);
     await this.productsService.getProduct(accountId, input.productId); // 404 se o produto não é desta conta
     return this.prisma.db.productSpecification.create({
@@ -63,7 +69,11 @@ export class SpecificationsService {
     });
   }
 
-  async updateSpecification(accountId: string, id: string, input: SpecificationUpdateInput) {
+  async updateSpecification(
+    accountId: string,
+    id: string,
+    input: SpecificationUpdateInput,
+  ) {
     await this.getSpecification(accountId, id);
     return this.prisma.db.productSpecification.update({
       where: { id },
@@ -84,7 +94,11 @@ export class SpecificationsService {
   // fatura em vez de atualizar uma existente — o cliente pode aprovar o
   // carrinho em rodadas ao longo do projeto, e cada rodada é seu próprio
   // registro de faturamento.
-  async approveCartToInvoiceDraft(accountId: string, projectId: string, specificationIds: string[]) {
+  async approveCartToInvoiceDraft(
+    accountId: string,
+    projectId: string,
+    specificationIds: string[],
+  ) {
     await this.projectsService.getProject(accountId, projectId);
 
     const specs = await this.prisma.db.productSpecification.findMany({
@@ -104,7 +118,8 @@ export class SpecificationsService {
     }
 
     const total = specs.reduce((sum, s) => {
-      const lineTotal = s.quantity * Number(s.unitPrice) * (1 + Number(s.markupPercent ?? 0));
+      const lineTotal =
+        s.quantity * Number(s.unitPrice) * (1 + Number(s.markupPercent ?? 0));
       return sum + lineTotal;
     }, 0);
 

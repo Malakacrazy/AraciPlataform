@@ -1,5 +1,9 @@
 import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
-import { UsersService, userUpdateSchema, type UserUpdateInput } from './users.service';
+import {
+  UsersService,
+  userUpdateSchema,
+  type UserUpdateInput,
+} from './users.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -16,7 +20,10 @@ export class UsersController {
   }
 
   @Get(':id')
-  async get(@SessionAccount() { accountId }: SessionAccountType, @Param('id') id: string) {
+  async get(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
     const data = await this.usersService.getUser(accountId, id);
     return { data };
   }

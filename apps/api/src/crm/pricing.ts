@@ -39,7 +39,9 @@ export function calcularTarifaHora(
   const custoTotalMes = role.grossSalary + role.payrollBurden;
   const custoDiretoHora = custoTotalMes / role.billableHoursPerMonth;
   const custoTotalHora = custoDiretoHora + overheadPorHora;
-  return (custoTotalHora * (1 + formula.marginTarget)) / (1 - formula.taxBurden);
+  return (
+    (custoTotalHora * (1 + formula.marginTarget)) / (1 - formula.taxBurden)
+  );
 }
 
 export interface ComplexityScores {
@@ -55,7 +57,9 @@ export interface ComplexityScores {
 // (1.0 → 0.70x ... 5.0 → 1.50x). Multiplica HORAS, nunca a tarifa/hora:
 // projeto complexo demanda mais iteração, não justifica cobrar mais caro
 // por hora (nota da própria planilha).
-export function calcularMultiplicadorComplexidade(scores: ComplexityScores): number {
+export function calcularMultiplicadorComplexidade(
+  scores: ComplexityScores,
+): number {
   const scoreMedio =
     (scores.tipologia +
       scores.programaEscopo +
@@ -108,7 +112,9 @@ export function calcularProposta(input: {
   roleRates: RoleRateInput[];
 }): ProposalResult {
   const multiplier = calcularMultiplicadorComplexidade(input.complexityScores);
-  const rateByRole = new Map(input.roleRates.map((r) => [r.role, r.hourlyRate]));
+  const rateByRole = new Map(
+    input.roleRates.map((r) => [r.role, r.hourlyRate]),
+  );
   const contractedSet = new Set(input.contractedStages);
 
   const stages: ProposalStageResult[] = PEP_STAGE_ORDER.map((stage) => {
@@ -117,7 +123,9 @@ export function calcularProposta(input: {
     const baseCost = hoursForStage.reduce((sum, rh) => {
       const rate = rateByRole.get(rh.role);
       if (rate === undefined) {
-        throw new Error(`Nenhuma RoleRate encontrada para o papel "${rh.role}"`);
+        throw new Error(
+          `Nenhuma RoleRate encontrada para o papel "${rh.role}"`,
+        );
       }
       return sum + rh.hours * rate;
     }, 0);
@@ -131,10 +139,14 @@ export function calcularProposta(input: {
     };
   });
 
-  const subtotal = stages.filter((s) => s.contracted).reduce((sum, s) => sum + s.adjustedCost, 0);
+  const subtotal = stages
+    .filter((s) => s.contracted)
+    .reduce((sum, s) => sum + s.adjustedCost, 0);
   const contractedCount = stages.filter((s) => s.contracted).length;
   const packageDiscountPercent =
-    contractedCount >= PACKAGE_DISCOUNT_MIN_STAGES ? PACKAGE_DISCOUNT_PERCENT : 0;
+    contractedCount >= PACKAGE_DISCOUNT_MIN_STAGES
+      ? PACKAGE_DISCOUNT_PERCENT
+      : 0;
 
   return {
     complexityMultiplier: multiplier,

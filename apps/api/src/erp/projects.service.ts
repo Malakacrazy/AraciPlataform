@@ -42,14 +42,34 @@ export class ProjectsService {
     return project;
   }
 
-  async updateProject(accountId: string, id: string, input: ProjectUpdateInput) {
+  async updateProject(
+    accountId: string,
+    id: string,
+    input: ProjectUpdateInput,
+  ) {
     await this.getProject(accountId, id);
     return this.prisma.db.project.update({ where: { id }, data: input });
   }
 
   async deleteProject(accountId: string, id: string) {
     await this.getProject(accountId, id);
-    await this.prisma.db.project.delete({ where: { id } });
+    // OfficeLink não tem FK para Project (polimórfico — ver
+    // office-links.service.ts), então o delete do projeto não seria
+    // bloqueado por P2003 nem levaria os vínculos junto: eles ficariam
+    // órfãos e, pior, inacessíveis (listForProject faria 404 antes de
+    // listar). Limpa explicitamente na mesma transação — mesmo que hoje
+    // este delete já sempre 409 antes de chegar aqui, por causa das 5
+    // ProjectPhase que toda Project tem e que phases.controller.ts não
+    // permite excluir; mantido por paridade com
+    // ClientsService.deleteClient (esse sim alcançável hoje) e para não
+    // deixar a limpeza faltando se um caminho de delete de fases for
+    // aberto no futuro.
+    await this.prisma.db.$transaction([
+      this.prisma.db.officeLink.deleteMany({
+        where: { accountId, entityType: 'PROJECT', entityId: id },
+      }),
+      this.prisma.db.project.delete({ where: { id } }),
+    ]);
   }
 
   // Chamado por CrmModule (OpportunitiesService.convertToProject) — não

@@ -187,12 +187,20 @@ cálculo é real; os valores de entrada ainda não foram calibrados.
 ## Pontos de integração externa
 
 - **Google Workspace**: OAuth (Auth.js, já wired), Drive API (arquivos
-  vinculados), Gmail API (captura de e-mail), Calendar API (sync de
+  vinculados), Gmail API (captura de e-mail, Fase 4), Calendar API (sync de
   marcos). Cada integração é um escopo OAuth incremental — não pedir
   todos os escopos no login inicial, só o mínimo (perfil) e solicitar
-  Drive/Gmail/Calendar quando o usuário ativar aquele recurso. O estúdio
+  Drive/Calendar quando o usuário ativar aquele recurso. O estúdio
   usa só Google Workspace (resposta 14); o login já restringe por `hd` ao
   domínio `studioaraci.com.br` (resposta 15) em `apps/web/src/lib/auth.ts`.
+  A persistência do lado da plataforma (`OfficeLink`, em `apps/api`) já
+  está implementada — guarda só id/url/título externos, nunca o token
+  OAuth (que fica só na sessão do `apps/web`, nunca chega em `apps/api`,
+  ver `adr-0002-nestjs-turborepo.md`). O que falta é a UI com o Google
+  Picker chamando a API real do Drive/Calendar para preencher esses
+  campos — hoje o vínculo é criado com dado informado direto, porque não
+  há credenciais OAuth reais (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`)
+  para testar a chamada de verdade.
 - **NFS-e**: decidido —
   [nfewizard-io](https://github.com/nfewizard-org/nfewizard-io), biblioteca
   Node.js open source (GPL-3.0) que fala direto com SEFAZ/SEFIN Nacional

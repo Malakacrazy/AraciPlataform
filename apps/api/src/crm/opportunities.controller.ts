@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import {
   OpportunitiesService,
   opportunityInputSchema,
@@ -21,7 +30,10 @@ export class OpportunitiesController {
   }
 
   @Get(':id')
-  async get(@SessionAccount() { accountId }: SessionAccountType, @Param('id') id: string) {
+  async get(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
     const data = await this.opportunitiesService.getOpportunity(accountId, id);
     return { data };
   }
@@ -30,9 +42,13 @@ export class OpportunitiesController {
   @HttpCode(201)
   async create(
     @SessionAccount() { accountId }: SessionAccountType,
-    @Body(new ZodValidationPipe(opportunityInputSchema)) input: OpportunityInput,
+    @Body(new ZodValidationPipe(opportunityInputSchema))
+    input: OpportunityInput,
   ) {
-    const data = await this.opportunitiesService.createOpportunity(accountId, input);
+    const data = await this.opportunitiesService.createOpportunity(
+      accountId,
+      input,
+    );
     return { data };
   }
 
@@ -40,13 +56,28 @@ export class OpportunitiesController {
   async update(
     @SessionAccount() { accountId }: SessionAccountType,
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(opportunityUpdateSchema)) body: OpportunityUpdateInput,
+    @Body(new ZodValidationPipe(opportunityUpdateSchema))
+    body: OpportunityUpdateInput,
   ) {
-    const opportunity = await this.opportunitiesService.updateOpportunity(accountId, id, {
-      ...body,
-      wonAt: body.wonAt === undefined ? undefined : body.wonAt === null ? null : new Date(body.wonAt),
-      lostAt: body.lostAt === undefined ? undefined : body.lostAt === null ? null : new Date(body.lostAt),
-    });
+    const opportunity = await this.opportunitiesService.updateOpportunity(
+      accountId,
+      id,
+      {
+        ...body,
+        wonAt:
+          body.wonAt === undefined
+            ? undefined
+            : body.wonAt === null
+              ? null
+              : new Date(body.wonAt),
+        lostAt:
+          body.lostAt === undefined
+            ? undefined
+            : body.lostAt === null
+              ? null
+              : new Date(body.lostAt),
+      },
+    );
 
     // Fluxo automático #1: marcar como ganha converte em projeto, sem
     // redigitação. Idempotente, então repetir o PATCH com o mesmo wonAt
@@ -61,7 +92,10 @@ export class OpportunitiesController {
 
   @Delete(':id')
   @HttpCode(204)
-  async remove(@SessionAccount() { accountId }: SessionAccountType, @Param('id') id: string) {
+  async remove(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
     await this.opportunitiesService.deleteOpportunity(accountId, id);
   }
 }

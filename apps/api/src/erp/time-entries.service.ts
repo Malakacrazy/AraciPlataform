@@ -22,7 +22,10 @@ export class TimeEntriesService {
     private readonly projectsService: ProjectsService,
   ) {}
 
-  listTimeEntries(accountId: string, filters: { projectId?: string; userId?: string } = {}) {
+  listTimeEntries(
+    accountId: string,
+    filters: { projectId?: string; userId?: string } = {},
+  ) {
     return this.prisma.db.timeEntry.findMany({
       where: {
         project: { accountId },
@@ -34,7 +37,9 @@ export class TimeEntriesService {
   }
 
   private async getTimeEntry(accountId: string, id: string) {
-    const entry = await this.prisma.db.timeEntry.findFirst({ where: { id, project: { accountId } } });
+    const entry = await this.prisma.db.timeEntry.findFirst({
+      where: { id, project: { accountId } },
+    });
     if (!entry) {
       throw new NotFoundError('Lançamento de horas');
     }
@@ -44,7 +49,11 @@ export class TimeEntriesService {
   // Quem lança a hora é sempre o usuário autenticado (userId vem da
   // sessão, não do corpo da requisição) — não existe "lançar hora em nome
   // de outra pessoa" nesta API.
-  async createTimeEntry(accountId: string, userId: string, input: TimeEntryInput) {
+  async createTimeEntry(
+    accountId: string,
+    userId: string,
+    input: TimeEntryInput,
+  ) {
     await this.projectsService.getProject(accountId, input.projectId);
     if (input.phaseId) {
       const phase = await this.prisma.db.projectPhase.findFirst({
@@ -78,7 +87,11 @@ export class TimeEntriesService {
     }
   }
 
-  async updateTimeEntry(accountId: string, id: string, input: Partial<TimeEntryInput>) {
+  async updateTimeEntry(
+    accountId: string,
+    id: string,
+    input: Partial<TimeEntryInput>,
+  ) {
     const entry = await this.getTimeEntry(accountId, id);
     this.assertNotApproved(entry);
     return this.prisma.db.timeEntry.update({
@@ -97,7 +110,11 @@ export class TimeEntriesService {
   // período (plano original, seção ERP Arquitetura). approverUserId é
   // quem está aprovando (o usuário autenticado fazendo a chamada), não
   // quem lançou a hora.
-  async approveTimeEntry(accountId: string, id: string, approverUserId: string) {
+  async approveTimeEntry(
+    accountId: string,
+    id: string,
+    approverUserId: string,
+  ) {
     await this.getTimeEntry(accountId, id);
     return this.prisma.db.timeEntry.update({
       where: { id },

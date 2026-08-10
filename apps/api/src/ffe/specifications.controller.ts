@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import { z } from 'zod';
 import {
   SpecificationsService,
@@ -16,8 +25,14 @@ export class AreaSpecificationsController {
   constructor(private readonly specificationsService: SpecificationsService) {}
 
   @Get()
-  async list(@SessionAccount() { accountId }: SessionAccountType, @Param('areaId') areaId: string) {
-    const data = await this.specificationsService.listSpecifications(accountId, areaId);
+  async list(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('areaId') areaId: string,
+  ) {
+    const data = await this.specificationsService.listSpecifications(
+      accountId,
+      areaId,
+    );
     return { data };
   }
 
@@ -26,9 +41,14 @@ export class AreaSpecificationsController {
   async create(
     @SessionAccount() { accountId }: SessionAccountType,
     @Param('areaId') areaId: string,
-    @Body(new ZodValidationPipe(specificationInputSchema)) input: SpecificationInput,
+    @Body(new ZodValidationPipe(specificationInputSchema))
+    input: SpecificationInput,
   ) {
-    const data = await this.specificationsService.createSpecification(accountId, areaId, input);
+    const data = await this.specificationsService.createSpecification(
+      accountId,
+      areaId,
+      input,
+    );
     return { data };
   }
 }
@@ -41,15 +61,23 @@ export class SpecificationsController {
   async update(
     @SessionAccount() { accountId }: SessionAccountType,
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(specificationUpdateSchema)) input: SpecificationUpdateInput,
+    @Body(new ZodValidationPipe(specificationUpdateSchema))
+    input: SpecificationUpdateInput,
   ) {
-    const data = await this.specificationsService.updateSpecification(accountId, id, input);
+    const data = await this.specificationsService.updateSpecification(
+      accountId,
+      id,
+      input,
+    );
     return { data };
   }
 
   @Delete(':id')
   @HttpCode(204)
-  async remove(@SessionAccount() { accountId }: SessionAccountType, @Param('id') id: string) {
+  async remove(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
     await this.specificationsService.deleteSpecification(accountId, id);
   }
 }
@@ -69,7 +97,8 @@ export class FfeCheckoutController {
   async checkout(
     @SessionAccount() { accountId }: SessionAccountType,
     @Param('projectId') projectId: string,
-    @Body(new ZodValidationPipe(checkoutSchema)) body: { specificationIds: string[] },
+    @Body(new ZodValidationPipe(checkoutSchema))
+    body: { specificationIds: string[] },
   ) {
     const data = await this.specificationsService.approveCartToInvoiceDraft(
       accountId,

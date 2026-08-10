@@ -1,4 +1,5 @@
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import EmbeddedPostgres from "embedded-postgres";
 
@@ -16,8 +17,10 @@ const PORT = 5433;
 const USER = "araci";
 const PASSWORD = "araci_dev_password";
 
+const DATA_DIR = path.join(__dirname, "..", ".pgdata");
+
 const pg = new EmbeddedPostgres({
-  databaseDir: path.join(__dirname, "..", ".pgdata"),
+  databaseDir: DATA_DIR,
   port: PORT,
   user: USER,
   password: PASSWORD,
@@ -25,7 +28,14 @@ const pg = new EmbeddedPostgres({
 });
 
 async function main() {
-  await pg.initialise(); // no-op if the data dir is already initialised
+  // A diferença de initdb (que exige o diretório vazio) não é opcional: a
+  // lib não checa sozinha se o cluster já existe, é o chamador que precisa
+  // pular initialise() nesse caso (ver embedded-postgres/dist/index.js,
+  // docstring de initialise()).
+  const alreadyInitialised = existsSync(path.join(DATA_DIR, "PG_VERSION"));
+  if (!alreadyInitialised) {
+    await pg.initialise();
+  }
   await pg.start();
 
   try {

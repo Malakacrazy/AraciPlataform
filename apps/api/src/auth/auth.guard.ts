@@ -34,9 +34,13 @@ export class AuthGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<Request & { sessionAccount?: SessionAccount }>();
+    const request = context
+      .switchToHttp()
+      .getRequest<Request & { sessionAccount?: SessionAccount }>();
     const authHeader = request.headers.authorization;
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : undefined;
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.slice('Bearer '.length)
+      : undefined;
     if (!token) {
       throw new UnauthorizedError();
     }
@@ -48,9 +52,13 @@ export class AuthGuard implements CanActivate {
 
     let email: string;
     try {
-      const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), {
-        algorithms: ['HS256'],
-      });
+      const { payload } = await jwtVerify(
+        token,
+        new TextEncoder().encode(secret),
+        {
+          algorithms: ['HS256'],
+        },
+      );
       if (typeof payload.email !== 'string') {
         throw new Error('missing email claim');
       }
@@ -60,7 +68,11 @@ export class AuthGuard implements CanActivate {
     }
 
     const user = await this.authService.ensureAccountAndUser(email, email);
-    request.sessionAccount = { accountId: user.accountId, userId: user.id, email };
+    request.sessionAccount = {
+      accountId: user.accountId,
+      userId: user.id,
+      email,
+    };
     return true;
   }
 }

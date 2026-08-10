@@ -19,11 +19,16 @@ export class AreasService {
 
   async listAreas(accountId: string, projectId: string) {
     await this.projectsService.getProject(accountId, projectId);
-    return this.prisma.db.area.findMany({ where: { projectId }, orderBy: { name: 'asc' } });
+    return this.prisma.db.area.findMany({
+      where: { projectId },
+      orderBy: { name: 'asc' },
+    });
   }
 
   async getArea(accountId: string, id: string) {
-    const area = await this.prisma.db.area.findFirst({ where: { id, project: { accountId } } });
+    const area = await this.prisma.db.area.findFirst({
+      where: { id, project: { accountId } },
+    });
     if (!area) {
       throw new NotFoundError('Ambiente');
     }

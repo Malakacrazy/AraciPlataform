@@ -35,7 +35,9 @@ export class InvoicesService {
   }
 
   async getInvoice(accountId: string, id: string) {
-    const invoice = await this.prisma.db.invoice.findFirst({ where: { id, project: { accountId } } });
+    const invoice = await this.prisma.db.invoice.findFirst({
+      where: { id, project: { accountId } },
+    });
     if (!invoice) {
       throw new NotFoundError('Fatura');
     }
@@ -53,7 +55,9 @@ export class InvoicesService {
     input: CreateInvoiceInput,
   ) {
     await this.projectsService.getProject(accountId, projectId);
-    const phase = await this.prisma.db.projectPhase.findFirst({ where: { id: phaseId, projectId } });
+    const phase = await this.prisma.db.projectPhase.findFirst({
+      where: { id: phaseId, projectId },
+    });
     if (!phase) {
       throw new NotFoundError('Fase do projeto');
     }
@@ -76,7 +80,11 @@ export class InvoicesService {
     });
   }
 
-  async updateInvoiceStatus(accountId: string, id: string, input: InvoiceStatusUpdate) {
+  async updateInvoiceStatus(
+    accountId: string,
+    id: string,
+    input: InvoiceStatusUpdate,
+  ) {
     await this.getInvoice(accountId, id);
     return this.prisma.db.invoice.update({
       where: { id },
@@ -84,9 +92,17 @@ export class InvoicesService {
         status: input.status,
         nfseNumber: input.nfseNumber,
         issuedAt:
-          input.issuedAt === undefined ? undefined : input.issuedAt === null ? null : new Date(input.issuedAt),
+          input.issuedAt === undefined
+            ? undefined
+            : input.issuedAt === null
+              ? null
+              : new Date(input.issuedAt),
         paidAt:
-          input.paidAt === undefined ? undefined : input.paidAt === null ? null : new Date(input.paidAt),
+          input.paidAt === undefined
+            ? undefined
+            : input.paidAt === null
+              ? null
+              : new Date(input.paidAt),
       },
     });
   }

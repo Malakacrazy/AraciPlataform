@@ -1,4 +1,12 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+} from '@nestjs/common';
 import { AreasService, areaInputSchema, type AreaInput } from './areas.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
@@ -24,7 +32,11 @@ export class ProjectAreasController {
     @Param('projectId') projectId: string,
     @Body(new ZodValidationPipe(areaInputSchema)) input: AreaInput,
   ) {
-    const data = await this.areasService.createArea(accountId, projectId, input);
+    const data = await this.areasService.createArea(
+      accountId,
+      projectId,
+      input,
+    );
     return { data };
   }
 }
@@ -35,7 +47,10 @@ export class AreasController {
 
   @Delete(':id')
   @HttpCode(204)
-  async remove(@SessionAccount() { accountId }: SessionAccountType, @Param('id') id: string) {
+  async remove(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
     await this.areasService.deleteArea(accountId, id);
   }
 }

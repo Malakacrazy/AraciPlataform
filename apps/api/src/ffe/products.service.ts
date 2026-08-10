@@ -22,11 +22,16 @@ export class ProductsService {
   constructor(private readonly prisma: PrismaService) {}
 
   listProducts(accountId: string) {
-    return this.prisma.db.product.findMany({ where: { accountId }, orderBy: { name: 'asc' } });
+    return this.prisma.db.product.findMany({
+      where: { accountId },
+      orderBy: { name: 'asc' },
+    });
   }
 
   async getProduct(accountId: string, id: string) {
-    const product = await this.prisma.db.product.findFirst({ where: { id, accountId } });
+    const product = await this.prisma.db.product.findFirst({
+      where: { id, accountId },
+    });
     if (!product) {
       throw new NotFoundError('Produto');
     }
@@ -37,7 +42,11 @@ export class ProductsService {
     return this.prisma.db.product.create({ data: { ...input, accountId } });
   }
 
-  async updateProduct(accountId: string, id: string, input: Partial<ProductInput>) {
+  async updateProduct(
+    accountId: string,
+    id: string,
+    input: Partial<ProductInput>,
+  ) {
     await this.getProduct(accountId, id);
     return this.prisma.db.product.update({ where: { id }, data: input });
   }

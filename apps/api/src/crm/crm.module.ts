@@ -11,8 +11,18 @@ import { RoleRatesService } from './role-rates.service';
 
 @Module({
   imports: [ErpModule], // OpportunitiesService precisa de ProjectsService (conversão automática)
-  controllers: [ClientsController, OpportunitiesController, ProposalsController, RoleRatesController],
-  providers: [ClientsService, OpportunitiesService, ProposalsService, RoleRatesService],
+  controllers: [
+    ClientsController,
+    OpportunitiesController,
+    ProposalsController,
+    RoleRatesController,
+  ],
+  providers: [
+    ClientsService,
+    OpportunitiesService,
+    ProposalsService,
+    RoleRatesService,
+  ],
   exports: [ClientsService],
 })
 export class CrmModule {}

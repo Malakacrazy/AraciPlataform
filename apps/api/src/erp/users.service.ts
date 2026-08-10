@@ -22,11 +22,16 @@ export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
   listUsers(accountId: string) {
-    return this.prisma.db.user.findMany({ where: { accountId }, orderBy: { name: 'asc' } });
+    return this.prisma.db.user.findMany({
+      where: { accountId },
+      orderBy: { name: 'asc' },
+    });
   }
 
   async getUser(accountId: string, id: string) {
-    const user = await this.prisma.db.user.findFirst({ where: { id, accountId } });
+    const user = await this.prisma.db.user.findFirst({
+      where: { id, accountId },
+    });
     if (!user) {
       throw new NotFoundError('Colaborador');
     }

@@ -66,7 +66,10 @@ export class OpportunitiesService {
   async updateOpportunity(
     accountId: string,
     id: string,
-    input: Partial<OpportunityInput> & { wonAt?: Date | null; lostAt?: Date | null },
+    input: Partial<OpportunityInput> & {
+      wonAt?: Date | null;
+      lostAt?: Date | null;
+    },
   ) {
     await this.getOpportunity(accountId, id);
     if (input.clientId) {

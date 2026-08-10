@@ -1,5 +1,9 @@
 import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
-import { PhasesService, approveGateSchema, type ApproveGateInput } from './phases.service';
+import {
+  PhasesService,
+  approveGateSchema,
+  type ApproveGateInput,
+} from './phases.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -30,7 +34,12 @@ export class PhasesController {
     @Param('phaseId') phaseId: string,
     @Body(new ZodValidationPipe(approveGateSchema)) input: ApproveGateInput,
   ) {
-    const data = await this.phasesService.approvePhaseGate(accountId, projectId, phaseId, input);
+    const data = await this.phasesService.approvePhaseGate(
+      accountId,
+      projectId,
+      phaseId,
+      input,
+    );
     return { data };
   }
 }

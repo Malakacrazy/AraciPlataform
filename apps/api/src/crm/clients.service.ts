@@ -27,7 +27,9 @@ export class ClientsService {
   }
 
   async getClient(accountId: string, id: string) {
-    const client = await this.prisma.db.client.findFirst({ where: { id, accountId } });
+    const client = await this.prisma.db.client.findFirst({
+      where: { id, accountId },
+    });
     if (!client) {
       throw new NotFoundError('Cliente');
     }
@@ -38,13 +40,25 @@ export class ClientsService {
     return this.prisma.db.client.create({ data: { ...input, accountId } });
   }
 
-  async updateClient(accountId: string, id: string, input: Partial<ClientInput>) {
+  async updateClient(
+    accountId: string,
+    id: string,
+    input: Partial<ClientInput>,
+  ) {
     await this.getClient(accountId, id); // 404 antes de tentar atualizar fora do escopo da conta
     return this.prisma.db.client.update({ where: { id }, data: input });
   }
 
   async deleteClient(accountId: string, id: string) {
     await this.getClient(accountId, id);
-    await this.prisma.db.client.delete({ where: { id } });
+    // Mesmo raciocínio de ProjectsService.deleteProject: OfficeLink não
+    // tem FK para Client (polimórfico), então precisa de limpeza explícita
+    // para não deixar vínculo órfão e inacessível.
+    await this.prisma.db.$transaction([
+      this.prisma.db.officeLink.deleteMany({
+        where: { accountId, entityType: 'CLIENT', entityId: id },
+      }),
+      this.prisma.db.client.delete({ where: { id } }),
+    ]);
   }
 }

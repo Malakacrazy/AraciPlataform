@@ -15,7 +15,10 @@ export class RoleRatesService {
   constructor(private readonly prisma: PrismaService) {}
 
   listRoleRates(accountId: string) {
-    return this.prisma.db.roleRate.findMany({ where: { accountId }, orderBy: { role: 'asc' } });
+    return this.prisma.db.roleRate.findMany({
+      where: { accountId },
+      orderBy: { role: 'asc' },
+    });
   }
 
   // Upsert por (accountId, role) — "role" continua string livre em vez de
@@ -30,7 +33,9 @@ export class RoleRatesService {
   }
 
   async deleteRoleRate(accountId: string, id: string) {
-    const rate = await this.prisma.db.roleRate.findFirst({ where: { id, accountId } });
+    const rate = await this.prisma.db.roleRate.findFirst({
+      where: { id, accountId },
+    });
     if (!rate) {
       throw new NotFoundError('Tarifa de papel');
     }

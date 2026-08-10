@@ -42,21 +42,24 @@ export class HttpExceptionFilter implements ExceptionFilter {
         response.status(409).json({
           error: {
             code: 'CONFLICT',
-            message: 'Não é possível excluir: outros registros ainda dependem deste.',
+            message:
+              'Não é possível excluir: outros registros ainda dependem deste.',
           },
         });
         return;
       }
       if (exception.code === 'P2025') {
-        response
-          .status(404)
-          .json({ error: { code: 'NOT_FOUND', message: 'Registro não encontrado.' } });
+        response.status(404).json({
+          error: { code: 'NOT_FOUND', message: 'Registro não encontrado.' },
+        });
         return;
       }
     }
 
     // Não vaza detalhe de erro interno (stack, mensagem de driver) — só loga.
     this.logger.error(exception);
-    response.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Erro interno.' } });
+    response
+      .status(500)
+      .json({ error: { code: 'INTERNAL_ERROR', message: 'Erro interno.' } });
   }
 }

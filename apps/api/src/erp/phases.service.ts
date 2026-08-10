@@ -29,9 +29,15 @@ export class PhasesService {
     });
   }
 
-  private async getPhase(accountId: string, projectId: string, phaseId: string) {
+  private async getPhase(
+    accountId: string,
+    projectId: string,
+    phaseId: string,
+  ) {
     await this.projectsService.getProject(accountId, projectId);
-    const phase = await this.prisma.db.projectPhase.findFirst({ where: { id: phaseId, projectId } });
+    const phase = await this.prisma.db.projectPhase.findFirst({
+      where: { id: phaseId, projectId },
+    });
     if (!phase) {
       throw new NotFoundError('Fase do projeto');
     }
@@ -46,7 +52,12 @@ export class PhasesService {
   // (agendamento, assinatura de contrato); aqui todas as 5 fases usam o
   // mesmo mecanismo de aprovação por uniformidade do schema — revisar se
   // isso incomodar o fluxo real do estúdio.
-  async approvePhaseGate(accountId: string, projectId: string, phaseId: string, input: ApproveGateInput) {
+  async approvePhaseGate(
+    accountId: string,
+    projectId: string,
+    phaseId: string,
+    input: ApproveGateInput,
+  ) {
     const phase = await this.getPhase(accountId, projectId, phaseId);
 
     if (!phase.contracted) {

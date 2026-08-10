@@ -52,7 +52,12 @@ describe('calcularTarifaHora', () => {
       billableHoursPerMonth: 168,
     });
     const tarifa = calcularTarifaHora(
-      { role: 'Estagiário', grossSalary: 0, payrollBurden: 0, billableHoursPerMonth: 120 },
+      {
+        role: 'Estagiário',
+        grossSalary: 0,
+        payrollBurden: 0,
+        billableHoursPerMonth: 120,
+      },
       overhead,
       { marginTarget: 0.3, taxBurden: 0.06 },
     );
@@ -100,7 +105,12 @@ describe('calcularProposta', () => {
     billableHoursPerMonth: 168,
   });
   const tarifaLead = calcularTarifaHora(
-    { role: LEAD_ROLE, grossSalary: 6500, payrollBurden: 0, billableHoursPerMonth: 168 },
+    {
+      role: LEAD_ROLE,
+      grossSalary: 6500,
+      payrollBurden: 0,
+      billableHoursPerMonth: 168,
+    },
     overhead,
     { marginTarget: 0.3, taxBurden: 0.06 },
   );
@@ -108,10 +118,18 @@ describe('calcularProposta', () => {
   // Baseline hours per stage from aba 03 ("Horas Base por Estágio"), the
   // only role with real hours filled in the reference spreadsheet.
   const roleHours = [
-    { role: LEAD_ROLE, stage: ProjectStageName.CAPTACAO_ALINHAMENTO, hours: 10 },
+    {
+      role: LEAD_ROLE,
+      stage: ProjectStageName.CAPTACAO_ALINHAMENTO,
+      hours: 10,
+    },
     { role: LEAD_ROLE, stage: ProjectStageName.BRIEFING, hours: 10 },
     { role: LEAD_ROLE, stage: ProjectStageName.CRIACAO_CONCEITO, hours: 20 },
-    { role: LEAD_ROLE, stage: ProjectStageName.DETALHAMENTO_ACABAMENTOS, hours: 20 },
+    {
+      role: LEAD_ROLE,
+      stage: ProjectStageName.DETALHAMENTO_ACABAMENTOS,
+      hours: 20,
+    },
     { role: LEAD_ROLE, stage: ProjectStageName.EXECUTIVO, hours: 15 },
   ];
   const roleRates = [{ role: LEAD_ROLE, hourlyRate: tarifaLead }];
@@ -196,7 +214,13 @@ describe('calcularProposta', () => {
   it('falha alto se um papel com horas lançadas não tem RoleRate — não deve tratar como mão de obra grátis', () => {
     expect(() =>
       calcularProposta({
-        roleHours: [{ role: 'Arquiteto Pleno', stage: ProjectStageName.BRIEFING, hours: 5 }],
+        roleHours: [
+          {
+            role: 'Arquiteto Pleno',
+            stage: ProjectStageName.BRIEFING,
+            hours: 5,
+          },
+        ],
         complexityScores: maxComplexity,
         contractedStages: [ProjectStageName.BRIEFING],
         roleRates: [], // nenhuma tarifa cadastrada para "Arquiteto Pleno"

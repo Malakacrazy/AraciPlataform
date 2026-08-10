@@ -74,8 +74,13 @@ não um detalhe de implementação.
   **implementado** (`users`, `projects/:id/members`), usando a
   nomenclatura de papel já reconciliada.
 - **Office inicial**: Drive/Calendar vinculados a projeto/cliente (Gmail
-  fica para a Fase 4, conforme o plano original) — **ainda não
-  implementado**, único item de Fase 1 sem rota real.
+  fica para a Fase 4, conforme o plano original) — **API implementada**
+  (`OfficeLink` em `apps/api`, endpoints em
+  `v1/projects/:id/office-links` e `v1/clients/:id/office-links`); ainda
+  falta a UI e a integração real com o Google Picker (Drive/Calendar),
+  que dependem de credenciais OAuth reais (`GOOGLE_CLIENT_ID/SECRET`
+  ainda vazias) — por ora o vínculo é criado com id/url/título
+  informados manualmente.
 
 ## Fase 2 — Financeiro & Fiscal
 

@@ -22,7 +22,10 @@ export class ProjectMembersService {
 
   async listMembers(accountId: string, projectId: string) {
     await this.projectsService.getProject(accountId, projectId);
-    return this.prisma.db.projectMember.findMany({ where: { projectId }, include: { user: true } });
+    return this.prisma.db.projectMember.findMany({
+      where: { projectId },
+      include: { user: true },
+    });
   }
 
   async addMember(accountId: string, projectId: string, input: AddMemberInput) {
@@ -33,11 +36,19 @@ export class ProjectMembersService {
       where: { projectId_userId: { projectId, userId: input.userId } },
     });
     if (existing) {
-      throw new ApiError('ALREADY_MEMBER', 'Este colaborador já está na equipe deste projeto.', 409);
+      throw new ApiError(
+        'ALREADY_MEMBER',
+        'Este colaborador já está na equipe deste projeto.',
+        409,
+      );
     }
 
     return this.prisma.db.projectMember.create({
-      data: { projectId, userId: input.userId, roleOnProject: input.roleOnProject },
+      data: {
+        projectId,
+        userId: input.userId,
+        roleOnProject: input.roleOnProject,
+      },
       include: { user: true },
     });
   }

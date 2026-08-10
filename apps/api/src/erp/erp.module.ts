@@ -5,7 +5,10 @@ import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { PhasesController } from './phases.controller';
 import { PhasesService } from './phases.service';
-import { InvoicesController, PhaseInvoiceController } from './invoices.controller';
+import {
+  InvoicesController,
+  PhaseInvoiceController,
+} from './invoices.controller';
 import { InvoicesService } from './invoices.service';
 import { TimeEntriesController } from './time-entries.controller';
 import { TimeEntriesService } from './time-entries.service';

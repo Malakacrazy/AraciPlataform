@@ -31,10 +31,14 @@ para não passar a falsa impressão de que o modelo está fechado.
   carrinho) → `Product` (catálogo). A soma das `ProductSpecification` com
   `clientApproved = true` é o orçamento/planilha final — não existe uma
   tabela "Cart" separada porque a especificação aprovada já é o carrinho.
-- **Office**: deliberadamente não modelado como dados próprios. Arquivos do
-  Drive, e-mails do Gmail e eventos do Calendar são referenciados por ID
-  externo a partir de outras entidades (não incluído neste esqueleto) — o
-  plano é explícito que a plataforma não deve recriar o Workspace.
+- **Office**: `OfficeLink` (Drive/Calendar) → `Project`/`Client` polimórfico
+  (`entityType`/`entityId`, sem FK direta — validado na service layer, não
+  no banco). Guarda só a referência externa (id/url/título), nunca o
+  conteúdo — o plano é explícito que a plataforma não deve recriar o
+  Workspace. `entityId` sem FK é uma escolha deliberada: Prisma não modela
+  bem "pertence a um de vários tipos" sem uma tabela por tipo (o que
+  dobraria o schema para um vínculo que é só metadado de exibição).
+  Gmail (e-mail) fica de fora até a Fase 4, conforme o plano.
 
 ## RoleRate: por que a tarifa/hora é dado, mas a fórmula não é
 
@@ -67,7 +71,8 @@ deixados de fora para não travar uma estrutura errada cedo demais:
 - Moodboards/pranchas de apresentação e o "modo de apresentação" por link
 - Tear sheets (ficha técnica exportável) como entidade own — hoje seria
   gerado a partir de `Product`, mas o layout/template não está modelado
-- Vínculo de arquivos do Google Drive/Gmail/Calendar a `Project`/`Client`
+- Vínculo de e-mail do Gmail a `Project`/`Client` — fica para a Fase 4
+  (Drive/Calendar já modelados via `OfficeLink`, ver seção acima)
 - Indicador de sustentabilidade/pegada de carbono por produto
 - Campos da Reforma Tributária (CST-IBS, CST-CBS, cClassTrib) — o plano
   recomenda adicioná-los a partir da Fase 2, não antes

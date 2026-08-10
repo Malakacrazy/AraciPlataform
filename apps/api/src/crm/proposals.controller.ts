@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   ProposalsService,
   proposalInputSchema,
@@ -19,12 +28,18 @@ export class ProposalsController {
     @SessionAccount() { accountId }: SessionAccountType,
     @Query('opportunityId') opportunityId?: string,
   ) {
-    const data = await this.proposalsService.listProposals(accountId, opportunityId);
+    const data = await this.proposalsService.listProposals(
+      accountId,
+      opportunityId,
+    );
     return { data };
   }
 
   @Get(':id')
-  async get(@SessionAccount() { accountId }: SessionAccountType, @Param('id') id: string) {
+  async get(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
     const data = await this.proposalsService.getProposal(accountId, id);
     return { data };
   }
@@ -32,7 +47,10 @@ export class ProposalsController {
   // Somente leitura — as linhas de ProposalStage são geradas por
   // calcularProposta() na criação da proposta, não editadas diretamente.
   @Get(':id/stages')
-  async stages(@SessionAccount() { accountId }: SessionAccountType, @Param('id') id: string) {
+  async stages(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
     const proposal = await this.proposalsService.getProposal(accountId, id);
     return { data: proposal.stages };
   }
@@ -54,9 +72,14 @@ export class ProposalsController {
   async updateStatus(
     @SessionAccount() { accountId }: SessionAccountType,
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(statusUpdateSchema)) input: ProposalStatusUpdate,
+    @Body(new ZodValidationPipe(statusUpdateSchema))
+    input: ProposalStatusUpdate,
   ) {
-    const data = await this.proposalsService.updateProposalStatus(accountId, id, input);
+    const data = await this.proposalsService.updateProposalStatus(
+      accountId,
+      id,
+      input,
+    );
     return { data };
   }
 }

@@ -1,4 +1,8 @@
+// Precisa ser o primeiro import: @araci/db lê process.env.DATABASE_URL no
+// carregamento do módulo (mesma ordem de apps/api/src/main.ts).
+import "dotenv/config";
 import { SignJWT } from "jose";
+import { prisma } from "@araci/db";
 
 // Exercises the real CRM/ERP/FF&E API over HTTP against a running NestJS
 // instance + local Postgres — see docs/fase-0/ and the root README for
@@ -454,6 +458,137 @@ async function main() {
     "A fatura de FF&E aparece em GET /invoices sem phaseId (não é um estágio do PEP)",
     ffeInvoiceListRes.body?.data?.some((inv: any) => inv.id === ffeInvoiceId && inv.phaseId === null),
     ffeInvoiceListRes.body
+  );
+
+  const driveLinkRes = await api(`/v1/projects/${projectId}/office-links`, {
+    method: "POST",
+    body: JSON.stringify({
+      provider: "DRIVE",
+      externalId: "1a2b3c-drive-file-id",
+      url: "https://drive.google.com/file/d/1a2b3c-drive-file-id/view",
+      title: "Planta baixa - v3.pdf",
+    }),
+  });
+  report("POST /projects/:id/office-links (DRIVE) → 201", driveLinkRes.status === 201, driveLinkRes.body);
+  const driveLinkId = driveLinkRes.body?.data?.id;
+
+  const calendarLinkRes = await api(`/v1/projects/${projectId}/office-links`, {
+    method: "POST",
+    body: JSON.stringify({
+      provider: "CALENDAR",
+      externalId: "evt-briefing-kickoff",
+      url: "https://calendar.google.com/calendar/event?eid=evt-briefing-kickoff",
+      title: "Reunião de briefing",
+    }),
+  });
+  report("POST /projects/:id/office-links (CALENDAR) → 201", calendarLinkRes.status === 201, calendarLinkRes.body);
+
+  const listProjectLinksRes = await api(`/v1/projects/${projectId}/office-links`);
+  report(
+    "GET /projects/:id/office-links inclui os dois vínculos (Drive e Calendar)",
+    listProjectLinksRes.status === 200 && listProjectLinksRes.body?.data?.length === 2,
+    listProjectLinksRes.body
+  );
+
+  const clientLinkRes = await api(`/v1/clients/${clientId}/office-links`, {
+    method: "POST",
+    body: JSON.stringify({
+      provider: "DRIVE",
+      externalId: "9x8y7z-drive-folder-id",
+      url: "https://drive.google.com/drive/folders/9x8y7z-drive-folder-id",
+      title: "Pasta do cliente",
+    }),
+  });
+  report("POST /clients/:id/office-links (DRIVE) → 201", clientLinkRes.status === 201, clientLinkRes.body);
+
+  const listClientLinksRes = await api(`/v1/clients/${clientId}/office-links`);
+  report(
+    "GET /clients/:id/office-links só traz o vínculo do cliente, não os do projeto",
+    listClientLinksRes.status === 200 && listClientLinksRes.body?.data?.length === 1,
+    listClientLinksRes.body
+  );
+
+  const badProviderLinkRes = await api(`/v1/projects/${projectId}/office-links`, {
+    method: "POST",
+    body: JSON.stringify({ provider: "DROPBOX", externalId: "x", url: "https://example.com", title: "x" }),
+  });
+  report(
+    "POST /office-links com provider inválido → 400 VALIDATION_ERROR",
+    badProviderLinkRes.status === 400 && badProviderLinkRes.body?.error?.code === "VALIDATION_ERROR",
+    badProviderLinkRes.body
+  );
+
+  const badUrlLinkRes = await api(`/v1/projects/${projectId}/office-links`, {
+    method: "POST",
+    body: JSON.stringify({ provider: "DRIVE", externalId: "x", url: "not-a-url", title: "x" }),
+  });
+  report(
+    "POST /office-links com url inválida → 400 VALIDATION_ERROR",
+    badUrlLinkRes.status === 400 && badUrlLinkRes.body?.error?.code === "VALIDATION_ERROR",
+    badUrlLinkRes.body
+  );
+
+  const linkOnMissingProjectRes = await api("/v1/projects/does-not-exist/office-links", {
+    method: "POST",
+    body: JSON.stringify({ provider: "DRIVE", externalId: "x", url: "https://example.com", title: "x" }),
+  });
+  report(
+    "POST /projects/:id/office-links em projeto inexistente → 404",
+    linkOnMissingProjectRes.status === 404,
+    linkOnMissingProjectRes.body
+  );
+
+  const deleteLinkRes = await api(`/v1/office-links/${driveLinkId}`, { method: "DELETE" });
+  report("DELETE /office-links/:id → 204", deleteLinkRes.status === 204, deleteLinkRes.body);
+
+  const listProjectLinksAfterDeleteRes = await api(`/v1/projects/${projectId}/office-links`);
+  report(
+    "Após deletar, GET /projects/:id/office-links não inclui mais o vínculo removido",
+    listProjectLinksAfterDeleteRes.status === 200 &&
+      !listProjectLinksAfterDeleteRes.body?.data?.some((l: any) => l.id === driveLinkId),
+    listProjectLinksAfterDeleteRes.body
+  );
+
+  // OfficeLink não tem FK para Project/Client (é polimórfico — ver
+  // office-links.service.ts), então excluir o dono não dispara P2003 nem
+  // CASCADE automático: precisa da limpeza explícita em
+  // ClientsService.deleteClient (mesmo em ProjectsService.deleteProject,
+  // mas isso não é testável aqui — DELETE /projects/:id já 409 sempre,
+  // porque toda Project nasce com 5 ProjectPhase e phases.controller.ts
+  // não expõe rota de delete; o fix lá é so por paridade/defensivo, não
+  // um caminho alcançável hoje). HTTP sozinho não prova a limpeza do
+  // cliente (a listagem já dá 404 antes de listar, órfão ou não), então
+  // confere direto no banco.
+  const throwawayClientRes = await api("/v1/clients", {
+    method: "POST",
+    body: JSON.stringify({ name: "Cliente Descartável (teste de limpeza)" }),
+  });
+  const throwawayClientId = throwawayClientRes.body?.data?.id;
+
+  await api(`/v1/clients/${throwawayClientId}/office-links`, {
+    method: "POST",
+    body: JSON.stringify({
+      provider: "CALENDAR",
+      externalId: "throwaway-evt-id",
+      url: "https://calendar.google.com/calendar/event?eid=throwaway-evt-id",
+      title: "Evento do cliente descartável",
+    }),
+  });
+  const orphanCountBefore = await prisma.officeLink.count({ where: { entityId: throwawayClientId } });
+  report("Setup: OfficeLink criado para o cliente descartável antes do delete", orphanCountBefore === 1, orphanCountBefore);
+
+  const deleteThrowawayClientRes = await api(`/v1/clients/${throwawayClientId}`, { method: "DELETE" });
+  report(
+    "DELETE /clients/:id → 204 mesmo com OfficeLink vinculado, sem oportunidade (não é 409)",
+    deleteThrowawayClientRes.status === 204,
+    deleteThrowawayClientRes.body
+  );
+
+  const orphanCountAfter = await prisma.officeLink.count({ where: { entityId: throwawayClientId } });
+  report(
+    "Excluir o cliente limpa o OfficeLink junto — zero órfãos no banco (não só 404 na listagem)",
+    orphanCountAfter === 0,
+    orphanCountAfter
   );
 
   const deleteProductInUseRes = await api(`/v1/products/${product1Id}`, { method: "DELETE" });

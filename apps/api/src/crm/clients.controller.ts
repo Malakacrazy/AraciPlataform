@@ -1,5 +1,18 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
-import { ClientsService, clientInputSchema, type ClientInput } from './clients.service';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
+import {
+  ClientsService,
+  clientInputSchema,
+  type ClientInput,
+} from './clients.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -15,7 +28,10 @@ export class ClientsController {
   }
 
   @Get(':id')
-  async get(@SessionAccount() { accountId }: SessionAccountType, @Param('id') id: string) {
+  async get(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
     const data = await this.clientsService.getClient(accountId, id);
     return { data };
   }
@@ -34,7 +50,8 @@ export class ClientsController {
   async update(
     @SessionAccount() { accountId }: SessionAccountType,
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(clientInputSchema.partial())) input: Partial<ClientInput>,
+    @Body(new ZodValidationPipe(clientInputSchema.partial()))
+    input: Partial<ClientInput>,
   ) {
     const data = await this.clientsService.updateClient(accountId, id, input);
     return { data };
@@ -42,7 +59,10 @@ export class ClientsController {
 
   @Delete(':id')
   @HttpCode(204)
-  async remove(@SessionAccount() { accountId }: SessionAccountType, @Param('id') id: string) {
+  async remove(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
     await this.clientsService.deleteClient(accountId, id);
   }
 }
