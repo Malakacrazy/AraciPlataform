@@ -38,6 +38,19 @@ npm run dev                # turbo sobe apps/web (3000) e apps/api (3001) juntos
 `apps/web` funciona sem banco configurado para a página inicial e o login;
 as rotas de API (via `apps/api`) precisam do Postgres local rodando.
 
+`apps/web` roda `next dev --webpack` em vez do Turbopack padrão do
+Next.js 16 — no Windows, o dev server do Turbopack processando
+`globals.css` (Tailwind v4/PostCSS) trava o processo Node que ele mesmo
+gera (`node process exited ... 0xc0000142`), reproduzido de forma
+consistente mesmo sem OneDrive rodando e sem antivírus de terceiros
+instalado. É um bug conhecido do Turbopack no Windows nesse pipeline de
+CSS (ver [vercel/next.js#90860](https://github.com/vercel/next.js/issues/90860),
+sintoma parecido mas não idêntico — o mesmo pipeline de worker do
+PostCSS), ainda sem correção lançada na versão estável até
+`next@16.3.0`. `next build`/`next start` usam Turbopack normalmente (não
+afetados, só o dev server incremental). Revisitar quando o Next.js
+lançar uma versão que resolva isso.
+
 ## Smoke test
 
 `npm run smoke-test` roda os dois: `apps/api/scripts/smoke-test.ts` (64
