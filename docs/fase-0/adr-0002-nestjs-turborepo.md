@@ -77,7 +77,7 @@ pelo container de DI em vez de combinado.
 
 - **Dois serviços para rodar em dev** (`apps/web` em 3000, `apps/api` em
   3001) em vez de um. `turbo run dev` sobe os dois em paralelo.
-- **Dois smoke tests**: `apps/api/scripts/smoke-test.ts` (51 checks,
+- **Dois smoke tests**: `apps/api/scripts/smoke-test.ts` (64 checks,
   cobertura completa de regra de negócio, direto contra `apps/api`) e
   `apps/web/scripts/smoke-test.ts` (5 checks, só prova que o proxy BFF
   funciona — a lógica de negócio já está provada no outro).
@@ -93,4 +93,4 @@ pelo container de DI em vez de combinado.
 
 `npx turbo run build` (4 tasks: `@araci/db#generate`, `@araci/db#build`,
 `api#build`, `web#build`) e `npx turbo run test` (jest em `apps/api`) —
-ambos limpos. Os dois smoke tests, 56/56 checks, contra Postgres local real.
+ambos limpos. Os dois smoke tests, 69/69 checks, contra Postgres local real.

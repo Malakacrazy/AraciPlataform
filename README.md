@@ -40,10 +40,12 @@ as rotas de API (via `apps/api`) precisam do Postgres local rodando.
 
 ## Smoke test
 
-`npm run smoke-test` roda os dois: `apps/api/scripts/smoke-test.ts` (51
+`npm run smoke-test` roda os dois: `apps/api/scripts/smoke-test.ts` (64
 checks, cobertura completa de regra de negócio — cliente → oportunidade →
 proposta com motor de precificação → marcar como ganha → projeto e 5
-fases do PEP criados automaticamente, além de casos de erro 401/404/400/409)
+fases do PEP criados automaticamente, vínculos de Office (Drive/Calendar)
+com limpeza automática ao excluir o dono, além de casos de erro
+401/404/400/409)
 bate direto em `apps/api` forjando o token interno via `jose`; e
 `apps/web/scripts/smoke-test.ts` (5 checks) prova só o proxy BFF, forjando
 um cookie de sessão do NextAuth com o mesmo `NEXTAUTH_SECRET`. Nenhum dos

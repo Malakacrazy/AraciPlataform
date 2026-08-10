@@ -30,9 +30,16 @@ extrair um módulo para um serviço separado no futuro (ex. Procurement)
 sem reescrever os outros três; agora é reforçado pelo próprio grafo de
 DI do Nest, não só convenção.
 
-O módulo Office não tem módulo próprio com tabelas — ele é uma camada de
-integração (Google APIs) chamada pelos outros módulos quando precisam
-vincular um arquivo/e-mail/evento a um registro.
+O módulo Office (`apps/api/src/office`) tem módulo e tabela próprios
+(`OfficeLink`) — não é só uma camada fina chamada pelos outros. A relação
+é a inversa do que se imaginava aqui originalmente: `OfficeModule` importa
+`ErpModule`/`CrmModule` (para `ProjectsService`/`ClientsService`), não o
+contrário, só para validar que o Project/Client alvo existe e pertence à
+conta antes de gravar o vínculo — os outros módulos não sabem que Office
+existe. `OfficeLink` é polimórfico (`entityType`/`entityId`, sem FK),
+guarda só a referência externa (id/url/título) do Drive/Calendar, nunca o
+conteúdo nem o token OAuth. Ver `data-model.md` para o detalhe do
+modelo.
 
 ## Formato da API própria
 
@@ -60,6 +67,7 @@ verbos — a detalhar por tela na Fase 0/1):
 | CRM | `clients`, `opportunities`, `proposals`, `proposals/:id/stages`, `role-rates` — **implementado** |
 | ERP Arquitetura | `projects`, `projects/:id/phases`, `projects/:id/phases/:phaseId/approve`, `projects/:id/phases/:phaseId/invoice`, `invoices`, `time-entries`, `time-entries/:id/approve`, `projects/:id/members`, `users` — **implementado** (núcleo de ERP completo para Fase 1) |
 | FF&E | `products`, `projects/:id/areas`, `areas/:id/specifications`, `specifications/:id`, `projects/:id/ffe-checkout` — **implementado** |
+| Office | `projects/:id/office-links`, `clients/:id/office-links`, `office-links/:id` — **implementado**, API e UI (Drive/Calendar via Google Picker/Calendar API reais, verificado com credenciais OAuth; Gmail fica para a Fase 4) |
 
 Os recursos de CRM e o núcleo de ERP (projetos, gates, faturamento,
 timesheet) já têm rota real (`apps/web/src/app/api/v1/`) e regra de
@@ -90,7 +98,7 @@ transação (`prisma.$transaction`) para não deixar itens aprovados sem
 fatura correspondente se algo falhar no meio.
 
 Verificado com um smoke test HTTP real (`npm run smoke-test`, ver README)
-contra Postgres local de verdade — não só build/typecheck (51 checks,
+contra Postgres local de verdade — não só build/typecheck (64 checks,
 incluindo gate fora de ordem, canal inválido, faturar um estágio sem
 gate aprovado, editar um lançamento de horas já aprovado, adicionar o
 mesmo membro duas vezes num projeto, e fazer checkout de um item sem
@@ -196,11 +204,18 @@ cálculo é real; os valores de entrada ainda não foram calibrados.
   A persistência do lado da plataforma (`OfficeLink`, em `apps/api`) já
   está implementada — guarda só id/url/título externos, nunca o token
   OAuth (que fica só na sessão do `apps/web`, nunca chega em `apps/api`,
-  ver `adr-0002-nestjs-turborepo.md`). O que falta é a UI com o Google
-  Picker chamando a API real do Drive/Calendar para preencher esses
-  campos — hoje o vínculo é criado com dado informado direto, porque não
-  há credenciais OAuth reais (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`)
-  para testar a chamada de verdade.
+  ver `adr-0002-nestjs-turborepo.md`). A UI e a autorização incremental
+  também estão implementadas e verificadas com credenciais OAuth reais:
+  `apps/web/src/lib/google-client.ts` pede o token de acesso via Google
+  Identity Services (não o NextAuth) só quando o usuário clica em
+  "Vincular do Drive"/"Vincular do Calendar", com o escopo mínimo
+  daquele recurso (`drive.file`, `calendar.events.readonly`) — token de
+  vida curta, sem refresh token, descartado depois de preencher o
+  formulário. Drive usa a Picker API real do Google
+  (`google.picker.PickerBuilder`); Calendar não tem Picker próprio (a
+  Picker API cobre Drive/Docs/Fotos/etc., não Calendar), então é uma
+  listagem simples dos próximos eventos via Calendar API
+  (`calendars/primary/events`), construída em `OfficeLinksSection`.
 - **NFS-e**: decidido —
   [nfewizard-io](https://github.com/nfewizard-org/nfewizard-io), biblioteca
   Node.js open source (GPL-3.0) que fala direto com SEFAZ/SEFIN Nacional

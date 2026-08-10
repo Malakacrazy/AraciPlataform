@@ -74,13 +74,21 @@ não um detalhe de implementação.
   **implementado** (`users`, `projects/:id/members`), usando a
   nomenclatura de papel já reconciliada.
 - **Office inicial**: Drive/Calendar vinculados a projeto/cliente (Gmail
-  fica para a Fase 4, conforme o plano original) — **API implementada**
-  (`OfficeLink` em `apps/api`, endpoints em
-  `v1/projects/:id/office-links` e `v1/clients/:id/office-links`); ainda
-  falta a UI e a integração real com o Google Picker (Drive/Calendar),
-  que dependem de credenciais OAuth reais (`GOOGLE_CLIENT_ID/SECRET`
-  ainda vazias) — por ora o vínculo é criado com id/url/título
-  informados manualmente.
+  fica para a Fase 4, conforme o plano original) — **implementado e
+  verificado com credenciais OAuth reais**, ponta a ponta. API
+  (`OfficeLink` em `apps/api`, endpoints em `v1/projects/:id/office-links`
+  e `v1/clients/:id/office-links`) e UI mínima (`apps/web`, páginas
+  `/projects/:id` e `/clients/:id`) prontas. Autorização incremental via
+  Google Identity Services (fora do login do NextAuth, só quando o
+  usuário ativa Drive ou Calendar, escopo mínimo por recurso —
+  `drive.file` e `calendar.events.readonly`) — não usa o token de sessão
+  do login principal. Drive usa a Picker API real (confirmado: arquivo
+  selecionado aparece corretamente na lista). Calendar não tem Picker do
+  Google (a API só cobre Drive/Docs/Fotos/etc.) — construída uma listagem
+  própria dos próximos eventos via Calendar API; consulta e autorização
+  confirmadas contra uma conta real (retornou lista vazia porque a agenda
+  de teste não tinha evento futuro, não por bug — o clique em "Vincular"
+  de um evento específico ainda não foi exercido com um evento real).
 
 ## Fase 2 — Financeiro & Fiscal
 
