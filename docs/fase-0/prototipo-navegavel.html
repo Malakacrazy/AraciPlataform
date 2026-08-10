@@ -221,6 +221,15 @@
     flex-direction: column;
   }
 
+  /* [hidden] tem a mesma especificidade que .sheet (0,1,0) — sem esta
+     regra, o author stylesheet vence o empate contra o UA stylesheet e
+     "display:flex" some sobrepõe "display:none", deixando todas as
+     folhas visíveis ao mesmo tempo lado a lado (bug real, achado ao
+     testar no navegador — a navegação nunca escondia nada). */
+  .sheet[hidden] {
+    display: none;
+  }
+
   .sheet-header {
     padding: 1.5rem 1.75rem 1.1rem;
     border-bottom: 1px solid var(--line);
@@ -656,11 +665,13 @@
         <div class="nav-group-label">ERP Arquitetura</div>
         <button class="nav-item" data-goto="erp-201"><span class="sheet-no">A-201</span><span class="sheet-name">Projetos</span></button>
         <button class="nav-item" data-goto="erp-202"><span class="sheet-no">A-202</span><span class="sheet-name">Detalhe do Projeto</span></button>
+        <button class="nav-item" data-goto="erp-203"><span class="sheet-no">A-203</span><span class="sheet-name">Timesheet</span></button>
       </div>
       <div class="nav-group">
         <div class="nav-group-label">FF&amp;E</div>
         <button class="nav-item" data-goto="ffe-301"><span class="sheet-no">A-301</span><span class="sheet-name">Especificação por Ambiente</span></button>
         <button class="nav-item" data-goto="ffe-302"><span class="sheet-no">A-302</span><span class="sheet-name">Carrinho — Aprovação</span></button>
+        <button class="nav-item" data-goto="ffe-303"><span class="sheet-no">A-303</span><span class="sheet-name">Catálogo de Produtos</span></button>
       </div>
     </nav>
 
@@ -829,23 +840,83 @@
         </div>
         <div class="sheet-body">
           <div class="tabbar">
-            <button class="tab active">Cronograma</button>
-            <button class="tab">Equipe</button>
-            <button class="tab">Financeiro</button>
+            <button class="tab active" data-tab="cronograma">Cronograma</button>
+            <button class="tab" data-tab="equipe">Equipe</button>
+            <button class="tab" data-tab="financeiro">Financeiro</button>
             <button class="tab" data-goto="ffe-301">Ambientes (FF&amp;E) →</button>
           </div>
-          <div style="display:flex;flex-direction:column;gap:0.8rem;">
-            <div class="phase-row"><span class="phase-name">Estudo Preliminar</span><div class="progress-track"><div class="progress-fill" style="width:100%"></div></div><span class="pill good">Concluída</span></div>
-            <div class="phase-row"><span class="phase-name">Anteprojeto</span><div class="progress-track"><div class="progress-fill" style="width:62%"></div></div><span class="pill accent">Em andamento</span></div>
-            <div class="phase-row"><span class="phase-name">Projeto Executivo</span><div class="progress-track"><div class="progress-fill" style="width:0%"></div></div><span class="pill">Pendente</span></div>
+
+          <div class="tab-panel" id="panel-cronograma">
+            <div style="display:flex;flex-direction:column;gap:0.8rem;">
+              <div class="phase-row"><span class="phase-name">Estudo Preliminar</span><div class="progress-track"><div class="progress-fill" style="width:100%"></div></div><span class="pill good">Concluída</span></div>
+              <div class="phase-row"><span class="phase-name">Anteprojeto</span><div class="progress-track"><div class="progress-fill" style="width:62%"></div></div><span class="pill accent">Em andamento</span></div>
+              <div class="phase-row"><span class="phase-name">Projeto Executivo</span><div class="progress-track"><div class="progress-fill" style="width:0%"></div></div><span class="pill">Pendente</span></div>
+            </div>
           </div>
-          <div class="box">
-            <span class="field-label">Orçado × realizado (geral)</span>
-            <div class="progress-track" style="margin-top:0.4rem;"><div class="progress-fill" style="width:92%"></div></div>
-            <p style="margin:0.4rem 0 0;font-family:var(--font-mono);font-size:0.78rem;color:var(--ink-soft);">R$ 29.400 de R$ 32.000</p>
+
+          <div class="tab-panel" id="panel-equipe" hidden>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Nome</th><th>Papel</th><th>Especialidade</th><th class="num">Custo-hora</th><th class="num">Alocado (sem.)</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>Camila Souza</td><td>Arquiteta Líder (RT)</td><td>Projeto</td><td class="num">R$ 64,04</td><td class="num">18h</td></tr>
+                  <tr><td>Diego Farias</td><td>Arquiteto Pleno</td><td>Detalhamento</td><td class="num">R$ 45,00</td><td class="num">22h</td></tr>
+                  <tr><td>Larissa Prado</td><td>Estagiária</td><td>Desenho</td><td class="num">R$ 18,00</td><td class="num">30h</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p style="font-size:0.78rem;color:var(--ink-soft);margin:0.9rem 0 0;">Alocação vem do apontamento de horas da semana — sem cadastro manual de capacidade aqui.</p>
+            <button class="btn" style="margin-top:0.9rem;" data-goto="erp-203">Ver timesheet completo →</button>
+          </div>
+
+          <div class="tab-panel" id="panel-financeiro" hidden>
+            <div class="box">
+              <span class="field-label">Orçado × realizado (geral)</span>
+              <div class="progress-track" style="margin-top:0.4rem;"><div class="progress-fill" style="width:92%"></div></div>
+              <p style="margin:0.4rem 0 0;font-family:var(--font-mono);font-size:0.78rem;color:var(--ink-soft);">R$ 29.400 de R$ 32.000</p>
+            </div>
+            <div class="table-wrap" style="margin-top:1.2rem;">
+              <table>
+                <thead>
+                  <tr><th>Origem</th><th class="num">Valor</th><th>Status</th><th>Emitida em</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>Fase: Estudo Preliminar</td><td class="num">R$ 9.600</td><td><span class="pill good">Emitida — NFS-e 000482</span></td><td>14/07</td></tr>
+                  <tr><td>Fase: Anteprojeto</td><td class="num">R$ 12.800</td><td><span class="pill warn">Rascunho</span></td><td>—</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p style="font-size:0.78rem;color:var(--ink-soft);margin:0.9rem 0 0;">Faturamento por marco/fase — gerado automaticamente quando o gate daquele estágio é aprovado.</p>
           </div>
         </div>
         <div class="title-block"><span>Araci · Fase 0</span><span>Folha A-202 · ERP</span><span>Escala: N/A</span><span>Rev. 01</span></div>
+      </section>
+
+      <!-- A-203 — ERP TIMESHEET -->
+      <section class="sheet" id="sheet-erp-203" hidden>
+        <div class="sheet-header">
+          <p class="sheet-eyebrow">ERP Arquitetura</p>
+          <h2>Timesheet</h2>
+          <p>Apontamento de horas por colaborador, projeto e fase.</p>
+        </div>
+        <div class="sheet-body">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Colaborador</th><th>Projeto</th><th>Fase</th><th class="num">Horas</th><th>Faturável</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Camila Souza</td><td>Apto Vila Madalena</td><td>Anteprojeto</td><td class="num">6,5h</td><td><span class="pill good">Sim</span></td><td><span class="pill good">Aprovado</span></td></tr>
+                <tr><td>Diego Farias</td><td>Loft Pinheiros</td><td>Estudo Preliminar</td><td class="num">4h</td><td><span class="pill good">Sim</span></td><td><span class="pill warn">Aguardando aprovação</span></td></tr>
+                <tr><td>Larissa Prado</td><td>Apto Vila Madalena</td><td>—</td><td class="num">2h</td><td><span class="pill">Não</span></td><td><span class="pill warn">Aguardando aprovação</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p style="font-size:0.78rem;color:var(--ink-soft);margin:0;">Lançamento manual ou por cronômetro (start/stop). Horas aprovadas alimentam orçado × realizado e, no modelo de hora técnica, o faturamento direto.</p>
+        </div>
+        <div class="title-block"><span>Araci · Fase 0</span><span>Folha A-203 · ERP</span><span>Escala: N/A</span><span>Rev. 01</span></div>
       </section>
 
       <!-- A-301 — FF&E ESPECIFICAÇÃO -->
@@ -905,6 +976,33 @@
         <div class="title-block"><span>Araci · Fase 0</span><span>Folha A-302 · FF&amp;E</span><span>Escala: N/A</span><span>Rev. 01</span></div>
       </section>
 
+      <!-- A-303 — FF&E CATÁLOGO DE PRODUTOS -->
+      <section class="sheet" id="sheet-ffe-303" hidden>
+        <div class="sheet-header">
+          <p class="sheet-eyebrow">FF&amp;E</p>
+          <h2>Catálogo de Produtos</h2>
+          <p>Biblioteca do escritório — reaproveitável entre projetos.</p>
+        </div>
+        <div class="sheet-body">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Produto</th><th>Fornecedor</th><th class="num">Preço</th><th>Dimensões</th><th>Acabamento</th><th>Prazo</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Sofá Modular Nuvem</td><td>Móveis Bertolucci</td><td class="num">R$ 8.200</td><td>2,80 × 1,60m</td><td>Linho cru</td><td>35 dias</td></tr>
+                <tr><td>Mesa de Centro Ripada</td><td>Estúdio Marcenaria M.</td><td class="num">R$ 2.400</td><td>1,10 × 0,60m</td><td>Freijó natural</td><td>21 dias</td></tr>
+                <tr><td>Luminária Pendente Latão</td><td><em>genérico — SKU a definir</em></td><td class="num">—</td><td>—</td><td>—</td><td>—</td></tr>
+                <tr><td>Cama Casal Estrutura Carvalho</td><td>Trama Móveis</td><td class="num">R$ 6.100</td><td>1,58 × 2,03m</td><td>Carvalho envernizado</td><td>40 dias</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p style="font-size:0.78rem;color:var(--ink-soft);margin:0;">Capturado via web scraper (nome, imagem, preço, dimensões e especificações direto do site do fornecedor) ou cadastrado manualmente como placeholder genérico até o SKU ser escolhido.</p>
+          <button class="btn primary" style="align-self:flex-start;">+ Adicionar produto</button>
+        </div>
+        <div class="title-block"><span>Araci · Fase 0</span><span>Folha A-303 · FF&amp;E</span><span>Escala: N/A</span><span>Rev. 01</span></div>
+      </section>
+
     </main>
   </div>
 </div>
@@ -947,10 +1045,12 @@
       });
     });
 
-    document.querySelectorAll(".tabbar .tab:not([data-goto])").forEach(function (tab) {
+    document.querySelectorAll(".tabbar .tab[data-tab]").forEach(function (tab) {
       tab.addEventListener("click", function () {
+        var panelId = "panel-" + tab.dataset.tab;
         document.querySelectorAll(".tabbar .tab").forEach(function (t) { t.classList.remove("active"); });
         tab.classList.add("active");
+        document.querySelectorAll(".tab-panel").forEach(function (p) { p.hidden = p.id !== panelId; });
       });
     });
 

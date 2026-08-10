@@ -22,7 +22,12 @@ assumia), isso é dito explicitamente.
   estágio aprovado.
 - Especificação técnica (limites de módulo, formato de API, fluxos
   automáticos, regras de gate/change request).
-- Protótipo navegável de baixa fidelidade (7 telas).
+- Protótipo navegável de baixa fidelidade (9 telas — Equipe/Financeiro do
+  projeto, Timesheet e Catálogo de Produtos entraram depois, cobrindo o
+  que faltava de CRM/ERP/FF&E). A navegação em si tinha um bug real (todas
+  as folhas ficavam visíveis ao mesmo tempo, empate de especificidade CSS
+  entre `[hidden]` e `.sheet{display:flex}`) — corrigido; o arquivo não
+  era de fato "navegável" antes disso.
 - Questionário de descoberta respondido; domínio Google Workspace
   (`studioaraci.com.br`) e carga tributária (6%) confirmados e já
   aplicados no código/docs.
