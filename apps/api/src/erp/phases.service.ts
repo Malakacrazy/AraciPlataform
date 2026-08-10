@@ -14,6 +14,17 @@ export const approveGateSchema = z.object({
 
 export type ApproveGateInput = z.infer<typeof approveGateSchema>;
 
+// Datas/orçamento por fase — só isso, não estágio/ordem/contratado
+// (estrutural, definido na criação a partir do PEP). Sem esses campos
+// editáveis não há dado real para as visões de Gantt/Calendário.
+export const updatePhaseSchema = z.object({
+  startDate: z.iso.datetime().nullable().optional(),
+  dueDate: z.iso.datetime().nullable().optional(),
+  budget: z.number().nonnegative().nullable().optional(),
+});
+
+export type UpdatePhaseInput = z.infer<typeof updatePhaseSchema>;
+
 @Injectable()
 export class PhasesService {
   constructor(
@@ -83,6 +94,33 @@ export class PhasesService {
     return this.prisma.db.projectPhase.update({
       where: { id: phaseId },
       data: { approvedAt: new Date(), approvalChannel: input.approvalChannel },
+    });
+  }
+
+  async updatePhase(
+    accountId: string,
+    projectId: string,
+    phaseId: string,
+    input: UpdatePhaseInput,
+  ) {
+    await this.getPhase(accountId, projectId, phaseId);
+    return this.prisma.db.projectPhase.update({
+      where: { id: phaseId },
+      data: {
+        startDate:
+          input.startDate === undefined
+            ? undefined
+            : input.startDate === null
+              ? null
+              : new Date(input.startDate),
+        dueDate:
+          input.dueDate === undefined
+            ? undefined
+            : input.dueDate === null
+              ? null
+              : new Date(input.dueDate),
+        budget: input.budget,
+      },
     });
   }
 }

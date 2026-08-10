@@ -65,3 +65,22 @@ export async function addMember(projectId: string, formData: FormData) {
 export async function removeMember(projectId: string, userId: string) {
   await call(`projects/${projectId}/members/${userId}`, { method: "DELETE" }, projectId);
 }
+
+export async function updatePhaseDates(projectId: string, phaseId: string, formData: FormData) {
+  const startDate = String(formData.get("startDate") ?? "").trim();
+  const dueDate = String(formData.get("dueDate") ?? "").trim();
+  const budget = String(formData.get("budget") ?? "").trim();
+
+  await call(
+    `projects/${projectId}/phases/${phaseId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        startDate: startDate ? new Date(startDate).toISOString() : undefined,
+        dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
+        budget: budget ? Number(budget) : undefined,
+      }),
+    },
+    projectId,
+  );
+}

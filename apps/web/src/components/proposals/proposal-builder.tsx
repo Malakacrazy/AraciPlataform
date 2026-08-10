@@ -3,13 +3,27 @@
 import { useState } from "react";
 import { createProposal } from "./actions";
 import type { PepStage, RoleRate } from "@/lib/types";
+import { PEP_STAGES } from "@/lib/pep-stages";
 
-const PEP_STAGES: { key: PepStage; label: string }[] = [
-  { key: "CAPTACAO_ALINHAMENTO", label: "Captação/Alinhamento" },
-  { key: "BRIEFING", label: "Briefing" },
-  { key: "CRIACAO_CONCEITO", label: "Criação de Conceito" },
-  { key: "DETALHAMENTO_ACABAMENTOS", label: "Detalhamento/Acabamentos" },
-  { key: "EXECUTIVO", label: "Executivo" },
+// Extraído de docs/fase-0/Base_Precificacao (fazer cópia).xlsx, abas 03
+// (horas base por papel/estágio, "Arquiteto Líder (RT)") e 06 (cenários
+// comparativos — a matriz de estágios contratados por cenário, não a
+// coluna de descrição textual: as duas divergem para o cenário D na
+// planilha em algumas versões — matriz é o que realmente alimenta os
+// valores calculados na aba, então é a fonte usada aqui). Complexidade
+// 5/5/5 em todas as dimensões reproduz o multiplicador 1.5x que a aba 06
+// assume para todos os cenários (calcularMultiplicadorComplexidade:
+// 0.5 + 0.2 × média = 1.5 quando média = 5).
+const BASELINE_HOURS_BY_STAGE_INDEX = [10, 10, 20, 20, 15];
+const BASELINE_ROLE = "Arquiteto Líder (RT)";
+
+const SCENARIOS: { key: string; label: string; stageIndexes: number[] }[] = [
+  { key: "A", label: "A — Pacote Completo", stageIndexes: [0, 1, 2, 3, 4] },
+  { key: "B", label: "B — Pacote sem Stage 0", stageIndexes: [1, 2, 3, 4] },
+  { key: "C", label: "C — Conceito → Executivo", stageIndexes: [2, 3, 4] },
+  { key: "D", label: "D — Conceito + Anteprojeto", stageIndexes: [0, 1, 2, 3] },
+  { key: "E", label: "E — Anteprojeto + Executivo", stageIndexes: [3, 4] },
+  { key: "F", label: "F — Só Executivo", stageIndexes: [4] },
 ];
 
 const COMPLEXITY_DIMENSIONS = [
@@ -67,6 +81,20 @@ export function ProposalBuilder({ opportunityId, roleRates }: { opportunityId: s
     });
   }
 
+  function applyScenario(scenario: (typeof SCENARIOS)[number]) {
+    const role = roleRates.find((r) => r.role === BASELINE_ROLE)?.role ?? defaultRole;
+    setRows(
+      scenario.stageIndexes.map((idx) => ({
+        role,
+        stage: PEP_STAGES[idx].key,
+        hours: String(BASELINE_HOURS_BY_STAGE_INDEX[idx]),
+      })),
+    );
+    setScores({ tipologia: 5, programaEscopo: 5, terreno: 5, regulatorio: 5, ambicaoDesign: 5 });
+    setContractedStages(new Set(scenario.stageIndexes.map((idx) => PEP_STAGES[idx].key)));
+    setError(null);
+  }
+
   async function handleSubmit() {
     setError(null);
     const roleHours = rows
@@ -99,6 +127,25 @@ export function ProposalBuilder({ opportunityId, roleRates }: { opportunityId: s
   return (
     <div className="flex flex-col gap-4">
       {error && <p className="text-sm text-red-600">{error}</p>}
+
+      <div>
+        <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-50">Cenários (aba 06)</h3>
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          Preenche horas, complexidade e estágios contratados — tudo editável antes de calcular.
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {SCENARIOS.map((scenario) => (
+            <button
+              key={scenario.key}
+              type="button"
+              onClick={() => applyScenario(scenario)}
+              className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs text-zinc-700 hover:border-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-50"
+            >
+              {scenario.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div>
         <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-50">Horas por papel/estágio</h3>

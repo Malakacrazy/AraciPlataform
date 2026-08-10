@@ -6,14 +6,7 @@ import { apiGet, ApiError } from "@/lib/api";
 import type { Opportunity, Proposal, RoleRate } from "@/lib/types";
 import { ProposalBuilder } from "@/components/proposals/proposal-builder";
 import { updateProposalStatus } from "@/components/proposals/actions";
-
-const STAGE_LABELS: Record<string, string> = {
-  CAPTACAO_ALINHAMENTO: "Captação/Alinhamento",
-  BRIEFING: "Briefing",
-  CRIACAO_CONCEITO: "Criação de Conceito",
-  DETALHAMENTO_ACABAMENTOS: "Detalhamento/Acabamentos",
-  EXECUTIVO: "Executivo",
-};
+import { STAGE_LABELS } from "@/lib/pep-stages";
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "Rascunho",

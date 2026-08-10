@@ -4,14 +4,9 @@ import { authOptions } from "@/lib/auth";
 import { apiGet } from "@/lib/api";
 import type { TimeEntry, Project, User } from "@/lib/types";
 import { createTimeEntry, approveTimeEntry } from "@/components/timesheet/actions";
-
-const STAGE_LABELS: Record<string, string> = {
-  CAPTACAO_ALINHAMENTO: "Captação/Alinhamento",
-  BRIEFING: "Briefing",
-  CRIACAO_CONCEITO: "Criação de Conceito",
-  DETALHAMENTO_ACABAMENTOS: "Detalhamento/Acabamentos",
-  EXECUTIVO: "Executivo",
-};
+import { Timer } from "@/components/timesheet/timer";
+import { STAGE_LABELS } from "@/lib/pep-stages";
+import { formatDateUTC } from "@/lib/format";
 
 const ACTIVITY_LABELS: Record<string, string> = {
   projeto: "Projeto",
@@ -74,7 +69,7 @@ export default async function TimesheetPage() {
                       {phase ? STAGE_LABELS[phase.stage] ?? phase.stage : "—"}
                     </td>
                     <td className="px-5 py-3 text-zinc-500 dark:text-zinc-400">
-                      {new Date(entry.date).toLocaleDateString("pt-BR")}
+                      {formatDateUTC(entry.date)}
                     </td>
                     <td className="px-5 py-3 font-mono text-zinc-500 dark:text-zinc-400">{entry.hours}h</td>
                     <td className="px-5 py-3 text-zinc-500 dark:text-zinc-400">
@@ -103,8 +98,17 @@ export default async function TimesheetPage() {
         )}
       </section>
 
+      {projects.length > 0 && (
+        <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+          <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Cronômetro</h2>
+          <div className="mt-3">
+            <Timer projects={projects} />
+          </div>
+        </section>
+      )}
+
       <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-        <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Lançar horas</h2>
+        <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Lançar horas manualmente</h2>
         <form action={createTimeEntry} className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-zinc-500 dark:text-zinc-400">Projeto *</span>

@@ -5,21 +5,8 @@ import { authOptions } from "@/lib/auth";
 import { apiGet, ApiError } from "@/lib/api";
 import type { Project, OfficeLink, Invoice, ProjectMember, User } from "@/lib/types";
 import { OfficeLinksSection } from "@/components/office-links/office-links-section";
-import {
-  approveGate,
-  createInvoice,
-  markInvoiceIssued,
-  addMember,
-  removeMember,
-} from "@/components/projects/actions";
-
-const STAGE_LABELS: Record<string, string> = {
-  CAPTACAO_ALINHAMENTO: "Captação/Alinhamento",
-  BRIEFING: "Briefing",
-  CRIACAO_CONCEITO: "Criação de Conceito",
-  DETALHAMENTO_ACABAMENTOS: "Detalhamento/Acabamentos",
-  EXECUTIVO: "Executivo",
-};
+import { CronogramaViews } from "@/components/projects/cronograma-views";
+import { markInvoiceIssued, addMember, removeMember } from "@/components/projects/actions";
 
 const INVOICE_STATUS_LABELS: Record<string, string> = {
   pendente: "Pendente",
@@ -55,10 +42,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     throw err;
   }
 
-  const contractedPhases = project.phases.filter((p) => p.contracted).sort((a, b) => a.order - b.order);
   const memberUserIds = new Set(members.map((m) => m.userId));
   const availableUsers = users.filter((u) => !memberUserIds.has(u.id));
-  const invoicedPhaseIds = new Set(invoices.map((inv) => inv.phaseId).filter(Boolean));
+  const invoicedPhaseIds = invoices.map((inv) => inv.phaseId).filter((v): v is string => Boolean(v));
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-12">
@@ -72,65 +58,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         </p>
       </div>
 
-      <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-        <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Cronograma</h2>
-        <div className="mt-3 flex flex-col gap-3">
-          {contractedPhases.map((phase, index) => {
-            const previousApproved = index === 0 || Boolean(contractedPhases[index - 1].approvedAt);
-            return (
-              <div key={phase.id} className="rounded-md border border-zinc-200 p-3 text-sm dark:border-zinc-800">
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-900 dark:text-zinc-50">
-                    {STAGE_LABELS[phase.stage] ?? phase.stage}
-                  </span>
-                  {phase.approvedAt ? (
-                    <span className="text-xs text-emerald-700 dark:text-emerald-400">
-                      Aprovada ({phase.approvalChannel})
-                    </span>
-                  ) : (
-                    <span className="text-xs text-zinc-500 dark:text-zinc-400">Pendente</span>
-                  )}
-                </div>
-                {!phase.approvedAt && previousApproved && (
-                  <form action={approveGate.bind(null, id, phase.id)} className="mt-2 flex items-center gap-2">
-                    <select
-                      name="approvalChannel"
-                      required
-                      defaultValue=""
-                      className="rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-                    >
-                      <option value="" disabled>
-                        Canal…
-                      </option>
-                      <option value="email">E-mail</option>
-                      <option value="reuniao_presencial">Reunião presencial</option>
-                    </select>
-                    <button type="submit" className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
-                      Aprovar gate
-                    </button>
-                  </form>
-                )}
-                {phase.approvedAt && !invoicedPhaseIds.has(phase.id) && (
-                  <form action={createInvoice.bind(null, id, phase.id)} className="mt-2 flex items-center gap-2">
-                    <input
-                      name="amount"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      required
-                      placeholder="valor R$"
-                      className="w-28 rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-                    />
-                    <button type="submit" className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
-                      Faturar
-                    </button>
-                  </form>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </section>
+      <CronogramaViews projectId={id} phases={project.phases} invoicedPhaseIds={invoicedPhaseIds} />
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
         <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Financeiro</h2>

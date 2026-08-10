@@ -19,6 +19,8 @@ export interface ProjectPhase {
   stage: PepStage;
   contracted: boolean;
   order: number;
+  startDate?: string | null;
+  dueDate?: string | null;
   budget?: string | null;
   approvedAt?: string | null;
   approvalChannel?: string | null;

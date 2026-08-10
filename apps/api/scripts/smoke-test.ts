@@ -223,6 +223,34 @@ async function main() {
     secondApprovalNow.body
   );
 
+  const phaseDatesRes = await api(`/v1/projects/${projectId}/phases/${phases[2].id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      startDate: "2026-09-01T00:00:00.000Z",
+      dueDate: "2026-09-15T00:00:00.000Z",
+      budget: 5000,
+    }),
+  });
+  report(
+    "PATCH /projects/:id/phases/:phaseId com datas/orçamento → 200, não mexe em approvedAt",
+    phaseDatesRes.status === 200 &&
+      phaseDatesRes.body?.data?.startDate === "2026-09-01T00:00:00.000Z" &&
+      phaseDatesRes.body?.data?.dueDate === "2026-09-15T00:00:00.000Z" &&
+      Number(phaseDatesRes.body?.data?.budget) === 5000 &&
+      phaseDatesRes.body?.data?.approvedAt === null,
+    phaseDatesRes.body
+  );
+
+  const phaseBadBudgetRes = await api(`/v1/projects/${projectId}/phases/${phases[2].id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ budget: -100 }),
+  });
+  report(
+    "PATCH .../phases/:phaseId com orçamento negativo → 400 VALIDATION_ERROR",
+    phaseBadBudgetRes.status === 400 && phaseBadBudgetRes.body?.error?.code === "VALIDATION_ERROR",
+    phaseBadBudgetRes.body
+  );
+
   const thirdPhase = phases[2]; // ainda não aprovada
   const invoiceOnUnapproved = await api(`/v1/projects/${projectId}/phases/${thirdPhase.id}/invoice`, {
     method: "POST",

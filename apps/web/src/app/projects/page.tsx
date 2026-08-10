@@ -4,14 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet } from "@/lib/api";
 import type { Project } from "@/lib/types";
-
-const STAGE_LABELS: Record<string, string> = {
-  CAPTACAO_ALINHAMENTO: "Captação/Alinhamento",
-  BRIEFING: "Briefing",
-  CRIACAO_CONCEITO: "Criação de Conceito",
-  DETALHAMENTO_ACABAMENTOS: "Detalhamento/Acabamentos",
-  EXECUTIVO: "Executivo",
-};
+import { STAGE_LABELS } from "@/lib/pep-stages";
 
 function currentPhase(project: Project) {
   const contracted = project.phases.filter((p) => p.contracted).sort((a, b) => a.order - b.order);
