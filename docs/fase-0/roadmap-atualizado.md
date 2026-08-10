@@ -65,25 +65,32 @@ não um detalhe de implementação.
   (`/role-rates`), formulário de scores de complexidade (5 dimensões),
   configurador de estágios contratados computando `ProposalStage` (horas
   base × multiplicador, desconto de pacote), transição de status
-  draft/sent/signed. Não incluído: os 6 cenários da aba 06 como templates
-  pré-configurados no builder — fica para uma iteração futura, não bloqueia
-  o uso real do motor.
+  draft/sent/signed, e os 6 cenários da aba 06 como templates
+  pré-configurados (extraídos da planilha real, não inventados — achado no
+  processo: a descrição textual do cenário D diverge da própria matriz de
+  estágios da aba 06, matriz usada como fonte já que é o que os valores
+  calculados da aba realmente seguem; vale confirmar com a Giulia qual
+  está desatualizada).
 - **CRM → ERP**: conversão automática de oportunidade ganha em projeto
   (`OpportunitiesService.convertToProject` em `apps/api`) — implementada e
   visível na UI (marcar "Ganho" no pipeline gera o projeto e mostra o link
   direto para ele).
 - **ERP — Projetos**: `Project`, os 5 `ProjectPhase` do PEP com
   `contracted`/`order`/`budget` — **API e UI implementadas** (`/projects`,
-  `/projects/:id`: orçado × realizado por projeto, cronograma por fase).
-  Visão só em lista/detalhe, não Gantt/Kanban/Calendário — o plano original
-  citava as três, nenhuma construída ainda.
+  `/projects/:id`: orçado × realizado por projeto, cronograma por fase),
+  incluindo as três visões que o plano original citava (Gantt/Kanban/
+  Calendário), alternáveis na mesma tela. Exigiu endpoint novo
+  (`PATCH .../phases/:phaseId`, só startDate/dueDate/budget — nunca
+  approvedAt/stage/order/contracted) que não existia; sem isso não havia
+  dado real para Gantt/Calendário mostrarem.
 - **ERP — Gates**: campo de aprovação (`approvedAt`/`approvalChannel`) —
   **API e UI implementadas**, com bloqueio de avançar de estágio sem
   aprovação registrada (`GATE_OUT_OF_ORDER`) e faturamento por fase
   aprovada direto na tela do projeto.
 - **ERP — Timesheet**: apontamento de horas por projeto/fase — **API e UI
-  implementadas** (`/timesheet`): lançamento manual (sem cronômetro
-  start/stop ainda) e aprovação por gestor.
+  implementadas** (`/timesheet`): lançamento manual, cronômetro start/stop
+  (arredonda para o quarto de hora mais próximo ao parar), e aprovação por
+  gestor.
 - **ERP — Equipe**: cadastro de equipe/papel e alocação por projeto —
   **implementado** (`users`, `projects/:id/members`), API e UI
   (`/team`, seção Equipe em `/projects/:id`), usando a nomenclatura de
