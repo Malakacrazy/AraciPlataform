@@ -56,6 +56,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           </Link>{" "}
           — {project.status} · {project.feeModel}
         </p>
+        <Link href={`/projects/${id}/ffe`} className="mt-1 inline-block text-xs text-zinc-500 hover:underline dark:text-zinc-400">
+          Ver FF&E →
+        </Link>
       </div>
 
       <CronogramaViews projectId={id} phases={project.phases} invoicedPhaseIds={invoicedPhaseIds} />

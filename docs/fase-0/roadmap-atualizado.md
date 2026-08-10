@@ -140,11 +140,21 @@ scraper do zero (o Captura já existe e funciona para 18 lojas). O núcleo
 de API já está pronto — o que sobra é mais estreito do que o roadmap
 original previa:
 
-- **Implementado**: catálogo (`Product`, com suporte a placeholder
-  genérico), especificação por ambiente (`Area` → `ProductSpecification`
-  com quantidade/preço/markup), e o carrinho/checkout —
-  `POST /projects/:id/ffe-checkout` marca os itens aprovados e gera a
-  fatura de FF&E automaticamente (recusa itens sem preço definido).
+- **Implementado, API e UI**: catálogo (`Product`, com suporte a
+  placeholder genérico — `/products`), especificação por ambiente
+  (`Area` → `ProductSpecification` com quantidade/preço/markup —
+  `/projects/:id/ffe`), e o carrinho/checkout — `POST
+  /projects/:id/ffe-checkout` marca os itens aprovados e gera a fatura de
+  FF&E automaticamente (recusa itens sem preço definido). A UI ficou para
+  trás do resto da Fase 1 por um bom tempo — o backend já existia de uma
+  sessão anterior, mas não tinha nenhuma tela até agora. Achado testando
+  de verdade no navegador (não só typecheck): o componente do carrinho
+  não reselecionava itens automaticamente depois que um Server Action
+  adicionava uma nova especificação sem recarregar a página — o
+  `useState` de seleção só inicializa uma vez no mount, e o componente
+  nunca remonta nesse fluxo. Corrigido com o padrão do próprio React para
+  resetar estado quando uma prop muda (ajustar durante o render, não
+  `useEffect`).
 - Decidir e implementar a integração com o Captura — das três opções em
   `especificacao-tecnica.md`, a que menos retrabalho gera é a extensão
   passar a enviar para `POST /api/v1/products` (exige autenticar a

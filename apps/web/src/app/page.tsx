@@ -4,7 +4,7 @@ const modules = [
   { name: "Office", desc: "Integração com Google Workspace", href: null },
   { name: "CRM", desc: "Captação e relacionamento com clientes", href: "/clients" },
   { name: "ERP Arquitetura", desc: "Projetos, equipe e financeiro", href: "/projects" },
-  { name: "FF&E", desc: "Especificação e orçamento de mobiliário", href: null },
+  { name: "FF&E", desc: "Especificação e orçamento de mobiliário", href: "/products" },
 ];
 
 export default function Home() {

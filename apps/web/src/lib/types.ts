@@ -123,6 +123,37 @@ export interface TimeEntry {
   approvedAt?: string | null;
 }
 
+export interface Product {
+  id: string;
+  name: string;
+  supplier?: string | null;
+  price?: string | null;
+  dimensions?: string | null;
+  finish?: string | null;
+  leadTimeDays?: number | null;
+  imageUrl?: string | null;
+  sourceUrl?: string | null;
+  isGeneric: boolean;
+}
+
+export interface Area {
+  id: string;
+  projectId: string;
+  name: string;
+}
+
+export interface ProductSpecification {
+  id: string;
+  areaId: string;
+  productId: string;
+  product: Product;
+  quantity: number;
+  unitPrice?: string | null;
+  markupPercent?: string | null;
+  clientApproved: boolean;
+  clientComment?: string | null;
+}
+
 export type OfficeLinkProvider = "DRIVE" | "CALENDAR";
 
 export interface OfficeLink {
