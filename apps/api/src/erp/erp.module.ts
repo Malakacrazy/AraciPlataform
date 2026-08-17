@@ -14,6 +14,8 @@ import { TimeEntriesController } from './time-entries.controller';
 import { TimeEntriesService } from './time-entries.service';
 import { ProjectMembersController } from './project-members.controller';
 import { ProjectMembersService } from './project-members.service';
+import { AllocationsController } from './allocations.controller';
+import { AllocationsService } from './allocations.service';
 
 @Module({
   controllers: [
@@ -24,6 +26,7 @@ import { ProjectMembersService } from './project-members.service';
     InvoicesController,
     TimeEntriesController,
     ProjectMembersController,
+    AllocationsController,
   ],
   providers: [
     ProjectsService,
@@ -32,6 +35,7 @@ import { ProjectMembersService } from './project-members.service';
     InvoicesService,
     TimeEntriesService,
     ProjectMembersService,
+    AllocationsService,
   ],
   // ProjectsService/UsersService são usados por CrmModule (conversão de
   // oportunidade ganha em projeto) e por FfeModule (checkout do carrinho)

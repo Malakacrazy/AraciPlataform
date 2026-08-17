@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import {
   UsersService,
   userUpdateSchema,
@@ -36,5 +45,27 @@ export class UsersController {
   ) {
     const data = await this.usersService.updateUser(accountId, id, input);
     return { data };
+  }
+
+  // Chave de API para a extensão Captura (ver AuthGuard) -- devolvida em
+  // texto puro só nesta resposta; a partir daqui só o hash sobrevive no
+  // banco, então perder a resposta significa regenerar, não recuperar.
+  @Post(':id/api-key')
+  @HttpCode(201)
+  async generateApiKey(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
+    const apiKey = await this.usersService.generateApiKey(accountId, id);
+    return { data: { apiKey } };
+  }
+
+  @Delete(':id/api-key')
+  @HttpCode(204)
+  async revokeApiKey(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
+    await this.usersService.revokeApiKey(accountId, id);
   }
 }

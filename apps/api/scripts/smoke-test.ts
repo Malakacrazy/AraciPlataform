@@ -373,6 +373,55 @@ async function main() {
     userPatchRes.body
   );
 
+  // Extensão Captura autentica com X-Api-Key em vez do Bearer interno —
+  // ver AuthGuard. Testado contra a API real (não mockado) porque o
+  // caminho inteiro (gerar → hash → bater no header → resolver
+  // accountId/userId) só existe de fato batendo no banco.
+  const noKeyYetRes = await api(`/v1/products`, {
+    headers: { "X-Api-Key": "chave-inexistente" },
+  });
+  report(
+    "GET /products com X-Api-Key inválida → 401, mesmo com Bearer válido também presente",
+    noKeyYetRes.status === 401,
+    noKeyYetRes.body
+  );
+
+  const generateKeyRes = await api(`/v1/users/${user2.id}/api-key`, { method: "POST" });
+  const apiKey = generateKeyRes.body?.data?.apiKey;
+  report(
+    "POST /users/:id/api-key → 201, devolve a chave em texto puro",
+    generateKeyRes.status === 201 && typeof apiKey === "string" && apiKey.startsWith("araci_"),
+    generateKeyRes.body
+  );
+
+  const productViaApiKeyRes = await api(`/v1/products`, {
+    method: "POST",
+    headers: { "X-Api-Key": apiKey },
+    body: JSON.stringify({ name: "Sofá capturado via extensão", price: 4200 }),
+  });
+  report(
+    "POST /products autenticado só com X-Api-Key → 201",
+    productViaApiKeyRes.status === 201,
+    productViaApiKeyRes.body
+  );
+
+  const regenerateKeyRes = await api(`/v1/users/${user2.id}/api-key`, { method: "POST" });
+  const newApiKey = regenerateKeyRes.body?.data?.apiKey;
+  const oldKeyAfterRegenRes = await api(`/v1/products`, { headers: { "X-Api-Key": apiKey } });
+  report(
+    "Regenerar a chave invalida a anterior → 401 com a chave antiga",
+    regenerateKeyRes.status === 201 && newApiKey !== apiKey && oldKeyAfterRegenRes.status === 401,
+    { regenerateKeyRes: regenerateKeyRes.body, oldKeyAfterRegenRes: oldKeyAfterRegenRes.body }
+  );
+
+  const revokeKeyRes = await api(`/v1/users/${user2.id}/api-key`, { method: "DELETE" });
+  const afterRevokeRes = await api(`/v1/products`, { headers: { "X-Api-Key": newApiKey } });
+  report(
+    "DELETE /users/:id/api-key → 204, e a chave revogada para de autenticar",
+    revokeKeyRes.status === 204 && afterRevokeRes.status === 401,
+    { revokeKeyRes: revokeKeyRes.body, afterRevokeRes: afterRevokeRes.body }
+  );
+
   const addMemberRes = await api(`/v1/projects/${projectId}/members`, {
     method: "POST",
     body: JSON.stringify({ userId: user2.id, roleOnProject: "Especificação FF&E" }),
@@ -404,6 +453,77 @@ async function main() {
     "Após remover, GET /projects/:id/members não inclui mais o membro",
     listMembersAfterRemoveRes.status === 200 && !listMembersAfterRemoveRes.body?.data?.some((m: any) => m.userId === user2.id),
     listMembersAfterRemoveRes.body
+  );
+
+  const capacityDefaultRes = await api(`/v1/users/${user2.id}`);
+  report(
+    "weeklyCapacityHours vem com default 40 (não precisa setar em cada usuário)",
+    Number(capacityDefaultRes.body?.data?.weeklyCapacityHours) === 40,
+    capacityDefaultRes.body
+  );
+
+  const createAllocationRes = await api("/v1/allocations", {
+    method: "POST",
+    body: JSON.stringify({
+      userId: user2.id,
+      projectId,
+      hoursPerWeek: 20,
+      startDate: "2026-09-01T00:00:00.000Z",
+      endDate: "2026-09-30T00:00:00.000Z",
+    }),
+  });
+  report(
+    "POST /allocations → 201, inclui user e project (com phases e client)",
+    createAllocationRes.status === 201 &&
+      createAllocationRes.body?.data?.user?.id === user2.id &&
+      Array.isArray(createAllocationRes.body?.data?.project?.phases),
+    createAllocationRes.body
+  );
+  const allocationId = createAllocationRes.body?.data?.id;
+
+  const badRangeRes = await api("/v1/allocations", {
+    method: "POST",
+    body: JSON.stringify({
+      userId: user2.id,
+      projectId,
+      hoursPerWeek: 10,
+      startDate: "2026-09-30T00:00:00.000Z",
+      endDate: "2026-09-01T00:00:00.000Z",
+    }),
+  });
+  report(
+    "POST /allocations com data de término antes do início → 400 VALIDATION_ERROR",
+    badRangeRes.status === 400 && badRangeRes.body?.error?.code === "VALIDATION_ERROR",
+    badRangeRes.body
+  );
+
+  const allocationBadProjectRes = await api("/v1/allocations", {
+    method: "POST",
+    body: JSON.stringify({
+      userId: user2.id,
+      projectId: "does-not-exist",
+      hoursPerWeek: 10,
+      startDate: "2026-09-01T00:00:00.000Z",
+      endDate: "2026-09-30T00:00:00.000Z",
+    }),
+  });
+  report("POST /allocations em projeto inexistente → 404", allocationBadProjectRes.status === 404, allocationBadProjectRes.body);
+
+  const listAllocationsRes = await api(`/v1/allocations?userId=${user2.id}`);
+  report(
+    "GET /allocations?userId= inclui a alocação recém-criada",
+    listAllocationsRes.status === 200 && listAllocationsRes.body?.data?.some((a: any) => a.id === allocationId),
+    listAllocationsRes.body
+  );
+
+  const deleteAllocationRes = await api(`/v1/allocations/${allocationId}`, { method: "DELETE" });
+  report("DELETE /allocations/:id → 204", deleteAllocationRes.status === 204, deleteAllocationRes.body);
+
+  const listAllocationsAfterDeleteRes = await api(`/v1/allocations?userId=${user2.id}`);
+  report(
+    "Após remover, GET /allocations não inclui mais a alocação",
+    listAllocationsAfterDeleteRes.status === 200 && !listAllocationsAfterDeleteRes.body?.data?.some((a: any) => a.id === allocationId),
+    listAllocationsAfterDeleteRes.body
   );
 
   const product1Res = await api("/v1/products", {

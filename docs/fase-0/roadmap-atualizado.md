@@ -94,8 +94,42 @@ não um detalhe de implementação.
 - **ERP — Equipe**: cadastro de equipe/papel e alocação por projeto —
   **implementado** (`users`, `projects/:id/members`), API e UI
   (`/team`, seção Equipe em `/projects/:id`), usando a nomenclatura de
-  papel já reconciliada. Sem planejamento de capacidade/matching de
-  competências ainda — só cadastro e alocação direta.
+  papel já reconciliada.
+- **ERP — Planejamento de capacidade**: **implementado** — modelo
+  `Allocation` (compromisso planejado de horas/semana por pessoa/projeto
+  entre datas, distinto de `TimeEntry` já trabalhado e de `ProjectMember`
+  sem tempo/data) e `User.weeklyCapacityHours` (default 40). API completa
+  (`v1/allocations`: GET com filtro por usuário/projeto, POST, DELETE) e
+  UI em `/team/planning` (formulário de alocação, visões Lista/Gantt/
+  Calendário, carga por pessoa com detecção de pico via sweep-line —
+  "sobrecarregado" quando o pico de horas/semana simultâneas excede a
+  capacidade — e custo por projeto vs. orçado nas fases). `/team` também
+  ganhou um resumo de carga recente por `TimeEntry` (retrospectivo, janela
+  rolante de 7/30 dias) para contexto ao lado do cadastro. Verificado:
+  build limpo (web+api+db) e 88/88 no smoke test, incluindo os 6 casos
+  novos de `/allocations` (default de capacidade, criação com include de
+  projeto/fases, validação de intervalo de datas, 404 em projeto
+  inexistente, listagem e remoção).
+- **ERP — Matching de competências**: **implementado** — o formulário de
+  "Nova alocação" em `/team/planning` (`AllocationForm`, componente
+  cliente) ordena a lista de colaboradores por disponibilidade (horas
+  livres calculadas dentro do período pedido via `peakHoursInWindow`,
+  não a carga geral da pessoa — uma sobreposição de pico fora da janela
+  não deveria pesar contra alguém livre justamente nesse período) e, se
+  uma especialidade é buscada (texto livre — não há campo de
+  especialidade requerida no schema, então isso não vira estado
+  persistido em lugar nenhum), prioriza quem combina. Não filtra ninguém
+  da lista — só reordena — porque especialidade é texto livre e uma
+  correspondência exata seria frágil (nomenclatura pode divergir sem que
+  a pessoa deixe de servir). `peakHoursInWindow` (`lib/allocations.ts`)
+  foi verificado manualmente contra 4 casos (sobreposição total dentro da
+  janela, alocação inteiramente fora da janela, sobreposição parcial nos
+  limites, e paridade com `peakHoursPerWeek` quando a janela cobre tudo)
+  — não há suíte de testes automatizados no `apps/web` (sem script `test`
+  no `package.json`, diferente de `apps/api`), então isso não está
+  coberto por CI. Não testado num navegador real com login Google de
+  verdade (diferente do carrinho de FF&E, que foi — ver Fase 3 abaixo);
+  só build e verificação manual da lógica.
 - **Office inicial**: Drive/Calendar vinculados a projeto/cliente (Gmail
   fica para a Fase 4, conforme o plano original) — **implementado e
   verificado com credenciais OAuth reais**, ponta a ponta. API
@@ -155,13 +189,58 @@ original previa:
   nunca remonta nesse fluxo. Corrigido com o padrão do próprio React para
   resetar estado quando uma prop muda (ajustar durante o render, não
   `useEffect`).
-- Decidir e implementar a integração com o Captura — das três opções em
-  `especificacao-tecnica.md`, a que menos retrabalho gera é a extensão
-  passar a enviar para `POST /api/v1/products` (exige autenticar a
-  extensão contra a API própria, ainda não desenhado).
-- Tear sheets, moodboards, modo de apresentação por link — ainda não
-  modelados no schema (ver `data-model.md`), ficam para o desenho desta
-  fase.
+- **Integração com o Captura — decidida e implementada** (opção 1 das três
+  em `especificacao-tecnica.md`: a extensão passa a enviar os itens
+  capturados para `POST /v1/products`, em vez de reimplementar a extração
+  no backend). Duas metades, em dois repositórios diferentes:
+  - **Nesta plataforma**: autenticação por chave de API, porque a extensão
+    roda no navegador do colaborador e não tem como forjar o JWT interno
+    de curta duração que só `apps/web` sabe assinar (ver `AuthGuard`). O
+    `AuthGuard` global agora aceita `X-Api-Key` como alternativa ao Bearer
+    interno — resolve direto para `User`/`Account` sem passar pelo fluxo
+    de sessão. `User.apiKeyHash` guarda só o sha-256 da chave (Node
+    `crypto`, sem dependência nova); a chave em texto puro só existe na
+    resposta de `POST /v1/users/:id/api-key`, nunca mais depois disso —
+    regenerar sobrescreve o hash e invalida a anterior implicitamente.
+    Gerenciamento (gerar/regenerar/remover, chave exibida uma única vez)
+    tem UI em `/team`, por colaborador. Comportamento coberto por 5 casos
+    novos no smoke test (401 com chave inválida mesmo com Bearer válido
+    presente, geração, criação de produto só com `X-Api-Key`, invalidação
+    ao regenerar, invalidação ao remover).
+  - **No repositório da extensão** (`Malakacrazy/Captura`, branch
+    `integracao-plataforma-araci`, commitado mas **não enviado ao GitHub
+    ainda** — pendente de autorização): `platform-sync.js` mapeia só os
+    campos que `Product` realmente tem (`name`/`supplier`/`price`/
+    `dimensions`/`imageUrl`/`sourceUrl`) — `sku`, `qty`, `category`,
+    `unit`, `ambiente` e `obs` seguem sendo conceitos só do orçamento da
+    extensão, sem equivalente na plataforma hoje. Preço `0` não é enviado
+    (significa "ainda não preenchido" na extensão, não "produto grátis").
+    Nova página de Configurações (`options.html`) guarda URL da API +
+    chave e envia o orçamento em andamento; a Biblioteca ganhou um botão
+    "☁ Enviar" por projeto salvo. Verificado contra a API local de
+    verdade (não só typecheck nem mock): gerou uma chave real, mandou um
+    lote misto (item válido, item sem nome, item sem preço) pela função
+    `sendProductsToPlatform` de fato, e confirmou o item válido no
+    catálogo com os campos mapeados certos e o item sem nome rejeitado
+    localmente sem round-trip de rede. A integração da extensão com o
+    Chrome em si (carregar via "load unpacked", clicar nos botões
+    novos) não foi verificada num navegador real — só a lógica de dados
+    (`platform-sync.js`) e checagem de sintaxe de todos os arquivos
+    tocados.
+- **Tear sheets, moodboards, modo de apresentação por link — implementado,
+  API e UI**, modelados no schema (`Moodboard`, `MoodboardItem`,
+  `PresentationLink`), depois deste documento ter sido escrito pela
+  primeira vez: ficha técnica de produto em `/products/:id/tear-sheet`;
+  pranchas (`v1/projects/:id/moodboards`, `v1/moodboards/:id/items`) com
+  UI em `apps/web/src/components/moodboards`; apresentação ao cliente via
+  link único e público (`v1/projects/:id/presentation-link` gera/revoga
+  token, `GET v1/present/:token` não exige Authorization, aprovação/
+  comentário por item também sem Authorization) com página pública em
+  `/present/[token]`. Confirmado no schema público do link: o campo de
+  preço (`unitPrice`) é ignorado silenciosamente se enviado por essa rota
+  — não vira erro nem some o preço já gravado, mantendo o controle de
+  visibilidade de preço do plano original. Gerar um novo link troca o
+  token e revoga o anterior (404 imediato). Tudo coberto no smoke test.
 
 ## Fase 4 — Integrações avançadas, BI & mobile
 

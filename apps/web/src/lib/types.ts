@@ -102,6 +102,8 @@ export interface User {
   role: string;
   specialty?: string | null;
   costPerHour?: string | null;
+  weeklyCapacityHours: string;
+  apiKeyHash?: string | null;
 }
 
 export interface ProjectMember {
@@ -121,6 +123,21 @@ export interface TimeEntry {
   billable: boolean;
   activityType: "projeto" | "administrativo" | "comercial";
   approvedAt?: string | null;
+}
+
+// Compromisso planejado (não medido) de horas/semana de uma pessoa num
+// projeto, entre datas -- usado no planejamento de alocação da equipe,
+// diferente de TimeEntry (já trabalhado) e ProjectMember (sem tempo/data).
+export interface Allocation {
+  id: string;
+  userId: string;
+  user: User;
+  projectId: string;
+  project: Project;
+  hoursPerWeek: string;
+  startDate: string;
+  endDate: string;
+  createdAt: string;
 }
 
 export interface Product {

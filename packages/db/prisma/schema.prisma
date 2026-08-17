@@ -76,19 +76,32 @@ model RoleRate {
 }
 
 model User {
-  id          String   @id @default(cuid())
-  accountId   String
-  account     Account  @relation(fields: [accountId], references: [id])
-  email       String   @unique
-  name        String
-  role        String // admin | architect | designer | freelancer | ...
-  specialty   String?
-  costPerHour Decimal?
-  googleId    String?  @unique
-  createdAt   DateTime @default(now())
+  id                  String   @id @default(cuid())
+  accountId           String
+  account             Account  @relation(fields: [accountId], references: [id])
+  email               String   @unique
+  name                String
+  role                String // admin | architect | designer | freelancer | ...
+  specialty           String?
+  costPerHour         Decimal?
+  // Base para detectar sobrecarga no planejamento de alocação (Allocation,
+  // abaixo) — quantas horas/semana esta pessoa efetivamente tem para
+  // distribuir entre projetos. Default 40 (CLT integral); freelancers e
+  // meio-período editam.
+  weeklyCapacityHours Decimal  @default(40)
+  googleId            String?  @unique
+  // Sha-256 hex da chave de API (formato longa, alta entropia) que a
+  // extensão Captura usa pra autenticar POST /v1/products direto do
+  // navegador do colaborador -- nunca a chave em texto puro, que só existe
+  // no momento da geração (ver UsersService.generateApiKey). Regenerar
+  // sobrescreve o hash, invalidando a chave anterior implicitamente; não
+  // há revogação por chave individual porque só existe uma por vez.
+  apiKeyHash          String?  @unique
+  createdAt           DateTime @default(now())
 
   timeEntries       TimeEntry[]
   projectMembership ProjectMember[]
+  allocations       Allocation[]
 }
 
 // CRM: pessoa física/jurídica captada como lead ou já cliente
@@ -180,6 +193,25 @@ model Project {
   areas            Area[]
   moodboards       Moodboard[]
   presentationLink PresentationLink?
+  allocations      Allocation[]
+}
+
+// Planejamento de capacidade: quem está previsto para trabalhar em qual
+// projeto, quantas horas/semana, entre quais datas -- para alocar a
+// equipe olhando pra frente (prazos futuros), não só registrar o que já
+// aconteceu. Diferente de TimeEntry (horas já trabalhadas, medidas) e de
+// ProjectMember (só diz "faz parte do time do projeto", sem tempo/data).
+// hoursPerWeek é um compromisso planejado, não uma medição.
+model Allocation {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id])
+  hoursPerWeek Decimal
+  startDate    DateTime
+  endDate      DateTime
+  createdAt    DateTime @default(now())
 }
 
 // A stage of the PEP applied to a specific project. `approvedAt` /

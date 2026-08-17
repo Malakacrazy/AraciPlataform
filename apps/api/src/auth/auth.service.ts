@@ -32,4 +32,10 @@ export class AuthService {
       },
     });
   }
+
+  // Usado pelo caminho de chave de API do AuthGuard (extensão Captura) —
+  // ver users.service.ts#generateApiKey para como o hash é gerado.
+  findByApiKeyHash(apiKeyHash: string) {
+    return this.prisma.db.user.findUnique({ where: { apiKeyHash } });
+  }
 }
