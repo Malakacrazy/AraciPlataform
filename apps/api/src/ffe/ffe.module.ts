@@ -10,9 +10,15 @@ import {
   FfeCheckoutController,
 } from './specifications.controller';
 import { SpecificationsService } from './specifications.service';
+import {
+  ProjectMoodboardsController,
+  MoodboardsController,
+  MoodboardItemsController,
+} from './moodboards.controller';
+import { MoodboardsService } from './moodboards.service';
 
 @Module({
-  imports: [ErpModule], // AreasService/SpecificationsService precisam de ProjectsService
+  imports: [ErpModule], // AreasService/SpecificationsService/MoodboardsService precisam de ProjectsService
   controllers: [
     ProductsController,
     ProjectAreasController,
@@ -20,7 +26,16 @@ import { SpecificationsService } from './specifications.service';
     AreaSpecificationsController,
     SpecificationsController,
     FfeCheckoutController,
+    ProjectMoodboardsController,
+    MoodboardsController,
+    MoodboardItemsController,
   ],
-  providers: [ProductsService, AreasService, SpecificationsService],
+  providers: [
+    ProductsService,
+    AreasService,
+    SpecificationsService,
+    MoodboardsService,
+  ],
+  exports: [SpecificationsService, MoodboardsService],
 })
 export class FfeModule {}

@@ -488,6 +488,117 @@ async function main() {
     ffeInvoiceListRes.body
   );
 
+  const moodboardRes = await api(`/v1/projects/${projectId}/moodboards`, {
+    method: "POST",
+    body: JSON.stringify({ name: "Sala de Estar — Conceito 1" }),
+  });
+  report("POST /projects/:id/moodboards → 201", moodboardRes.status === 201, moodboardRes.body);
+  const moodboardId = moodboardRes.body?.data?.id;
+
+  const moodboardItemRes = await api(`/v1/moodboards/${moodboardId}/items`, {
+    method: "POST",
+    body: JSON.stringify({ productId: product1Id }),
+  });
+  report(
+    "POST /moodboards/:id/items → 201, inclui o produto",
+    moodboardItemRes.status === 201 && moodboardItemRes.body?.data?.product?.id === product1Id,
+    moodboardItemRes.body
+  );
+  const moodboardItemId = moodboardItemRes.body?.data?.id;
+
+  const moodboardListRes = await api(`/v1/projects/${projectId}/moodboards`);
+  const listedMoodboard = moodboardListRes.body?.data?.find((m: any) => m.id === moodboardId);
+  report(
+    "GET /projects/:id/moodboards inclui a prancha com o item",
+    listedMoodboard?.items?.length === 1 && listedMoodboard.items[0].id === moodboardItemId,
+    moodboardListRes.body
+  );
+
+  const deleteMoodboardItemRes = await api(`/v1/moodboard-items/${moodboardItemId}`, { method: "DELETE" });
+  report("DELETE /moodboard-items/:id → 204", deleteMoodboardItemRes.status === 204, deleteMoodboardItemRes.body);
+
+  const deleteMoodboardRes = await api(`/v1/moodboards/${moodboardId}`, { method: "DELETE" });
+  report(
+    "DELETE /moodboards/:id → 204 (cascade cuida dos itens, já sem nenhum aqui)",
+    deleteMoodboardRes.status === 204,
+    deleteMoodboardRes.body
+  );
+
+  // --- Link de apresentação: sem sessão nenhuma a partir daqui, o token
+  // na URL é a única credencial. `api()` continua mandando o Bearer
+  // interno (é o mesmo helper), mas as rotas /v1/present/:token são
+  // @Public() e nem olham pra ele -- por isso o teste de "sem token
+  // nenhum" abaixo usa fetch() puro, não api(), pra provar de verdade
+  // que funciona sem Authorization.
+  const noLinkYetRes = await api(`/v1/projects/${projectId}/presentation-link`);
+  report(
+    "GET /projects/:id/presentation-link antes de gerar → 200 com data null",
+    noLinkYetRes.status === 200 && noLinkYetRes.body?.data === null,
+    noLinkYetRes.body
+  );
+
+  const bogusTokenRes = await fetch(`${BASE_URL}/v1/present/token-que-nao-existe`);
+  report(
+    "GET /v1/present/:token com token inválido → 404, sem precisar de nenhum header",
+    bogusTokenRes.status === 404,
+    await bogusTokenRes.json().catch(() => null)
+  );
+
+  const createLinkRes = await api(`/v1/projects/${projectId}/presentation-link`, { method: "POST" });
+  report("POST /projects/:id/presentation-link → 201, devolve token", createLinkRes.status === 201 && !!createLinkRes.body?.data?.token, createLinkRes.body);
+  const firstToken = createLinkRes.body?.data?.token;
+
+  const publicViewRes = await fetch(`${BASE_URL}/v1/present/${firstToken}`);
+  const publicViewBody = await publicViewRes.json().catch(() => null);
+  report(
+    "GET /v1/present/:token sem Authorization → 200, traz cliente/áreas/pranchas do projeto certo",
+    publicViewRes.status === 200 &&
+      publicViewBody?.data?.id === projectId &&
+      Array.isArray(publicViewBody?.data?.areas) &&
+      Array.isArray(publicViewBody?.data?.moodboards),
+    publicViewBody
+  );
+
+  const approveViaLinkRes = await fetch(`${BASE_URL}/v1/present/${firstToken}/specifications/${spec1Id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ clientApproved: true, clientComment: "Adorei!", unitPrice: 999999 }),
+  });
+  const approveViaLinkBody = await approveViaLinkRes.json().catch(() => null);
+  report(
+    "PATCH .../present/:token/specifications/:id sem Authorization → 200, aprova e comenta",
+    approveViaLinkRes.status === 200 &&
+      approveViaLinkBody?.data?.clientApproved === true &&
+      approveViaLinkBody?.data?.clientComment === "Adorei!",
+    approveViaLinkBody
+  );
+  report(
+    "Mesma chamada NÃO aceita unitPrice — campo fora do schema público é ignorado, não vira erro nem some o preço",
+    Number(approveViaLinkBody?.data?.unitPrice) !== 999999,
+    approveViaLinkBody?.data?.unitPrice
+  );
+
+  const regenerateLinkRes = await api(`/v1/projects/${projectId}/presentation-link`, { method: "POST" });
+  const secondToken = regenerateLinkRes.body?.data?.token;
+  report(
+    "Gerar de novo troca o token (revogação implícita do anterior)",
+    !!secondToken && secondToken !== firstToken,
+    { firstToken, secondToken }
+  );
+
+  const oldTokenNowRes = await fetch(`${BASE_URL}/v1/present/${firstToken}`);
+  report("Token antigo, depois de regenerar → 404", oldTokenNowRes.status === 404, await oldTokenNowRes.json().catch(() => null));
+
+  const revokeLinkRes = await api(`/v1/projects/${projectId}/presentation-link`, { method: "DELETE" });
+  report("DELETE /projects/:id/presentation-link → 204", revokeLinkRes.status === 204, revokeLinkRes.body);
+
+  const revokedTokenRes = await fetch(`${BASE_URL}/v1/present/${secondToken}`);
+  report(
+    "Token revogado → 404 (não sobra acesso nenhum depois do DELETE)",
+    revokedTokenRes.status === 404,
+    await revokedTokenRes.json().catch(() => null)
+  );
+
   const driveLinkRes = await api(`/v1/projects/${projectId}/office-links`, {
     method: "POST",
     body: JSON.stringify({

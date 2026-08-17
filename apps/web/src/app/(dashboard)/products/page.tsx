@@ -59,7 +59,7 @@ export default async function ProductsPage() {
                     {p.leadTimeDays ? `${p.leadTimeDays} dias` : "—"}
                   </td>
                   <td className="px-5 py-3 text-right">
-                    <form action={deleteProduct.bind(null, p.id)}>
+                    <form action={deleteProduct.bind(null, p.id)} className="inline">
                       <button type="submit" className="text-xs text-zinc-500 hover:text-red-600 dark:text-zinc-400">
                         Remover
                       </button>

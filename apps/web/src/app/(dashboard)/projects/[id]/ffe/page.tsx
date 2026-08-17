@@ -3,9 +3,11 @@ import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet, ApiError } from "@/lib/api";
-import type { Project, Area, Product, ProductSpecification } from "@/lib/types";
+import type { Project, Area, Product, ProductSpecification, Moodboard, PresentationLink } from "@/lib/types";
 import { FfeCart } from "@/components/ffe/ffe-cart";
 import { createArea, deleteArea, createSpecification, deleteSpecification } from "@/components/ffe/actions";
+import { createMoodboard, deleteMoodboard, addMoodboardItem, removeMoodboardItem } from "@/components/moodboards/actions";
+import { PresentationLinkPanel } from "@/components/moodboards/presentation-link-panel";
 
 export default async function ProjectFfePage({ params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
@@ -18,11 +20,15 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
   let project: Project;
   let areas: Area[];
   let products: Product[];
+  let moodboards: Moodboard[];
+  let presentationLink: PresentationLink | null;
   try {
-    [project, areas, products] = await Promise.all([
+    [project, areas, products, moodboards, presentationLink] = await Promise.all([
       apiGet<Project>(`projects/${id}`),
       apiGet<Area[]>(`projects/${id}/areas`),
       apiGet<Product[]>("products"),
+      apiGet<Moodboard[]>(`projects/${id}/moodboards`),
+      apiGet<PresentationLink | null>(`projects/${id}/presentation-link`),
     ]);
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) {
@@ -95,7 +101,13 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
                       )}
                     </td>
                     <td className="py-2 text-right">
-                      <form action={deleteSpecification.bind(null, id, spec.id)}>
+                      <Link
+                        href={`/products/${spec.productId}/tear-sheet`}
+                        className="mr-3 text-xs text-zinc-500 hover:underline dark:text-zinc-400"
+                      >
+                        Ficha técnica
+                      </Link>
+                      <form action={deleteSpecification.bind(null, id, spec.id)} className="inline">
                         <button type="submit" className="text-xs text-zinc-500 hover:text-red-600 dark:text-zinc-400">
                           Remover
                         </button>
@@ -196,6 +208,96 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
         </p>
         <div className="mt-3">
           <FfeCart projectId={id} specs={allSpecs} />
+        </div>
+      </section>
+
+      {moodboards.map((board) => (
+        <section
+          key={board.id}
+          className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950"
+        >
+          <div className="flex items-center justify-between">
+            <h2 className="font-medium text-zinc-900 dark:text-zinc-50">{board.name}</h2>
+            <form action={deleteMoodboard.bind(null, id, board.id)}>
+              <button type="submit" className="text-xs text-zinc-500 hover:text-red-600 dark:text-zinc-400">
+                Remover prancha
+              </button>
+            </form>
+          </div>
+
+          {board.items.length === 0 ? (
+            <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Nenhum produto nesta prancha ainda.</p>
+          ) : (
+            <ul className="mt-3 flex flex-wrap gap-3">
+              {board.items.map((item) => (
+                <li
+                  key={item.id}
+                  className="flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800"
+                >
+                  <span className="text-zinc-900 dark:text-zinc-50">{item.product.name}</span>
+                  <form action={removeMoodboardItem.bind(null, id, item.id)}>
+                    <button type="submit" className="text-xs text-zinc-500 hover:text-red-600 dark:text-zinc-400">
+                      ×
+                    </button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {products.length > 0 && (
+            <form action={addMoodboardItem.bind(null, id, board.id)} className="mt-3 flex items-end gap-2">
+              <label className="flex flex-col gap-1 text-xs text-zinc-500 dark:text-zinc-400">
+                Produto
+                <select
+                  name="productId"
+                  required
+                  defaultValue=""
+                  className="rounded border border-zinc-300 bg-transparent px-2 py-1 text-sm text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                >
+                  <option value="" disabled>
+                    Selecione…
+                  </option>
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="submit" className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
+                + Adicionar
+              </button>
+            </form>
+          )}
+        </section>
+      ))}
+
+      <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+        <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Nova prancha</h2>
+        <form action={createMoodboard.bind(null, id)} className="mt-3 flex items-center gap-2">
+          <input
+            name="name"
+            required
+            placeholder="ex.: Sala de estar — Conceito 1"
+            className="w-64 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+          />
+          <button
+            type="submit"
+            className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
+          >
+            Criar
+          </button>
+        </form>
+      </section>
+
+      <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+        <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Apresentação para o cliente</h2>
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          Link único, sem login — o cliente vê ambientes, pranchas e pode aprovar/comentar itens.
+        </p>
+        <div className="mt-3">
+          <PresentationLinkPanel projectId={id} link={presentationLink} />
         </div>
       </section>
     </main>

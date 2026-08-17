@@ -154,6 +154,38 @@ export interface ProductSpecification {
   clientComment?: string | null;
 }
 
+export interface MoodboardItem {
+  id: string;
+  productId: string;
+  product: Product;
+  order: number;
+}
+
+export interface Moodboard {
+  id: string;
+  projectId: string;
+  name: string;
+  items: MoodboardItem[];
+}
+
+export interface PresentationLink {
+  id: string;
+  projectId: string;
+  token: string;
+  createdAt: string;
+}
+
+// GET v1/present/:token devolve o Project inteiro (o service não filtra
+// campos) -- esta interface lista só os campos que a página de
+// apresentação usa, igual ao resto deste arquivo (comentário do topo).
+export interface PresentationData {
+  id: string;
+  name: string;
+  client: Client;
+  areas: (Area & { specifications: ProductSpecification[] })[];
+  moodboards: Moodboard[];
+}
+
 export type OfficeLinkProvider = "DRIVE" | "CALENDAR";
 
 export interface OfficeLink {

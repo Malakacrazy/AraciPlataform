@@ -173,11 +173,13 @@ model Project {
   feeModel      String
   createdAt     DateTime     @default(now())
 
-  phases      ProjectPhase[]
-  members     ProjectMember[]
-  timeEntries TimeEntry[]
-  invoices    Invoice[]
-  areas       Area[]
+  phases           ProjectPhase[]
+  members          ProjectMember[]
+  timeEntries      TimeEntry[]
+  invoices         Invoice[]
+  areas            Area[]
+  moodboards       Moodboard[]
+  presentationLink PresentationLink?
 }
 
 // A stage of the PEP applied to a specific project. `approvedAt` /
@@ -285,6 +287,7 @@ model Product {
   createdAt    DateTime @default(now())
 
   specifications ProductSpecification[]
+  moodboardItems MoodboardItem[]
 }
 
 // FF&E: linha do carrinho de compras — produto especificado em uma área,
@@ -302,6 +305,46 @@ model ProductSpecification {
   clientApproved Boolean @default(false)
   clientComment String?
   createdAt     DateTime @default(now())
+}
+
+// FF&E: prancha de apresentação — conjunto curado e ordenado de produtos
+// para mostrar ao cliente (não é o carrinho, que já é a soma das
+// ProductSpecification aprovadas; um moodboard é material de
+// apresentação visual, pode não ter preço/quantidade definidos ainda).
+// Por projeto, não por Area — o estúdio pode montar mais de uma prancha
+// para o mesmo ambiente (ex.: "Sala de Estar — Conceito 1/2").
+model Moodboard {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  name      String
+  createdAt DateTime @default(now())
+
+  items MoodboardItem[]
+}
+
+model MoodboardItem {
+  id          String    @id @default(cuid())
+  moodboardId String
+  moodboard   Moodboard @relation(fields: [moodboardId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id])
+  order       Int       @default(0)
+}
+
+// Link de apresentação: dá a um cliente (sem login, sem conta) acesso de
+// visualização + aprovação/comentário a um projeto — "modo de
+// apresentação via link único" do plano. `token` é o segredo na URL,
+// gerado com crypto.randomUUID() no service (nunca reaproveita `id`/cuid
+// — cuid existe para unicidade, não para ser imprevisível como
+// credencial; ver PresentationLinksService). Um link por projeto — gerar
+// de novo substitui o anterior (revogação implícita).
+model PresentationLink {
+  id        String   @id @default(cuid())
+  projectId String   @unique
+  project   Project  @relation(fields: [projectId], references: [id])
+  token     String   @unique
+  createdAt DateTime @default(now())
 }
 
 // Office: referência a um arquivo do Drive ou evento do Calendar vinculado
