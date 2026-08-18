@@ -149,22 +149,43 @@ não um detalhe de implementação.
 
 ## Fase 2 — Financeiro & Fiscal
 
-Sem mudança de escopo em relação ao plano original, mas com inputs reais
-agora disponíveis em vez de hipotéticos:
-
-- Integração com `nfewizard-io` para NFS-e (decidido, self-hosted,
-  certificado A1 do estúdio) atrás de um módulo fiscal dedicado a
-  construir em `apps/api` (ainda não implementado); boleto/Pix segue
-  como fornecedor separado, ainda não escolhido.
+- **Regime tributário (MEI/ME) e simulador de Fator R — implementado, API
+  e UI**, em `/financeiro`. `Account.taxRegime` ("MEI" | "ME") gates o
+  simulador: o estúdio é MEI hoje (com migração pra ME prevista), MEI
+  tributa por valor fixo (DAS-MEI) e não usa Fator R, então a API rejeita
+  a simulação com 422 enquanto o regime for MEI em vez de calcular um
+  Anexo que não significaria nada. Depois de ME, a razão folha/receita
+  (12 meses) decide Anexo III (>=28%) ou V, persistido em
+  `Account.fatorRPercent`/`taxRegimeAnexo`. Achado testando de verdade no
+  navegador: o `<select>` do regime usava `defaultValue`, que o React só
+  aplica no mount — depois de trocar e revalidar, o dado por trás estava
+  certo (o simulador aparecia/sumia certo) mas o próprio dropdown ficava
+  mostrando o valor antigo; corrigido com `key={taxRegime}` forçando
+  remount. 4 testes unitários (`calcularFatorR`) + 7 casos de smoke test.
+- **Integração NFS-e (`@nfewizard/nfse`) — módulo construído, bloqueado
+  na senha do certificado de teste real**. Instalado e investigado pelo
+  código-fonte instalado, não só o README (que tem um bug na própria
+  documentação: o exemplo usa `config.nfse.ambiente`, o construtor real
+  exige `config.nfe.ambiente`). Dois endpoints em
+  `apps/api/src/erp/fiscal/`: `inspecionar-certificado` (só abre o .pfx
+  localmente com `node-forge`, sem chamada externa — usado pra ler o CNPJ
+  real do certificado, que precisa bater com o CNPJ declarado na DPS) e
+  `emitir-teste` (chama de fato o webservice de Homologação da SEFIN
+  Nacional com um DPS de dado fictício, por decisão explícita — não a
+  identidade fiscal real do estúdio, que ainda depende de confirmação da
+  consultoria contábil). Ambiente de Produção nunca é alcançável por
+  variável de ambiente, só por mudança de código deliberada. Testado com
+  a senha fornecida — rejeitada tanto por `node-forge` quanto por
+  `openssl` direto (confirmado que não é bug de compatibilidade da lib,
+  a senha em si está errada) — usuário vai localizar a senha certa depois.
+  `up-leg-certificate.pfx` (certificado de teste) estava solto na raiz
+  do repo, sem gitignore, quando a integração começou — `*.pfx`/`*.p12`
+  adicionados ao `.gitignore` antes de qualquer outra coisa.
 - Faturamento por estágio aprovado (`Invoice.phaseId`), não por marco
   genérico — já modelado no schema.
-- Simulador de Fator R: usa Anexo III e receita média ~R$ 7.000/mês como
-  ponto de partida, mas precisa calcular a razão folha/receita
-  dinamicamente conforme a equipe cresce — não é o mesmo número que a
-  carga tributária de 6% usada na fórmula de tarifa/hora (são dois
-  conceitos fiscais diferentes, não confundir um com o outro no código).
+- Boleto/Pix segue como fornecedor separado, ainda não escolhido.
 - Campos da Reforma Tributária (CST-IBS, CST-CBS, cClassTrib) — só a
-  partir desta fase, conforme já recomendado.
+  partir desta fase, conforme já recomendado; ainda não adicionados.
 
 ## Fase 3 — FF&E
 

@@ -13,29 +13,30 @@ import { ApiError } from '../../common/api-error';
 // para nunca mirar Produção sem decisão explícita nesta mesma revisão.
 const AMBIENTE_HOMOLOGACAO = 2;
 
-export interface NfseCertificateConfig {
+export interface NfseCertificateFile {
   path: string;
   password: string;
+}
+
+export interface NfseCertificateConfig extends NfseCertificateFile {
   uf: string;
   cpfCnpj: string;
 }
 
-// Lê path/senha do certificado do ambiente -- nunca de configuração
-// versionada. Erro aqui é intencionalmente explícito (não um retorno
-// undefined silencioso): quem tentar emitir sem configurar o certificado
-// precisa saber exatamente o que falta, não receber um erro genérico da
-// lib mais adiante.
-export function loadCertificateConfigFromEnv(): NfseCertificateConfig {
+// Path/senha bastam pra ABRIR o certificado (inspectCertificate) --
+// exigir UF/CPFCNPJ nesse passo seria um paradoxo, já que o CNPJ real só
+// é conhecido depois de abrir o certificado (ver nfse-certificate-info.ts
+// e NfseService.inspectCertificate). Erro aqui é intencionalmente
+// explícito (não um retorno undefined silencioso): quem tentar sem
+// configurar o certificado precisa saber exatamente o que falta, não
+// receber um erro genérico da lib mais adiante.
+export function loadCertificateFileFromEnv(): NfseCertificateFile {
   const path = process.env.NFSE_CERTIFICATE_PATH;
   const password = process.env.NFSE_CERTIFICATE_PASSWORD;
-  const uf = process.env.NFSE_CERTIFICATE_UF;
-  const cpfCnpj = process.env.NFSE_CERTIFICATE_CPFCNPJ;
 
   const missing = [
     !path && 'NFSE_CERTIFICATE_PATH',
     !password && 'NFSE_CERTIFICATE_PASSWORD',
-    !uf && 'NFSE_CERTIFICATE_UF',
-    !cpfCnpj && 'NFSE_CERTIFICATE_CPFCNPJ',
   ].filter(Boolean);
   if (missing.length > 0) {
     throw new ApiError(
@@ -45,7 +46,30 @@ export function loadCertificateConfigFromEnv(): NfseCertificateConfig {
     );
   }
 
-  return { path: path!, password: password!, uf: uf!, cpfCnpj: cpfCnpj! };
+  return { path: path!, password: password! };
+}
+
+// UF/CPFCNPJ só são necessários pra de fato CRIAR o client e emitir (o
+// payload dfe da lib exige os dois) -- usado só por emitirTeste, nunca
+// por inspectCertificate.
+export function loadCertificateConfigFromEnv(): NfseCertificateConfig {
+  const file = loadCertificateFileFromEnv();
+  const uf = process.env.NFSE_CERTIFICATE_UF;
+  const cpfCnpj = process.env.NFSE_CERTIFICATE_CPFCNPJ;
+
+  const missing = [
+    !uf && 'NFSE_CERTIFICATE_UF',
+    !cpfCnpj && 'NFSE_CERTIFICATE_CPFCNPJ',
+  ].filter(Boolean);
+  if (missing.length > 0) {
+    throw new ApiError(
+      'NFSE_CERTIFICATE_NOT_CONFIGURED',
+      `Certificado NFS-e não configurado — faltam as variáveis de ambiente: ${missing.join(', ')}. Rode POST /v1/fiscal/nfse/inspecionar-certificado pra descobrir o CNPJ real do certificado.`,
+      422,
+    );
+  }
+
+  return { ...file, uf: uf!, cpfCnpj: cpfCnpj! };
 }
 
 // pathLogs/pathXML* ficam fora do repo de propósito (os.tmpdir(), não

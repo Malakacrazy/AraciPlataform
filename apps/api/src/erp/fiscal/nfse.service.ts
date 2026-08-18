@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { readFileSync } from 'node:fs';
 import { ApiError } from '../../common/api-error';
-import { loadCertificateConfigFromEnv, createNfseClient } from './nfse-client';
+import { loadCertificateFileFromEnv, loadCertificateConfigFromEnv, createNfseClient } from './nfse-client';
 import { readCertificateInfo } from './nfse-certificate-info';
 import { buildTestDps } from './nfse-test-dps';
 
@@ -12,7 +12,7 @@ export class NfseService {
   // pra confirmar que path/senha estão certos antes de tentar de fato
   // uma emissão em Homologação (ver emitirTeste).
   inspectCertificate() {
-    const cert = loadCertificateConfigFromEnv();
+    const cert = loadCertificateFileFromEnv();
     const buffer = readFileSync(cert.path);
     const info = readCertificateInfo(buffer, cert.password);
 
