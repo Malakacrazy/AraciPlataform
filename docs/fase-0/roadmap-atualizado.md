@@ -211,38 +211,35 @@ original previa:
     sempre cria novo, porque não há como saber se é "o mesmo" produto.
     Comportamento coberto por 7 casos novos no smoke test (5 de chave de
     API, 2 do upsert por `sourceUrl`).
-  - **No repositório da extensão** (`Malakacrazy/Captura`): merged em
-    `main` a integração inicial (branch `integracao-plataforma-araci`,
-    PR #4) e, em cima dela, uma correção (branch
-    `fix-captura-envia-para-projeto`, **commitada mas ainda não
-    enviada ao GitHub** — pendente de push, mesma limitação de sandbox de
-    antes) depois de testar de verdade e achar dois problemas na primeira
-    versão: (1) os itens só iam para o catálogo geral da conta
-    (`POST /v1/products`), sem vínculo a projeto nenhum — nunca apareciam
-    onde o estúdio de fato olha, a tela de FF&E do projeto; (2) reenviar
-    duplicava. A correção: `options.html` (orçamento atual) e cada card da
-    Biblioteca (orçamento salvo) agora pedem Projeto + Ambiente antes de
-    enviar (com "+ Criar novo ambiente" inline quando ainda não existe um
-    que sirva), e `sendProductsToPlatform` faz um segundo passo depois do
-    upsert do catálogo: cria a `ProductSpecification` no ambiente
-    escolhido — ou, se já existir uma para aquele produto naquela área
-    (busca `GET /v1/areas/:areaId/specifications` antes de decidir),
-    atualiza via `PATCH` em vez de criar outra linha. Essa deduplicação é
-    só do lado da extensão, não da API: a plataforma legitimamente permite
-    duas linhas do mesmo produto na mesma área (rodadas de aprovação
-    diferentes, ver `SpecificationsService`) — um upsert no servidor
-    quebraria esse uso real; reenviar o mesmo orçamento da extensão pro
-    mesmo ambiente é um caso mais estreito que só faz sentido do lado de
-    quem está reenviando. Verificado de ponta a ponta contra a API local
-    de verdade (gerou chave real, criou ambiente real, mandou o mesmo
-    item duas vezes com quantidade e preço diferentes): depois dos dois
-    envios sobra exatamente 1 `Product` (mesmo `sourceUrl`) e exatamente 1
-    `ProductSpecification` na área, com quantidade e preço do envio mais
-    recente. A integração da extensão com o Chrome em si (carregar via
-    "load unpacked", clicar nos botões) não foi verificada num navegador
-    real por mim — só a lógica de dados e checagem de sintaxe; o usuário
-    testou a versão anterior (sem projeto/ambiente) num navegador real e
-    foi isso que revelou os dois problemas corrigidos aqui.
+  - **No repositório da extensão** (`Malakacrazy/Captura`) — **três PRs
+    merged em `main`, confirmado funcionando pelo usuário num navegador
+    real**: #4 (integração inicial), #5 (vincular a projeto/ambiente em
+    vez de só o catálogo geral, e deduplicar `ProductSpecification` no
+    reenvio) e #6, que corrige uma regressão real e um erro de design que
+    só apareceram no teste ao vivo do #5 — entre o #5 e o #6, um commit
+    de refatoração do próprio usuário no mesmo branch ("Add Studio Araci
+    FF&E library & export features", que separou `library.js` em módulos
+    `library-*.js`) sobrescreveu sem conflito o painel de projeto/ambiente
+    que o #5 tinha acabado de adicionar, e o botão "☁ Enviar" voltou a
+    chamar `sendProductsToPlatform` sem nenhum id de área — sempre
+    reportando "0 produtos enviados" (com "sucesso", por um bug
+    relacionado: o caminho de retorno antecipado tinha `failed: 0` mesmo
+    carregando uma mensagem de erro). O #6 também corrigiu
+    `fetchPlatformProjects`/`fetchPlatformAreas`, que engoliam qualquer
+    falha (URL errada, chave expirada, API fora do ar) num `[]` silencioso
+    — indistinguível de "a conta não tem projeto nenhum" na tela. E,
+    a pedido do usuário depois de ver o #5 funcionando mas do jeito
+    errado: a direção foi invertida — em vez de escolher um Ambiente já
+    cadastrado na plataforma, `sendProductsToPlatform(products, projectId)`
+    agora lê o campo "Ambiente" que cada produto já tem na extensão (texto
+    livre, aceita múltiplos) e cria/reaproveita a Area correspondente
+    nesse projeto automaticamente — produto com dois ambientes gera uma
+    `ProductSpecification` em cada área; sem nenhum, cai num bucket
+    "Geral". Verificado de ponta a ponta contra a API local de verdade
+    (produto com dois ambientes + um sem ambiente, num projeto sem áreas
+    ainda): 3 áreas criadas automaticamente, colocação correta em cada
+    uma, exatamente 2 `Product` no catálogo (não 4), zero duplicata ao
+    reenviar o mesmo lote.
 - **Tear sheets, moodboards, modo de apresentação por link — implementado,
   API e UI**, modelados no schema (`Moodboard`, `MoodboardItem`,
   `PresentationLink`), depois deste documento ter sido escrito pela
