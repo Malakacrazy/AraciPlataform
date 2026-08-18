@@ -183,9 +183,17 @@ não um detalhe de implementação.
   adicionados ao `.gitignore` antes de qualquer outra coisa.
 - Faturamento por estágio aprovado (`Invoice.phaseId`), não por marco
   genérico — já modelado no schema.
-- Boleto/Pix segue como fornecedor separado, ainda não escolhido.
-- Campos da Reforma Tributária (CST-IBS, CST-CBS, cClassTrib) — só a
-  partir desta fase, conforme já recomendado; ainda não adicionados.
+- Boleto/Pix segue como fornecedor separado, ainda não escolhido —
+  decisão de negócio, não travada por nada técnico.
+- **Campos da Reforma Tributária (CST-IBS, CST-CBS, cClassTrib) —
+  implementado**: `Invoice.cstIbs`/`cstCbs`/`cClassTrib`, preenchidos
+  manualmente via `PATCH /v1/invoices/:id` (mesmo endpoint que já seta
+  `nfseNumber`), sem lógica de split payment (não obrigatório antes de
+  2027, conforme já recomendado). Coberto no smoke test.
+
+Com isso, tudo que não depende de a) a senha do certificado de teste ou
+b) uma decisão de negócio da Giulia (fornecedor de Boleto/Pix, dado
+fiscal real pra emissão de produção) está feito nesta fase.
 
 ## Fase 3 — FF&E
 
