@@ -9,6 +9,7 @@ const LINKS = [
   { href: "/timesheet", label: "Timesheet" },
   { href: "/team", label: "Equipe" },
   { href: "/products", label: "Produtos" },
+  { href: "/financeiro", label: "Financeiro" },
 ];
 
 export function Nav() {

@@ -894,6 +894,74 @@ async function main() {
   const notFound = await api("/v1/clients/does-not-exist");
   report("GET /clients/:id inexistente → 404", notFound.status === 404, notFound.body);
 
+  // Fator R / regime tributário — a conta é compartilhada entre todos os
+  // testes (AuthService.ensureAccountAndUser reaproveita a primeira
+  // Account existente, não cria uma por teste), então este bloco
+  // restaura taxRegime para "MEI" no final — é o valor real do estúdio
+  // hoje, não só um detalhe de limpeza de teste.
+  const accountBeforeRes = await api("/v1/account");
+  report(
+    "GET /account → 200, taxRegime default é MEI",
+    accountBeforeRes.status === 200 && accountBeforeRes.body?.data?.taxRegime === "MEI",
+    accountBeforeRes.body
+  );
+
+  const fatorRWhileMeiRes = await api("/v1/fiscal/fator-r/simulate", {
+    method: "POST",
+    body: JSON.stringify({ folhaPagamento12m: 20000, receitaBruta12m: 80000 }),
+  });
+  report(
+    "POST /fiscal/fator-r/simulate com regime MEI → 422 FATOR_R_NOT_APPLICABLE_MEI",
+    fatorRWhileMeiRes.status === 422 && fatorRWhileMeiRes.body?.error?.code === "FATOR_R_NOT_APPLICABLE_MEI",
+    fatorRWhileMeiRes.body
+  );
+
+  const switchToMeRes = await api("/v1/account", {
+    method: "PATCH",
+    body: JSON.stringify({ taxRegime: "ME" }),
+  });
+  report("PATCH /account { taxRegime: 'ME' } → 200", switchToMeRes.status === 200, switchToMeRes.body);
+
+  const fatorRRes = await api("/v1/fiscal/fator-r/simulate", {
+    method: "POST",
+    body: JSON.stringify({ folhaPagamento12m: 30000, receitaBruta12m: 100000 }),
+  });
+  report(
+    "POST /fiscal/fator-r/simulate com regime ME → 201, fatorR 0.3 recomenda Anexo III",
+    fatorRRes.status === 201 &&
+      Math.abs(fatorRRes.body?.data?.fatorR - 0.3) < 0.0001 &&
+      fatorRRes.body?.data?.anexoRecomendado === "III",
+    fatorRRes.body
+  );
+
+  const accountAfterSimulateRes = await api("/v1/account");
+  report(
+    "Simulação persiste fatorRPercent e taxRegimeAnexo na Account",
+    Number(accountAfterSimulateRes.body?.data?.fatorRPercent) === 0.3 &&
+      accountAfterSimulateRes.body?.data?.taxRegimeAnexo === "III",
+    accountAfterSimulateRes.body
+  );
+
+  const fatorRZeroReceitaRes = await api("/v1/fiscal/fator-r/simulate", {
+    method: "POST",
+    body: JSON.stringify({ folhaPagamento12m: 1000, receitaBruta12m: 0 }),
+  });
+  report(
+    "POST /fiscal/fator-r/simulate com receita zero → 400 VALIDATION_ERROR",
+    fatorRZeroReceitaRes.status === 400 && fatorRZeroReceitaRes.body?.error?.code === "VALIDATION_ERROR",
+    fatorRZeroReceitaRes.body
+  );
+
+  const restoreMeiRes = await api("/v1/account", {
+    method: "PATCH",
+    body: JSON.stringify({ taxRegime: "MEI" }),
+  });
+  report(
+    "PATCH /account { taxRegime: 'MEI' } → 200 (restaura o regime real do estúdio)",
+    restoreMeiRes.status === 200 && restoreMeiRes.body?.data?.taxRegime === "MEI",
+    restoreMeiRes.body
+  );
+
   console.log(`\n${passed} passaram, ${failed} falharam.\n`);
   process.exit(failed > 0 ? 1 : 0);
 }

@@ -41,10 +41,15 @@ enum OfficeLinkEntityType {
 // hangs off an Account so the schema supports multiple firms later
 // without a redesign, even though Giulia is the only tenant today.
 model Account {
-  id             String   @id @default(cuid())
-  name           String
-  cnpj           String?
-  taxRegimeAnexo String? // "III" | "V" — Simples Nacional annex
+  id        String  @id @default(cuid())
+  name      String
+  cnpj      String?
+  // "MEI" | "ME" — MEI tributa por valor fixo mensal (DAS-MEI), sem Fator
+  // R; Fator R e Simples Nacional (Anexo III/V) só passam a valer quando
+  // o estúdio migra pra ME. Ver docs/fase-0/decisoes-pos-descoberta.md #4
+  // -- Studio Araci é MEI hoje, com migração pra ME prevista.
+  taxRegime      String   @default("MEI")
+  taxRegimeAnexo String? // "III" | "V" — só relevante quando taxRegime = "ME"
   fatorRPercent  Decimal? // last computed folha/receita 12m ratio, for the Fator R simulator
   createdAt      DateTime @default(now())
 

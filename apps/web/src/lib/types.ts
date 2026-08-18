@@ -213,3 +213,19 @@ export interface OfficeLink {
   title: string;
   createdAt: string;
 }
+
+export type TaxRegime = "MEI" | "ME";
+
+export interface Account {
+  id: string;
+  name: string;
+  cnpj?: string | null;
+  taxRegime: TaxRegime;
+  taxRegimeAnexo?: string | null; // "III" | "V" — só relevante quando taxRegime = "ME"
+  fatorRPercent?: string | null;
+}
+
+export interface FatorRResult {
+  fatorR: number;
+  anexoRecomendado: "III" | "V";
+}

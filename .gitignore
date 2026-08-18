@@ -11,6 +11,8 @@ coverage/
 .env
 .env.local
 .env.*.local
+*.pfx
+*.p12
 npm-debug.log*
 .DS_Store
 Thumbs.db
