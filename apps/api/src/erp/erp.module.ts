@@ -20,6 +20,8 @@ import { AccountController } from './account.controller';
 import { AccountService } from './account.service';
 import { FiscalController } from './fiscal/fiscal.controller';
 import { FiscalService } from './fiscal/fiscal.service';
+import { NfseController } from './fiscal/nfse.controller';
+import { NfseService } from './fiscal/nfse.service';
 
 @Module({
   controllers: [
@@ -33,6 +35,7 @@ import { FiscalService } from './fiscal/fiscal.service';
     AllocationsController,
     AccountController,
     FiscalController,
+    NfseController,
   ],
   providers: [
     ProjectsService,
@@ -44,6 +47,7 @@ import { FiscalService } from './fiscal/fiscal.service';
     AllocationsService,
     AccountService,
     FiscalService,
+    NfseService,
   ],
   // ProjectsService/UsersService são usados por CrmModule (conversão de
   // oportunidade ganha em projeto) e por FfeModule (checkout do carrinho)
