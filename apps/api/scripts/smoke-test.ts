@@ -544,6 +544,33 @@ async function main() {
   );
   const product2Id = product2Res.body?.data?.id;
 
+  // Captura reenvia o mesmo item toda vez que o orçamento é mandado de
+  // novo — sem upsert por sourceUrl, cada reenvio duplicava o Product.
+  const capturedSourceUrl = "https://www.leroymerlin.com.br/produto-verify-dedup";
+  const capturedFirstRes = await api("/v1/products", {
+    method: "POST",
+    body: JSON.stringify({ name: "Torneira Monocomando (v1)", price: 350, sourceUrl: capturedSourceUrl }),
+  });
+  const capturedSecondRes = await api("/v1/products", {
+    method: "POST",
+    body: JSON.stringify({ name: "Torneira Monocomando (v2, preço atualizado)", price: 399, sourceUrl: capturedSourceUrl }),
+  });
+  report(
+    "POST /products duas vezes com o mesmo sourceUrl → mesmo id, dados atualizados (não duplica)",
+    capturedFirstRes.status === 201 &&
+      capturedSecondRes.status === 201 &&
+      capturedFirstRes.body?.data?.id === capturedSecondRes.body?.data?.id &&
+      capturedSecondRes.body?.data?.name === "Torneira Monocomando (v2, preço atualizado)" &&
+      Number(capturedSecondRes.body?.data?.price) === 399,
+    { first: capturedFirstRes.body, second: capturedSecondRes.body }
+  );
+  const listAfterDedupRes = await api("/v1/products");
+  report(
+    "GET /products depois do reenvio tem só uma linha para o sourceUrl reenviado",
+    listAfterDedupRes.body?.data?.filter((p: any) => p.sourceUrl === capturedSourceUrl).length === 1,
+    listAfterDedupRes.body
+  );
+
   const areaRes = await api(`/v1/projects/${projectId}/areas`, {
     method: "POST",
     body: JSON.stringify({ name: "Sala de Estar" }),

@@ -38,7 +38,24 @@ export class ProductsService {
     return product;
   }
 
-  createProduct(accountId: string, input: ProductInput) {
+  // O Captura reenvia o mesmo item toda vez que o orçamento é mandado de
+  // novo (o usuário reabre a Biblioteca, clica "Enviar" outra vez) --
+  // sem upsert, cada reenvio duplicava o Product no catálogo. sourceUrl é
+  // o único identificador estável de origem que a extensão manda; sem
+  // ele (cadastro manual pela própria plataforma) sempre cria novo,
+  // porque não há como saber se é "o mesmo" produto.
+  async createProduct(accountId: string, input: ProductInput) {
+    if (input.sourceUrl) {
+      const existing = await this.prisma.db.product.findFirst({
+        where: { accountId, sourceUrl: input.sourceUrl },
+      });
+      if (existing) {
+        return this.prisma.db.product.update({
+          where: { id: existing.id },
+          data: input,
+        });
+      }
+    }
     return this.prisma.db.product.create({ data: { ...input, accountId } });
   }
 

@@ -189,10 +189,10 @@ original previa:
   nunca remonta nesse fluxo. Corrigido com o padrão do próprio React para
   resetar estado quando uma prop muda (ajustar durante o render, não
   `useEffect`).
-- **Integração com o Captura — decidida e implementada** (opção 1 das três
-  em `especificacao-tecnica.md`: a extensão passa a enviar os itens
-  capturados para `POST /v1/products`, em vez de reimplementar a extração
-  no backend). Duas metades, em dois repositórios diferentes:
+- **Integração com o Captura — decidida, implementada e em produção**
+  (opção 1 das três em `especificacao-tecnica.md`: a extensão passa a
+  enviar os itens capturados para a plataforma, em vez de reimplementar a
+  extração no backend). Duas metades, em dois repositórios diferentes:
   - **Nesta plataforma**: autenticação por chave de API, porque a extensão
     roda no navegador do colaborador e não tem como forjar o JWT interno
     de curta duração que só `apps/web` sabe assinar (ver `AuthGuard`). O
@@ -203,30 +203,46 @@ original previa:
     resposta de `POST /v1/users/:id/api-key`, nunca mais depois disso —
     regenerar sobrescreve o hash e invalida a anterior implicitamente.
     Gerenciamento (gerar/regenerar/remover, chave exibida uma única vez)
-    tem UI em `/team`, por colaborador. Comportamento coberto por 5 casos
-    novos no smoke test (401 com chave inválida mesmo com Bearer válido
-    presente, geração, criação de produto só com `X-Api-Key`, invalidação
-    ao regenerar, invalidação ao remover).
-  - **No repositório da extensão** (`Malakacrazy/Captura`, branch
-    `integracao-plataforma-araci`, commitado mas **não enviado ao GitHub
-    ainda** — pendente de autorização): `platform-sync.js` mapeia só os
-    campos que `Product` realmente tem (`name`/`supplier`/`price`/
-    `dimensions`/`imageUrl`/`sourceUrl`) — `sku`, `qty`, `category`,
-    `unit`, `ambiente` e `obs` seguem sendo conceitos só do orçamento da
-    extensão, sem equivalente na plataforma hoje. Preço `0` não é enviado
-    (significa "ainda não preenchido" na extensão, não "produto grátis").
-    Nova página de Configurações (`options.html`) guarda URL da API +
-    chave e envia o orçamento em andamento; a Biblioteca ganhou um botão
-    "☁ Enviar" por projeto salvo. Verificado contra a API local de
-    verdade (não só typecheck nem mock): gerou uma chave real, mandou um
-    lote misto (item válido, item sem nome, item sem preço) pela função
-    `sendProductsToPlatform` de fato, e confirmou o item válido no
-    catálogo com os campos mapeados certos e o item sem nome rejeitado
-    localmente sem round-trip de rede. A integração da extensão com o
-    Chrome em si (carregar via "load unpacked", clicar nos botões
-    novos) não foi verificada num navegador real — só a lógica de dados
-    (`platform-sync.js`) e checagem de sintaxe de todos os arquivos
-    tocados.
+    tem UI em `/team`, por colaborador. `ProductsService.createProduct`
+    agora faz upsert por `sourceUrl` (quando presente) em vez de sempre
+    criar — achado testando o fluxo de verdade: reenviar o mesmo
+    orçamento da extensão duplicava o `Product` no catálogo a cada envio.
+    Sem esse identificador (cadastro manual pela própria plataforma)
+    sempre cria novo, porque não há como saber se é "o mesmo" produto.
+    Comportamento coberto por 7 casos novos no smoke test (5 de chave de
+    API, 2 do upsert por `sourceUrl`).
+  - **No repositório da extensão** (`Malakacrazy/Captura`): merged em
+    `main` a integração inicial (branch `integracao-plataforma-araci`,
+    PR #4) e, em cima dela, uma correção (branch
+    `fix-captura-envia-para-projeto`, **commitada mas ainda não
+    enviada ao GitHub** — pendente de push, mesma limitação de sandbox de
+    antes) depois de testar de verdade e achar dois problemas na primeira
+    versão: (1) os itens só iam para o catálogo geral da conta
+    (`POST /v1/products`), sem vínculo a projeto nenhum — nunca apareciam
+    onde o estúdio de fato olha, a tela de FF&E do projeto; (2) reenviar
+    duplicava. A correção: `options.html` (orçamento atual) e cada card da
+    Biblioteca (orçamento salvo) agora pedem Projeto + Ambiente antes de
+    enviar (com "+ Criar novo ambiente" inline quando ainda não existe um
+    que sirva), e `sendProductsToPlatform` faz um segundo passo depois do
+    upsert do catálogo: cria a `ProductSpecification` no ambiente
+    escolhido — ou, se já existir uma para aquele produto naquela área
+    (busca `GET /v1/areas/:areaId/specifications` antes de decidir),
+    atualiza via `PATCH` em vez de criar outra linha. Essa deduplicação é
+    só do lado da extensão, não da API: a plataforma legitimamente permite
+    duas linhas do mesmo produto na mesma área (rodadas de aprovação
+    diferentes, ver `SpecificationsService`) — um upsert no servidor
+    quebraria esse uso real; reenviar o mesmo orçamento da extensão pro
+    mesmo ambiente é um caso mais estreito que só faz sentido do lado de
+    quem está reenviando. Verificado de ponta a ponta contra a API local
+    de verdade (gerou chave real, criou ambiente real, mandou o mesmo
+    item duas vezes com quantidade e preço diferentes): depois dos dois
+    envios sobra exatamente 1 `Product` (mesmo `sourceUrl`) e exatamente 1
+    `ProductSpecification` na área, com quantidade e preço do envio mais
+    recente. A integração da extensão com o Chrome em si (carregar via
+    "load unpacked", clicar nos botões) não foi verificada num navegador
+    real por mim — só a lógica de dados e checagem de sintaxe; o usuário
+    testou a versão anterior (sem projeto/ambiente) num navegador real e
+    foi isso que revelou os dois problemas corrigidos aqui.
 - **Tear sheets, moodboards, modo de apresentação por link — implementado,
   API e UI**, modelados no schema (`Moodboard`, `MoodboardItem`,
   `PresentationLink`), depois deste documento ter sido escrito pela
