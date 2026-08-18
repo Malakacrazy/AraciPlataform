@@ -282,11 +282,22 @@ async function main() {
 
   const invoiceStatusRes = await api(`/v1/invoices/${invoiceId}`, {
     method: "PATCH",
-    body: JSON.stringify({ status: "emitida", nfseNumber: "NFSe-0001" }),
+    body: JSON.stringify({
+      status: "emitida",
+      nfseNumber: "NFSe-0001",
+      cstIbs: "000",
+      cstCbs: "000",
+      cClassTrib: "000001",
+    }),
   });
   report(
-    "PATCH /invoices/:id marca como emitida com número da NFS-e",
-    invoiceStatusRes.status === 200 && invoiceStatusRes.body?.data?.status === "emitida" && invoiceStatusRes.body?.data?.nfseNumber === "NFSe-0001",
+    "PATCH /invoices/:id marca como emitida com número da NFS-e e campos da Reforma Tributária",
+    invoiceStatusRes.status === 200 &&
+      invoiceStatusRes.body?.data?.status === "emitida" &&
+      invoiceStatusRes.body?.data?.nfseNumber === "NFSe-0001" &&
+      invoiceStatusRes.body?.data?.cstIbs === "000" &&
+      invoiceStatusRes.body?.data?.cstCbs === "000" &&
+      invoiceStatusRes.body?.data?.cClassTrib === "000001",
     invoiceStatusRes.body
   );
 

@@ -16,6 +16,13 @@ export const invoiceStatusUpdateSchema = z.object({
   nfseNumber: z.string().optional(),
   issuedAt: z.iso.datetime().nullable().optional(),
   paidAt: z.iso.datetime().nullable().optional(),
+  // Reforma Tributária (IBS/CBS) — campos de preparo, ainda sem uso na
+  // emissão real (ver schema.prisma, model Invoice). Aceitos aqui pra
+  // permitir preenchimento manual quando a consultoria contábil definir
+  // os valores, sem esperar um fluxo dedicado.
+  cstIbs: z.string().optional(),
+  cstCbs: z.string().optional(),
+  cClassTrib: z.string().optional(),
 });
 
 export type InvoiceStatusUpdate = z.infer<typeof invoiceStatusUpdateSchema>;
@@ -91,6 +98,9 @@ export class InvoicesService {
       data: {
         status: input.status,
         nfseNumber: input.nfseNumber,
+        cstIbs: input.cstIbs,
+        cstCbs: input.cstCbs,
+        cClassTrib: input.cClassTrib,
         issuedAt:
           input.issuedAt === undefined
             ? undefined
