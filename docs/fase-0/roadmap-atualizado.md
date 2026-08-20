@@ -183,13 +183,57 @@ não um detalhe de implementação.
   adicionados ao `.gitignore` antes de qualquer outra coisa.
 - Faturamento por estágio aprovado (`Invoice.phaseId`), não por marco
   genérico — já modelado no schema.
-- Boleto/Pix segue como fornecedor separado, ainda não escolhido —
-  decisão de negócio, não travada por nada técnico.
 - **Campos da Reforma Tributária (CST-IBS, CST-CBS, cClassTrib) —
   implementado**: `Invoice.cstIbs`/`cstCbs`/`cClassTrib`, preenchidos
   manualmente via `PATCH /v1/invoices/:id` (mesmo endpoint que já seta
   `nfseNumber`), sem lógica de split payment (não obrigatório antes de
   2027, conforme já recomendado). Coberto no smoke test.
+- **Boleto/Pix — fornecedor escolhido (Asaas) e integração
+  implementada**. A decisão veio de pesquisa comparando Inter, Cora e
+  Asaas na mesma profundidade (não só a página de marketing de cada um —
+  Inter e Cora pareciam melhores até a API de verdade ser lida): Inter
+  bloqueia acesso à API pra contas MEI (a própria conta MEI é livre, a
+  API não), exige mTLS tanto na autenticação quanto na entrega do
+  webhook, e não tem sandbox; Cora tem auth OAuth2+mTLS do mesmo jeito, e
+  a API só está disponível no plano pago CoraPro (R$44,90/mês), não no
+  plano grátis que a página inicial sugere. Asaas venceu nos dois
+  critérios que mais importavam aqui: autenticação é só uma API key (sem
+  certificado, sem OAuth2), e o acesso à API é grátis, sem gate de plano,
+  com MEI liberado hoje — sem depender da migração pra ME que o NFS-e via
+  certificado A1 não tem esse problema.
+  - `billing/asaas-client.ts`: cliente HTTP fino (customers, payments).
+    Sandbox por padrão a menos que `ASAAS_ENV=production` seja setado
+    explicitamente.
+  - `billing.service.ts`: `chargeInvoice()` cria (ou reaproveita, via
+    `Client.asaasCustomerId`) um customer na Asaas e uma cobrança
+    `billingType: UNDEFINED` (o cliente escolhe Boleto ou Pix na própria
+    página da Asaas) pra uma Invoice, gravando
+    `asaasPaymentId`/`asaasInvoiceUrl`. `handleWebhookEvent()` marca a
+    Invoice como "paga" em `PAYMENT_CONFIRMED`/`PAYMENT_RECEIVED`,
+    idempotente, ignora eventos que não reconhece em vez de dar erro.
+  - `billing-webhook.controller.ts`: terceira rota `@Public()` do sistema
+    (a Asaas chama isso sem sessão nenhuma) — autenticada comparando o
+    header `asaas-access-token` (que a Asaas ecoa de volta) contra
+    `ASAAS_WEBHOOK_AUTH_TOKEN`.
+  - Achado testando de verdade: `chargeInvoice()` checava o estado da
+    fatura (vencimento, já cobrada) antes de checar se a Asaas estava
+    configurada — corrigido pra falhar primeiro na configuração ausente.
+  - Web: `/projects/:id` ganhou o botão "Cobrar (Boleto/Pix)" e o
+    formulário de criar fatura ganhou um campo de vencimento que não
+    existia antes (sem ele, toda fatura criada pela tela nasceria
+    impossível de cobrar).
+  - **Sem chave sandbox real da Asaas ainda** — `createCustomer`/
+    `createPayment` não foram exercitados contra a API de verdade. Tudo
+    o resto foi: build limpo, reinício, e testado de verdade (não só
+    typecheck) — caminho "não configurado", rejeição de webhook com
+    token errado (401), e o fluxo completo de webhook de pagamento
+    (`asaasPaymentId` setado direto via Prisma no lugar do que
+    `chargeInvoice()` teria gravado, POST de verdade no endpoint do
+    webhook) confirmando que a Invoice vira "paga", `paidAt` é setado, e
+    reenviar o mesmo evento não faz nada (idempotente). 106/106 no smoke
+    test. Também cliquei em "Cobrar" de verdade no navegador e confirmei
+    que o erro esperado aparece pelo tratamento padrão (não customizado)
+    de erro de Server Action do Next.js, igual toda outra ação da tela.
 
 Com isso, tudo que não depende de a) a senha do certificado de teste ou
 b) uma decisão de negócio da Giulia (fornecedor de Boleto/Pix, dado
