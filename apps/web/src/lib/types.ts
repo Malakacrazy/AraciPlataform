@@ -93,6 +93,8 @@ export interface Invoice {
   dueDate?: string | null;
   issuedAt?: string | null;
   paidAt?: string | null;
+  asaasPaymentId?: string | null;
+  asaasInvoiceUrl?: string | null;
 }
 
 export interface User {

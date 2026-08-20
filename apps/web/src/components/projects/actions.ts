@@ -27,14 +27,32 @@ export async function approveGate(projectId: string, phaseId: string, formData: 
 
 export async function createInvoice(projectId: string, phaseId: string, formData: FormData) {
   const amount = String(formData.get("amount") ?? "").trim();
+  const dueDate = String(formData.get("dueDate") ?? "").trim();
   if (!amount) {
     throw new Error("Informe o valor da fatura.");
   }
   await call(
     `projects/${projectId}/phases/${phaseId}/invoice`,
-    { method: "POST", body: JSON.stringify({ amount: Number(amount) }) },
+    {
+      method: "POST",
+      body: JSON.stringify({
+        amount: Number(amount),
+        // dueDate é opcional na API, mas obrigatória pra cobrar via Asaas
+        // (ver billing/billing.service.ts) -- sem isso aqui, toda fatura
+        // criada pela tela nasceria impossível de cobrar.
+        dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
+      }),
+    },
     projectId,
   );
+}
+
+// Dispara a criação da cobrança (Boleto + Pix) na Asaas pra esta fatura
+// -- ver billing/billing.service.ts#chargeInvoice. Preferimos deixar o
+// erro (ex.: ASAAS_NOT_CONFIGURED, sem data de vencimento) subir como
+// está, mesmo padrão das outras ações desta tela.
+export async function chargeInvoice(projectId: string, invoiceId: string) {
+  await call(`invoices/${invoiceId}/charge`, { method: "POST" }, projectId);
 }
 
 export async function markInvoiceIssued(projectId: string, invoiceId: string, formData: FormData) {

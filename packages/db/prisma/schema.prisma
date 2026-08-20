@@ -120,6 +120,10 @@ model Client {
   phone     String?
   source    String? // site | whatsapp | instagram | indicacao | email | telefone
   createdAt DateTime @default(now())
+  // Cliente correspondente criado na Asaas na primeira cobrança deste
+  // Client (ver billing/asaas-client.ts) -- cacheado pra não recriar um
+  // customer novo na Asaas a cada fatura do mesmo cliente.
+  asaasCustomerId String? @unique
 
   opportunities Opportunity[]
   projects      Project[]
@@ -295,6 +299,14 @@ model Invoice {
   dueDate    DateTime?
   issuedAt   DateTime?
   paidAt     DateTime?
+
+  // Cobrança (Boleto + Pix) via Asaas -- ver billing/. asaasPaymentId é o
+  // id da cobrança na Asaas, usado pelo webhook pra achar de volta esta
+  // Invoice quando o pagamento é confirmado. asaasInvoiceUrl é a página
+  // hospedada pela Asaas (billingType UNDEFINED) onde o cliente escolhe
+  // Boleto ou Pix -- não geramos QR code/boleto próprios, só linkamos.
+  asaasPaymentId  String? @unique
+  asaasInvoiceUrl String?
 
   // Reforma Tributária (IBS/CBS) — campos de preparo do modelo de dados,
   // recomendados desde a Fase 2 mesmo com 2026 sendo só o ano de testes

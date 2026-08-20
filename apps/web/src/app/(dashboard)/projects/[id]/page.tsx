@@ -6,7 +6,7 @@ import { apiGet, ApiError } from "@/lib/api";
 import type { Project, OfficeLink, Invoice, ProjectMember, User } from "@/lib/types";
 import { OfficeLinksSection } from "@/components/office-links/office-links-section";
 import { CronogramaViews } from "@/components/projects/cronograma-views";
-import { markInvoiceIssued, addMember, removeMember } from "@/components/projects/actions";
+import { markInvoiceIssued, chargeInvoice, addMember, removeMember } from "@/components/projects/actions";
 
 const INVOICE_STATUS_LABELS: Record<string, string> = {
   pendente: "Pendente",
@@ -93,6 +93,23 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                     </button>
                   </form>
                 )}
+                {inv.status !== "paga" &&
+                  (inv.asaasInvoiceUrl ? (
+                    <a
+                      href={inv.asaasInvoiceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-zinc-500 hover:underline dark:text-zinc-400"
+                    >
+                      Ver cobrança (Boleto/Pix) →
+                    </a>
+                  ) : (
+                    <form action={chargeInvoice.bind(null, id, inv.id)}>
+                      <button type="submit" className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
+                        Cobrar (Boleto/Pix)
+                      </button>
+                    </form>
+                  ))}
               </li>
             ))}
           </ul>

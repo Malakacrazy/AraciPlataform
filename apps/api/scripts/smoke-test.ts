@@ -301,6 +301,60 @@ async function main() {
     invoiceStatusRes.body
   );
 
+  // Cobrança via Asaas — sem ASAAS_API_KEY configurada neste ambiente
+  // (segredo real, nunca no smoke test), então só o caminho "não
+  // configurado" é testável fazendo a chamada de verdade. O resto do
+  // fluxo (webhook confirmando pagamento) é testado adiante simulando o
+  // que chargeInvoice() teria gravado — asaasPaymentId setado direto via
+  // Prisma, igual ao padrão já usado nos testes de OfficeLink órfão.
+  const chargeSemApiKeyRes = await api(`/v1/invoices/${invoiceId}/charge`, { method: "POST" });
+  report(
+    "POST /invoices/:id/charge sem ASAAS_API_KEY → 422 ASAAS_NOT_CONFIGURED",
+    chargeSemApiKeyRes.status === 422 && chargeSemApiKeyRes.body?.error?.code === "ASAAS_NOT_CONFIGURED",
+    chargeSemApiKeyRes.body
+  );
+
+  const webhookTokenErrado = await fetch(`${BASE_URL}/v1/billing/asaas/webhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "asaas-access-token": "chave-errada" },
+    body: JSON.stringify({ event: "PAYMENT_RECEIVED", payment: { id: "pay_x" } }),
+  });
+  report(
+    "POST /billing/asaas/webhook com asaas-access-token errado → 401",
+    webhookTokenErrado.status === 401,
+    await webhookTokenErrado.json().catch(() => null)
+  );
+
+  const fakeAsaasPaymentId = `pay_smoketest_${Date.now()}`;
+  await prisma.invoice.update({
+    where: { id: invoiceId },
+    data: { asaasPaymentId: fakeAsaasPaymentId, status: "emitida", paidAt: null },
+  });
+  const webhookTokenCorretoRes = await fetch(`${BASE_URL}/v1/billing/asaas/webhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "asaas-access-token": process.env.ASAAS_WEBHOOK_AUTH_TOKEN ?? "" },
+    body: JSON.stringify({ event: "PAYMENT_RECEIVED", payment: { id: fakeAsaasPaymentId } }),
+  });
+  const invoiceAposWebhook = await prisma.invoice.findUnique({ where: { id: invoiceId } });
+  report(
+    "POST /billing/asaas/webhook com PAYMENT_RECEIVED → 200, Invoice vira 'paga'",
+    webhookTokenCorretoRes.status === 200 &&
+      invoiceAposWebhook?.status === "paga" &&
+      invoiceAposWebhook?.paidAt !== null,
+    { webhookStatus: webhookTokenCorretoRes.status, invoiceStatus: invoiceAposWebhook?.status }
+  );
+
+  const webhookReenviadoRes = await fetch(`${BASE_URL}/v1/billing/asaas/webhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "asaas-access-token": process.env.ASAAS_WEBHOOK_AUTH_TOKEN ?? "" },
+    body: JSON.stringify({ event: "PAYMENT_RECEIVED", payment: { id: fakeAsaasPaymentId } }),
+  });
+  report(
+    "Reenviar o mesmo evento de pagamento → 200, idempotente (sem erro)",
+    webhookReenviadoRes.status === 200,
+    await webhookReenviadoRes.json().catch(() => null)
+  );
+
   const timeEntryRes = await api("/v1/time-entries", {
     method: "POST",
     body: JSON.stringify({

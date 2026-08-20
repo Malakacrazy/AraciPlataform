@@ -129,6 +129,12 @@ function ListaView({
                   placeholder="valor R$"
                   className="w-28 rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
                 />
+                <input
+                  name="dueDate"
+                  type="date"
+                  title="Vencimento (obrigatório pra cobrar via Boleto/Pix depois)"
+                  className="rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                />
                 <button type="submit" className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
                   Faturar
                 </button>

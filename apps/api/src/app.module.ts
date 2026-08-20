@@ -9,6 +9,7 @@ import { ErpModule } from './erp/erp.module';
 import { FfeModule } from './ffe/ffe.module';
 import { OfficeModule } from './office/office.module';
 import { PresentationModule } from './presentation/presentation.module';
+import { BillingModule } from './billing/billing.module';
 import { HttpExceptionFilter } from './common/http-exception.filter';
 
 @Module({
@@ -20,6 +21,7 @@ import { HttpExceptionFilter } from './common/http-exception.filter';
     FfeModule,
     OfficeModule,
     PresentationModule,
+    BillingModule,
     // Defesa em profundidade — este serviço não é exposto ao navegador,
     // mas um limite de taxa custa pouco e ajuda contra um chamador
     // comprometido/com bug no lado do apps/web.
