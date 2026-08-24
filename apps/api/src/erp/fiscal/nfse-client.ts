@@ -11,7 +11,11 @@ import { ApiError } from '../../common/api-error';
 // marca a própria assinatura da DPS como "não usar em produção até
 // confirmação do algoritmo correto exigido pela SEFIN" — motivo a mais
 // para nunca mirar Produção sem decisão explícita nesta mesma revisão.
-const AMBIENTE_HOMOLOGACAO = 2;
+export const AMBIENTE_HOMOLOGACAO = 2;
+// Só exportado pra permitir uma emissão real pontual e deliberada (ex.:
+// script one-off fora do fluxo normal do app) -- createNfseClient() nunca
+// usa isso por padrão, só se o chamador passar explicitamente.
+export const AMBIENTE_PRODUCAO = 1;
 
 export interface NfseCertificateFile {
   path: string;
@@ -81,7 +85,10 @@ function nfseWorkDir(sub: string): string {
   return join(tmpdir(), 'araci-nfse', sub);
 }
 
-export function createNfseClient(cert: NfseCertificateConfig): NFSe {
+export function createNfseClient(
+  cert: NfseCertificateConfig,
+  ambiente: number = AMBIENTE_HOMOLOGACAO,
+): NFSe {
   return new NFSe({
     dfe: {
       pathCertificado: readFileSync(cert.path),
@@ -101,7 +108,7 @@ export function createNfseClient(cert: NfseCertificateConfig): NFSe {
     // `config.nfe?.ambiente` e o tipo (NFeWizardProps) só declara "nfe".
     // Confirmado lendo o código-fonte instalado, não o README.
     nfe: {
-      ambiente: AMBIENTE_HOMOLOGACAO,
+      ambiente,
       versaoDF: '1.00',
     },
     lib: {
