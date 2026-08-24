@@ -127,9 +127,13 @@ não um detalhe de implementação.
   limites, e paridade com `peakHoursPerWeek` quando a janela cobre tudo)
   — não há suíte de testes automatizados no `apps/web` (sem script `test`
   no `package.json`, diferente de `apps/api`), então isso não está
-  coberto por CI. Não testado num navegador real com login Google de
-  verdade (diferente do carrinho de FF&E, que foi — ver Fase 3 abaixo);
-  só build e verificação manual da lógica.
+  coberto por CI. **Testado num navegador real** (não só a lógica
+  isolada): buscar "FF&E" no campo de especialidade eleva os ~20
+  colaboradores de teste com esse valor pro topo da lista (marcados com
+  `✓`), ordenados entre si por disponibilidade (`ana.costa`, com só 5h
+  livres, cai pro fim do grupo combinado mas continua acima de quem não
+  combina); ninguém é removido da lista, só reordenado, confirmando o
+  comportamento documentado.
 - **Office inicial**: Drive/Calendar vinculados a projeto/cliente (Gmail
   fica para a Fase 4, conforme o plano original) — **implementado e
   verificado com credenciais OAuth reais**, ponta a ponta. API
@@ -278,9 +282,14 @@ não um detalhe de implementação.
     de um projeto de teste sem relação com a integração em si; não valeu
     a pena forçar.
 
-Com isso, tudo que não depende de a) a senha do certificado de teste ou
-b) uma decisão de negócio da Giulia (fornecedor de Boleto/Pix, dado
-fiscal real pra emissão de produção) está feito nesta fase.
+Com isso, a Fase 2 está tecnicamente completa: os dois bloqueios que
+existiam (senha do certificado de teste, escolha de fornecedor de
+Boleto/Pix) foram resolvidos. O que resta depende só de decisão/dado de
+negócio da Giulia — não de código: (a) confirmação da consultoria
+contábil sobre o código de tributação nacional real de arquitetura,
+município/endereço/inscrição municipal, antes de qualquer emissão de
+NFS-e de produção; (b) migração formal MEI→ME quando ela de fato
+acontecer (o simulador de Fator R já está pronto pra esse momento).
 
 ## Fase 3 — FF&E
 
