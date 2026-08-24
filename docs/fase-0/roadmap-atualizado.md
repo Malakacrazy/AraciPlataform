@@ -162,25 +162,53 @@ não um detalhe de implementação.
   certo (o simulador aparecia/sumia certo) mas o próprio dropdown ficava
   mostrando o valor antigo; corrigido com `key={taxRegime}` forçando
   remount. 4 testes unitários (`calcularFatorR`) + 7 casos de smoke test.
-- **Integração NFS-e (`@nfewizard/nfse`) — módulo construído, bloqueado
-  na senha do certificado de teste real**. Instalado e investigado pelo
-  código-fonte instalado, não só o README (que tem um bug na própria
-  documentação: o exemplo usa `config.nfse.ambiente`, o construtor real
-  exige `config.nfe.ambiente`). Dois endpoints em
-  `apps/api/src/erp/fiscal/`: `inspecionar-certificado` (só abre o .pfx
-  localmente com `node-forge`, sem chamada externa — usado pra ler o CNPJ
-  real do certificado, que precisa bater com o CNPJ declarado na DPS) e
-  `emitir-teste` (chama de fato o webservice de Homologação da SEFIN
-  Nacional com um DPS de dado fictício, por decisão explícita — não a
-  identidade fiscal real do estúdio, que ainda depende de confirmação da
-  consultoria contábil). Ambiente de Produção nunca é alcançável por
-  variável de ambiente, só por mudança de código deliberada. Testado com
-  a senha fornecida — rejeitada tanto por `node-forge` quanto por
-  `openssl` direto (confirmado que não é bug de compatibilidade da lib,
-  a senha em si está errada) — usuário vai localizar a senha certa depois.
-  `up-leg-certificate.pfx` (certificado de teste) estava solto na raiz
-  do repo, sem gitignore, quando a integração começou — `*.pfx`/`*.p12`
-  adicionados ao `.gitignore` antes de qualquer outra coisa.
+- **Integração NFS-e (`@nfewizard/nfse`) — módulo construído e emissão de
+  teste autorizada de verdade pela SEFIN Nacional (Homologação)**.
+  Instalado e investigado pelo código-fonte instalado, não só o README
+  (que tem um bug na própria documentação: o exemplo usa
+  `config.nfse.ambiente`, o construtor real exige `config.nfe.ambiente`).
+  Dois endpoints em `apps/api/src/erp/fiscal/`: `inspecionar-certificado`
+  (só abre o .pfx localmente com `node-forge`, sem chamada externa —
+  usado pra ler o CNPJ real do certificado, que precisa bater com o CNPJ
+  declarado na DPS) e `emitir-teste` (chama de fato o webservice de
+  Homologação da SEFIN Nacional com um DPS de dado fictício, por decisão
+  explícita — não a identidade fiscal real do estúdio, que ainda depende
+  de confirmação da consultoria contábil). Ambiente de Produção nunca é
+  alcançável por variável de ambiente, só por mudança de código
+  deliberada.
+  - Certificado de teste trocado (`StudioAraci.pfx`, senha nova) depois
+    que a senha original foi esquecida; `inspecionar-certificado` leu o
+    CNPJ real do certificado (53.554.180/0001-10, titular Giulia Pessanha
+    Parente, válido 2026-08-24 a 2027-08-24) sem precisar perguntar pro
+    usuário.
+  - `emitir-teste` foi disparado de verdade contra o webservice real de
+    Homologação só depois de confirmação explícita do usuário. Primeira
+    tentativa voltou `502`/`Request failed with status code 400` — o
+    catch original só repassava a mensagem genérica do axios, descartando
+    o `error.nfseErrorDetail` (codigo/descricao/complemento) que a lib
+    anexa de verdade; corrigido pra surfacear esse detalhe (necessário
+    pra qualquer diagnóstico futuro de rejeição real da SEFIN).
+  - Com o detalhe real visível, quatro rejeições genuínas da SEFIN
+    Nacional foram corrigidas uma a uma no DPS de teste
+    (`nfse-test-dps.ts`): (1) `totTrib: {}` vazio — precisa de pelo menos
+    um sub-elemento (`vTotTrib`/`pTotTrib`/`indTotTrib`/`pTotTribSN`);
+    (2) `dhEmi` construído com `toISOString().replace('Z','-03:00')`, que
+    só rotula o horário UTC como se já fosse Brasília sem de fato
+    subtrair o offset — adiantava a data de emissão declarada em 3h e a
+    SEFIN rejeitava por ser "posterior ao processamento"; (3) CPF fictício
+    `000.000.000-00` falha o dígito verificador — trocado por
+    `111.444.777-35`, o CPF de teste padrão BR com dígitos válidos;
+    (4) código de tributação nacional chutado (`070100`, item 07.01 da
+    LC116) não existe na lista nacional de 6 dígitos — trocado por
+    `110101` (o mesmo usado nos testes oficiais da própria lib) só pra
+    provar a integração mecânica; o código real pra arquitetura continua
+    pendente de confirmação contábil antes de qualquer emissão de
+    verdade. Depois dessas quatro correções, `emitir-teste` voltou `201`
+    com `chaveAcesso`/`idDps` reais da SEFIN Nacional Homologação.
+  - `up-leg-certificate.pfx` (certificado de teste original) estava solto
+    na raiz do repo, sem gitignore, quando a integração começou —
+    `*.pfx`/`*.p12` adicionados ao `.gitignore` antes de qualquer outra
+    coisa.
 - Faturamento por estágio aprovado (`Invoice.phaseId`), não por marco
   genérico — já modelado no schema.
 - **Campos da Reforma Tributária (CST-IBS, CST-CBS, cClassTrib) —

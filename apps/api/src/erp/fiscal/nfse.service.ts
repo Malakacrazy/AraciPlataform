@@ -62,11 +62,15 @@ export class NfseService {
         dataHoraProcessamento: resultado.response.dataHoraProcessamento,
       };
     } catch (error: any) {
-      throw new ApiError(
-        'NFSE_AUTORIZACAO_FAILED',
-        error?.message ?? 'Falha desconhecida ao autorizar a NFS-e de teste.',
-        502,
-      );
+      // A lib anexa o detalhe real da rejeição da SEFIN em
+      // error.nfseErrorDetail (codigo/descricao/complemento/statusHttp) --
+      // error.message sozinho só traz o texto genérico do axios ("Request
+      // failed with status code 400"), que não serve pra diagnosticar nada.
+      const detalhe = error?.nfseErrorDetail;
+      const mensagem = detalhe
+        ? `[${detalhe.codigo ?? '?'}] ${detalhe.descricao ?? error.message}${detalhe.complemento ? ` — ${detalhe.complemento}` : ''}`
+        : (error?.message ?? 'Falha desconhecida ao autorizar a NFS-e de teste.');
+      throw new ApiError('NFSE_AUTORIZACAO_FAILED', mensagem, 502);
     }
   }
 }
