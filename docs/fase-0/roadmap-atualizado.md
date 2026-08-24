@@ -220,10 +220,11 @@ não um detalhe de implementação.
     emitente não declara o que a SEFIN já sabe pelo CNPJ), então fica só
     documentado, não no payload. Re-emitido depois de tudo isso: `201`
     de novo, com `chaveAcesso`/`idDps` novos.
-  - `up-leg-certificate.pfx` (certificado de teste original) estava solto
-    na raiz do repo, sem gitignore, quando a integração começou —
-    `*.pfx`/`*.p12` adicionados ao `.gitignore` antes de qualquer outra
-    coisa.
+  - O certificado de teste original estava solto na raiz do repo, sem
+    gitignore, quando a integração começou — `*.pfx`/`*.p12` adicionados
+    ao `.gitignore` antes de qualquer outra coisa. Certificado trocado
+    depois (`StudioAraci.pfx`, também gitignored) pelo atual, válido até
+    2027-08-24.
 - Faturamento por estágio aprovado (`Invoice.phaseId`), não por marco
   genérico — já modelado no schema.
 - **Campos da Reforma Tributária (CST-IBS, CST-CBS, cClassTrib) —
