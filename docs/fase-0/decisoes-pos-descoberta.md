@@ -210,6 +210,39 @@ do ambiente de produção, igual a `DATABASE_URL`/`NEXTAUTH_SECRET` hoje.
 Renovação anual do certificado A1 vira uma tarefa operacional recorrente
 do estúdio, não só um detalhe técnico único de setup.
 
+**Dado fiscal real confirmado pela Giulia** (2026-08-24), depois da emissão
+de teste mecânica ter funcionado contra a Homologação da SEFIN Nacional
+(ver roadmap-atualizado.md, Fase 2):
+
+- **Endereço do prestador**: Rua Poetisa Colombina, nº 143, Apto 184,
+  Jardim Bonfiglioli, São Paulo/SP, CEP 05593-010. Achado testando de
+  verdade: a SEFIN Nacional rejeita esse campo na DPS quando o emitente é
+  o próprio prestador (E0128) — ela já resolve o endereço pelo CNPJ
+  cadastrado, então isso não entra no payload, mas fica registrado aqui
+  como a fonte da verdade.
+- **Inscrição Municipal**: não existe (N/A) — confirmado, não pendência.
+- **Arquitetura não pode ser MEI** (exige registro profissional/CAU, fora
+  da lista de atividades permitidas ao MEI) — isso muda o código de
+  serviço válido conforme o regime:
+  - **Enquanto MEI** (regime real do estúdio hoje, `Account.taxRegime`):
+    código nacional **170201** (Datilografia — a atividade de fato
+    registrada no MEI atualmente, não Arquitetura).
+  - **Depois de ME**: código nacional **070104** (Arquitetura) e código
+    municipal de São Paulo **1520** (Arquitetura, ME only) — nenhum dos
+    dois pode ser usado enquanto o regime for MEI.
+- **Alíquota de ISS**: 0% enquanto MEI (recolhido de forma fixa via
+  DAS-MEI, não variável por nota); 5% depois de ME.
+- Implementado em `nfse-test-dps.ts`: `cTribNac` trocado de um placeholder
+  arbitrário (`110101`, código de outro serviço só usado pra passar da
+  validação de schema) para o código real e correto do regime atual
+  (`170201`). Recomendação clara para quando a migração pra ME
+  acontecer: o builder de DPS real (ainda não construído — isto aqui
+  continua sendo só o teste mecânico com cliente/valor fictícios) precisa
+  escolher `070104`/`1520` versus `170201` **condicionado a
+  `Account.taxRegime`**, nunca hardcoded, porque emitir sob o código
+  errado do regime é uma inconsistência fiscal real, não só um detalhe
+  técnico.
+
 ## 5. Escopo e Office
 
 Exclusão de acompanhamento de obras confirmada com motivo concreto

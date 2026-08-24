@@ -203,12 +203,23 @@ não um detalhe de implementação.
     `000.000.000-00` falha o dígito verificador — trocado por
     `111.444.777-35`, o CPF de teste padrão BR com dígitos válidos;
     (4) código de tributação nacional chutado (`070100`, item 07.01 da
-    LC116) não existe na lista nacional de 6 dígitos — trocado por
-    `110101` (o mesmo usado nos testes oficiais da própria lib) só pra
-    provar a integração mecânica; o código real pra arquitetura continua
-    pendente de confirmação contábil antes de qualquer emissão de
-    verdade. Depois dessas quatro correções, `emitir-teste` voltou `201`
-    com `chaveAcesso`/`idDps` reais da SEFIN Nacional Homologação.
+    LC116) não existe na lista nacional de 6 dígitos — trocado
+    temporariamente por `110101` (o mesmo usado nos testes oficiais da
+    própria lib) só pra provar a integração mecânica. Depois dessas
+    quatro correções, `emitir-teste` voltou `201` com `chaveAcesso`/
+    `idDps` reais da SEFIN Nacional Homologação.
+  - **Dado fiscal real confirmado pela Giulia** (ver
+    decisoes-pos-descoberta.md #4 para o detalhe completo): endereço do
+    estúdio, Inscrição Municipal (não existe), e — o achado mais
+    importante — **Arquitetura não pode ser MEI**, então o código de
+    serviço válido depende do regime: `170201` (Datilografia) enquanto
+    MEI, `070104`/`1520` (nacional/municipal SP) só depois de ME.
+    `cTribNac` no DPS de teste trocado do placeholder `110101` pro código
+    real do regime atual (`170201`). Endereço real também foi testado —
+    rejeitado pela SEFIN (E0128, mesma lógica do E0121 do nome: o
+    emitente não declara o que a SEFIN já sabe pelo CNPJ), então fica só
+    documentado, não no payload. Re-emitido depois de tudo isso: `201`
+    de novo, com `chaveAcesso`/`idDps` novos.
   - `up-leg-certificate.pfx` (certificado de teste original) estava solto
     na raiz do repo, sem gitignore, quando a integração começou —
     `*.pfx`/`*.p12` adicionados ao `.gitignore` antes de qualquer outra

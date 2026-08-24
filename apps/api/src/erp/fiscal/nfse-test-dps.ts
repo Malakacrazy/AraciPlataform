@@ -2,10 +2,13 @@
 // serviço real do Studio Araci. Existe só para validar a integração
 // mecânica (certificado, assinatura, chamada ao webservice da SEFIN
 // Nacional em Homologação) descrita em decisoes-pos-descoberta.md #4,
-// não para emitir uma NFS-e de verdade. Município, endereço, código de
-// serviço e regime tributário reais ainda dependem de confirmação da
-// consultoria contábil antes de qualquer emissão de produção — ver
-// docs/fase-0/roadmap-atualizado.md, Fase 2.
+// não para emitir uma NFS-e de verdade. Identidade do prestador
+// (endereço, código de serviço do regime atual) já confirmada com a
+// Giulia -- ver decisoes-pos-descoberta.md #4. O que ainda falta é só
+// pra quando o estúdio virar ME e passar a emitir Arquitetura de
+// verdade (código/alíquota real do serviço prestado, valor real) — ver
+// docs/fase-0/roadmap-atualizado.md, Fase 2. Cliente e valor aqui
+// continuam 100% fictícios por decisão explícita.
 //
 // CNPJ e UF do prestador são os ÚNICOS campos que precisam bater com a
 // identidade do certificado (a SEFIN autentica pelo certificado A1 e
@@ -43,9 +46,16 @@ export function buildTestDps(prestadorCnpj: string): LayoutDPS {
       cLocEmi: MUNICIPIO_TESTE_IBGE,
       prest: {
         CNPJ: prestadorCnpj,
-        // xNome do prestador é rejeitado pela SEFIN Nacional (E0121) quando
-        // tpEmit=1 (emitente é o próprio prestador) -- ela já conhece o
-        // nome pelo CNPJ cadastrado, não precisa (e não aceita) repetir.
+        // xNome e end (endereço) do prestador são rejeitados pela SEFIN
+        // Nacional (E0121/E0128) quando tpEmit=1 (emitente é o próprio
+        // prestador) -- ela já conhece nome e endereço pelo CNPJ
+        // cadastrado, não precisa (e não aceita) repetir na DPS. Endereço
+        // real do estúdio (Rua Poetisa Colombina 143, apto 184, Jardim
+        // Bonfiglioli, São Paulo/SP, CEP 05593-010, confirmado pela
+        // Giulia) fica registrado aqui só como referência -- não entra no
+        // payload por não ser aceito, não por esquecimento.
+        // Sem Inscrição Municipal -- confirmado que o estúdio não tem uma
+        // hoje (N/A), não omissão por falta de pergunta.
         regTrib: {
           opSimpNac: 2, // MEI — regime real do estúdio hoje (ver Account.taxRegime)
           regEspTrib: 0, // nenhum regime especial
@@ -64,16 +74,18 @@ export function buildTestDps(prestadorCnpj: string): LayoutDPS {
           cLocPrestacao: MUNICIPIO_TESTE_IBGE,
         },
         cServ: {
-          // '070100' (chute inicial p/ item 07.01 da LC 116) foi rejeitado
-          // pela SEFIN Nacional em teste real (E0310: código não existe na
-          // lista nacional) — o código de 6 dígitos não é só item+subitem
-          // com "00", precisa ser um código de fato listado. '110101' é o
-          // código real usado nos próprios testes da lib (desenvolvimento
-          // de software) — serve pra provar que a integração mecânica
-          // funciona, mas o código correto pra arquitetura ainda depende
-          // de confirmação da consultoria contábil antes de qualquer
-          // emissão real (ver docs/fase-0/roadmap-atualizado.md, Fase 2).
-          cTribNac: '110101',
+          // Confirmado pela Giulia: Arquitetura NÃO pode ser MEI (exige
+          // registro profissional/CAU, fora da lista de atividades
+          // permitidas ao MEI) -- por isso o código nacional real de
+          // Arquitetura ('070104') só entra em uso depois da migração pra
+          // ME (junto com o código municipal de SP, '1520', também
+          // ME-only). Enquanto o regime real do estúdio for MEI
+          // (Account.taxRegime), o código nacional válido pra essa DPS é
+          // '170201' (Datilografia -- a atividade de fato registrada no
+          // MEI hoje). '070100'/'110101' usados antes eram só chutes/
+          // placeholders pra passar da validação de schema; este aqui é o
+          // código real do regime atual, não mais um placeholder.
+          cTribNac: '170201',
           xDescServ: 'Servico de teste - dado ficticio, nao representa prestacao real.',
         },
       },
