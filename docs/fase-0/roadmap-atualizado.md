@@ -437,6 +437,39 @@ horas e aprovação de FF&E em campo — como no plano original.
     no smoke test (110/111 no total — a 1 falha é a mesma pré-existente e
     não relacionada, `ASAAS_API_KEY` configurada no `.env` de dev quebra
     a premissa de um teste que espera a Asaas "não configurada").
+- **Gmail avançado — vínculo de e-mail a Project/Client, implementado,
+  API e UI**. Terceiro provider do `OfficeLink` (`DRIVE`/`CALENDAR` já
+  existiam), reaproveitando 100% da infraestrutura já construída: o
+  backend nem precisou de mudança de lógica, só `GMAIL` a mais no enum
+  `OfficeLinkProvider` (migração `20260824180000_...`) — `provider` já
+  era validado genericamente contra o enum, sem `if` por provider em
+  lugar nenhum do `OfficeLinksService`.
+  - Mesmo padrão do Calendar (não do Drive): sem Picker — a Picker API
+    do Google não cobre Gmail nem Calendar, só Drive/Docs/Fotos. Escopo
+    mínimo `gmail.readonly`, token avulso via Google Identity Services
+    (não passa pelo login do NextAuth, mesmo fluxo de autorização
+    incremental já usado para Drive/Calendar).
+  - **Achado**: `users.messages.list` da Gmail API só devolve
+    `{id, threadId}`, sem assunto nem link pronto (diferente da Calendar
+    API, que já devolve `htmlLink`/`summary` na listagem) — precisou de
+    um `GET` por mensagem (`format=metadata&metadataHeaders=Subject`,
+    até 10 mensagens, mesmo limite do Calendar) pra montar título/link. O
+    link permanente usa `threadId`, não `id` da mensagem — a Gmail API
+    não expõe uma URL pronta como a Calendar API.
+  - **Atenção regulatória real, não só técnica**: `gmail.readonly` é
+    classificado pelo Google como escopo **restrito** (não só
+    "sensível", como `calendar.events.readonly`) — sair do modo de teste
+    (até 100 usuários de teste) exige uma avaliação de segurança CASA
+    antes de qualquer conta Google real fora da allowlist poder usar.
+    Não bloqueia o uso interno do estúdio agora, mas é uma etapa a mais
+    antes de considerar isso pronto pra qualquer usuário externo.
+  - Verificado: build (`api` + `web`) limpo, typecheck limpo, 2 casos
+    novos no smoke test (`POST .../office-links` com `provider: GMAIL`,
+    contagem de 3 vínculos), botão "Vincular do Gmail" confirmado
+    renderizando corretamente no navegador ao lado de Drive/Calendar. O
+    fluxo de autorização OAuth em si (popup do Google, consentimento
+    real) não foi clicado de ponta a ponta — exigiria uma conta Google
+    real do estúdio, que só a Giulia pode autorizar.
 
 ## Fase 5 — Beta & go-live
 

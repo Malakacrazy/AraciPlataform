@@ -6,10 +6,13 @@ import { createOfficeLink, deleteOfficeLink } from "./actions";
 import {
   DRIVE_SCOPE,
   CALENDAR_SCOPE,
+  GMAIL_SCOPE,
   getGoogleAccessToken,
   openDrivePicker,
   listUpcomingCalendarEvents,
+  listRecentGmailMessages,
   type CalendarEventSummary,
+  type GmailMessageSummary,
 } from "@/lib/google-client";
 
 type EntityType = "PROJECT" | "CLIENT";
@@ -30,6 +33,8 @@ export function OfficeLinksSection({ entityType, entityId, links, userEmail }: P
   const [isLinkingDrive, setIsLinkingDrive] = useState(false);
   const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEventSummary[] | null>(null);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [gmailMessages, setGmailMessages] = useState<GmailMessageSummary[] | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   async function createLink(provider: OfficeLinkProvider, picked: { externalId: string; url: string; title: string }) {
@@ -74,6 +79,29 @@ export function OfficeLinksSection({ entityType, entityId, links, userEmail }: P
     }
   }
 
+  async function handleOpenGmailList() {
+    setError(null);
+    setIsLoadingMessages(true);
+    try {
+      const token = await getGoogleAccessToken(GMAIL_SCOPE, userEmail ?? undefined);
+      setGmailMessages(await listRecentGmailMessages(token));
+    } catch (err) {
+      setError(errorMessage(err, "Falha ao listar mensagens do Gmail."));
+    } finally {
+      setIsLoadingMessages(false);
+    }
+  }
+
+  async function handlePickMessage(message: GmailMessageSummary) {
+    setError(null);
+    try {
+      await createLink("GMAIL", message);
+      setGmailMessages(null);
+    } catch (err) {
+      setError(errorMessage(err, "Falha ao vincular mensagem do Gmail."));
+    }
+  }
+
   async function handleDelete(id: string) {
     setError(null);
     setPendingDeleteId(id);
@@ -88,7 +116,7 @@ export function OfficeLinksSection({ entityType, entityId, links, userEmail }: P
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-      <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Office (Drive/Calendar)</h2>
+      <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Office (Drive/Calendar/Gmail)</h2>
 
       {links.length === 0 ? (
         <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Nenhum vínculo ainda.</p>
@@ -140,6 +168,14 @@ export function OfficeLinksSection({ entityType, entityId, links, userEmail }: P
         >
           {isLoadingEvents ? "Carregando eventos…" : "Vincular do Calendar"}
         </button>
+        <button
+          type="button"
+          onClick={handleOpenGmailList}
+          disabled={isLoadingMessages}
+          className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-50"
+        >
+          {isLoadingMessages ? "Carregando mensagens…" : "Vincular do Gmail"}
+        </button>
       </div>
 
       {calendarEvents !== null && (
@@ -165,6 +201,38 @@ export function OfficeLinksSection({ entityType, entityId, links, userEmail }: P
           <button
             type="button"
             onClick={() => setCalendarEvents(null)}
+            className="mt-2 text-xs text-zinc-500 hover:underline dark:text-zinc-400"
+          >
+            Cancelar
+          </button>
+        </div>
+      )}
+
+      {gmailMessages !== null && (
+        <div className="mt-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
+          {gmailMessages.length === 0 ? (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">Nenhuma mensagem encontrada.</p>
+          ) : (
+            <ul className="flex flex-col gap-1">
+              {gmailMessages.map((message) => (
+                <li key={message.externalId} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="truncate text-zinc-900 dark:text-zinc-50" title={message.snippet}>
+                    {message.title}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handlePickMessage(message)}
+                    className="shrink-0 text-xs text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+                  >
+                    Vincular
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button
+            type="button"
+            onClick={() => setGmailMessages(null)}
             className="mt-2 text-xs text-zinc-500 hover:underline dark:text-zinc-400"
           >
             Cancelar

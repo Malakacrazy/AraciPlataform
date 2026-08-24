@@ -85,6 +85,13 @@ declare global {
 
 export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly";
+// gmail.readonly é classificado pelo Google como escopo "restrito" (não
+// só "sensível", como calendar.events.readonly) -- exige verificação
+// CASA de segurança pra sair do modo de teste (até 100 usuários de
+// teste) e ficar disponível pra qualquer conta Google real. Não bloqueia
+// o desenvolvimento agora, mas é uma etapa extra antes de produção que
+// drive.file/calendar.events.readonly não têm.
+export const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 
 function loadScriptOnce(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -211,4 +218,71 @@ export async function listUpcomingCalendarEvents(accessToken: string): Promise<C
     title: event.summary?.trim() || "Evento sem título",
     start: event.start?.dateTime ?? event.start?.date ?? "",
   }));
+}
+
+interface GoogleGmailMessageListItem {
+  id: string;
+  threadId: string;
+}
+
+interface GoogleGmailHeader {
+  name: string;
+  value: string;
+}
+
+interface GoogleGmailMessageDetail {
+  id: string;
+  threadId: string;
+  snippet?: string;
+  payload?: { headers?: GoogleGmailHeader[] };
+}
+
+export interface GmailMessageSummary {
+  externalId: string;
+  url: string;
+  title: string;
+  snippet: string;
+}
+
+// Sem Picker pra Gmail (mesma limitação do Calendar -- a Picker API não
+// cobre Gmail). users.messages.list só devolve {id, threadId}, sem
+// assunto nem snippet -- por isso um GET por mensagem com
+// format=metadata (só cabeçalho Subject, não o corpo do e-mail).
+export async function listRecentGmailMessages(accessToken: string): Promise<GmailMessageSummary[]> {
+  const listParams = new URLSearchParams({ maxResults: "10" });
+  const listRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?${listParams}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!listRes.ok) {
+    throw new Error("Não foi possível listar as mensagens do Gmail.");
+  }
+  const listBody: { messages?: GoogleGmailMessageListItem[] } = await listRes.json();
+  const items = listBody.messages ?? [];
+
+  const detailParams = new URLSearchParams({ format: "metadata", metadataHeaders: "Subject" });
+  const details = await Promise.all(
+    items.map(async (item) => {
+      const res = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${item.id}?${detailParams}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      if (!res.ok) {
+        throw new Error("Não foi possível carregar uma mensagem do Gmail.");
+      }
+      return (await res.json()) as GoogleGmailMessageDetail;
+    }),
+  );
+
+  return details.map((msg) => {
+    const subject = msg.payload?.headers?.find((h) => h.name === "Subject")?.value;
+    return {
+      // threadId (não o id da mensagem) é o formato real do link
+      // permanente do Gmail -- a API não devolve um "htmlLink" pronto
+      // como a Calendar API devolve pra eventos.
+      externalId: msg.id,
+      url: `https://mail.google.com/mail/u/0/#all/${msg.threadId}`,
+      title: subject?.trim() || "Mensagem sem assunto",
+      snippet: msg.snippet ?? "",
+    };
+  });
 }

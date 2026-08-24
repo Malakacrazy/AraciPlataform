@@ -30,6 +30,7 @@ enum ProjectStageName {
 enum OfficeLinkProvider {
   DRIVE
   CALENDAR
+  GMAIL
 }
 
 enum OfficeLinkEntityType {

@@ -205,7 +205,7 @@ export interface PresentationData {
   moodboards: Moodboard[];
 }
 
-export type OfficeLinkProvider = "DRIVE" | "CALENDAR";
+export type OfficeLinkProvider = "DRIVE" | "CALENDAR" | "GMAIL";
 
 export interface OfficeLink {
   id: string;

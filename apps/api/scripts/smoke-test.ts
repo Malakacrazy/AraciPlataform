@@ -834,10 +834,21 @@ async function main() {
   });
   report("POST /projects/:id/office-links (CALENDAR) → 201", calendarLinkRes.status === 201, calendarLinkRes.body);
 
+  const gmailLinkRes = await api(`/v1/projects/${projectId}/office-links`, {
+    method: "POST",
+    body: JSON.stringify({
+      provider: "GMAIL",
+      externalId: "17f2a1b9c8d6e5f4",
+      url: "https://mail.google.com/mail/u/0/#all/17f2a1b9c8d6e5f4",
+      title: "Re: Aprovação do conceito",
+    }),
+  });
+  report("POST /projects/:id/office-links (GMAIL) → 201", gmailLinkRes.status === 201, gmailLinkRes.body);
+
   const listProjectLinksRes = await api(`/v1/projects/${projectId}/office-links`);
   report(
-    "GET /projects/:id/office-links inclui os dois vínculos (Drive e Calendar)",
-    listProjectLinksRes.status === 200 && listProjectLinksRes.body?.data?.length === 2,
+    "GET /projects/:id/office-links inclui os três vínculos (Drive, Calendar e Gmail)",
+    listProjectLinksRes.status === 200 && listProjectLinksRes.body?.data?.length === 3,
     listProjectLinksRes.body
   );
 
