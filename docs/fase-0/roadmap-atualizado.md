@@ -222,18 +222,33 @@ não um detalhe de implementação.
     formulário de criar fatura ganhou um campo de vencimento que não
     existia antes (sem ele, toda fatura criada pela tela nasceria
     impossível de cobrar).
-  - **Sem chave sandbox real da Asaas ainda** — `createCustomer`/
-    `createPayment` não foram exercitados contra a API de verdade. Tudo
-    o resto foi: build limpo, reinício, e testado de verdade (não só
-    typecheck) — caminho "não configurado", rejeição de webhook com
-    token errado (401), e o fluxo completo de webhook de pagamento
-    (`asaasPaymentId` setado direto via Prisma no lugar do que
-    `chargeInvoice()` teria gravado, POST de verdade no endpoint do
-    webhook) confirmando que a Invoice vira "paga", `paidAt` é setado, e
-    reenviar o mesmo evento não faz nada (idempotente). 106/106 no smoke
-    test. Também cliquei em "Cobrar" de verdade no navegador e confirmei
-    que o erro esperado aparece pelo tratamento padrão (não customizado)
-    de erro de Server Action do Next.js, igual toda outra ação da tela.
+  - Build limpo, reinício, e testado de verdade em cada etapa (não só
+    typecheck): caminho "não configurado", rejeição de webhook com token
+    errado (401), fluxo completo de webhook de pagamento (`asaasPaymentId`
+    setado direto via Prisma no lugar do que `chargeInvoice()` teria
+    gravado, POST de verdade no endpoint do webhook) confirmando que a
+    Invoice vira "paga", `paidAt` é setado, e reenviar o mesmo evento não
+    faz nada (idempotente). 106/106 no smoke test. Cliquei em "Cobrar" de
+    verdade no navegador e confirmei que o erro esperado aparece pelo
+    tratamento padrão (não customizado) de erro de Server Action do
+    Next.js, igual toda outra ação da tela.
+  - **Com uma chave sandbox real (obtida depois), `createCustomer` e
+    `createPayment` também foram exercitados contra a API de verdade da
+    Asaas** — não só os caminhos de erro. `chargeInvoice()` criou um
+    customer real (`cus_...`) e uma cobrança real (`pay_...`, status
+    `PENDING`, `billingType: UNDEFINED`) com `invoiceUrl`/`bankSlipUrl`
+    hospedados de verdade em `sandbox.asaas.com`; a resposta batia campo a
+    campo com o que a documentação prometia. Confirmado no banco:
+    `Invoice.asaasPaymentId`/`asaasInvoiceUrl` e
+    `Client.asaasCustomerId` gravados certos, e tentar cobrar a mesma
+    fatura de novo rejeitou com `INVOICE_ALREADY_CHARGED` (não duplicou a
+    cobrança). Reuso do customer cacheado (segunda fatura do mesmo
+    cliente não deveria criar um segundo customer na Asaas) não foi
+    reverificado contra a API de verdade — a lógica é um `if` trivial
+    (`return client.asaasCustomerId se já existir`), correta por
+    inspeção, mas a chamada real esbarrou em ordem de aprovação de gate
+    de um projeto de teste sem relação com a integração em si; não valeu
+    a pena forçar.
 
 Com isso, tudo que não depende de a) a senha do certificado de teste ou
 b) uma decisão de negócio da Giulia (fornecedor de Boleto/Pix, dado
