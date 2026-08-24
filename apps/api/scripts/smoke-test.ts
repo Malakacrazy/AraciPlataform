@@ -1027,6 +1027,32 @@ async function main() {
     restoreMeiRes.body
   );
 
+  const biRes = await api("/v1/bi/executivo");
+  const biData = biRes.body?.data;
+  report("GET /bi/executivo → 200", biRes.status === 200, biRes.body);
+  report(
+    "pipeline.porEstagio tem os 6 estágios do kanban (novo_lead..perdido)",
+    biData?.pipeline?.porEstagio?.length === 6,
+    biData?.pipeline?.porEstagio
+  );
+  const estagioGanho = biData?.pipeline?.porEstagio?.find((e: any) => e.estagio === "ganho");
+  report(
+    "Oportunidade marcada ganho neste run aparece em pipeline.porEstagio",
+    (estagioGanho?.quantidade ?? 0) >= 1,
+    estagioGanho
+  );
+  report(
+    "faturamento tem os 3 status de Invoice (pendente/emitida/paga)",
+    biData?.faturamento?.length === 3,
+    biData?.faturamento
+  );
+  const projetoDoRun = biData?.projetos?.find((p: any) => p.projetoId === projectIdFirst);
+  report(
+    "Projeto criado neste run aparece em projetos com orçado/realizado numéricos",
+    typeof projetoDoRun?.orcado === "number" && typeof projetoDoRun?.realizado === "number",
+    projetoDoRun
+  );
+
   console.log(`\n${passed} passaram, ${failed} falharam.\n`);
   process.exit(failed > 0 ? 1 : 0);
 }

@@ -231,3 +231,35 @@ export interface FatorRResult {
   fatorR: number;
   anexoRecomendado: "III" | "V";
 }
+
+export interface PipelineEstagio {
+  estagio: string;
+  label: string;
+  quantidade: number;
+  valorEstimado: number;
+}
+
+export interface FaturamentoStatus {
+  status: string;
+  label: string;
+  quantidade: number;
+  valorTotal: number;
+}
+
+export interface ProjetoResumoFinanceiro {
+  projetoId: string;
+  nome: string;
+  clienteNome: string;
+  status: string;
+  orcado: number;
+  realizado: number;
+}
+
+export interface VisaoExecutiva {
+  pipeline: {
+    porEstagio: PipelineEstagio[];
+    taxaConversao: number | null;
+  };
+  faturamento: FaturamentoStatus[];
+  projetos: ProjetoResumoFinanceiro[];
+}

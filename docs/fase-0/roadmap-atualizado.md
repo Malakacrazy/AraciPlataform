@@ -77,7 +77,9 @@ não um detalhe de implementação.
   direto para ele).
 - **ERP — Projetos**: `Project`, os 5 `ProjectPhase` do PEP com
   `contracted`/`order`/`budget` — **API e UI implementadas** (`/projects`,
-  `/projects/:id`: orçado × realizado por projeto, cronograma por fase),
+  `/projects/:id`: orçado por fase e cronograma por fase — o "realizado"
+  citado aqui antes não existia de fato até o dashboard executivo da
+  Fase 4, ver abaixo; esta tela só mostrava o orçado),
   incluindo as três visões que o plano original citava (Gantt/Kanban/
   Calendário), alternáveis na mesma tela. Exigiu endpoint novo
   (`PATCH .../phases/:phaseId`, só startDate/dueDate/budget — nunca
@@ -397,6 +399,44 @@ original previa:
 Sem mudança de escopo identificada na descoberta. Gmail avançado,
 exportação CAD/Revit, dashboards de BI, versão mobile para apontamento de
 horas e aprovação de FF&E em campo — como no plano original.
+
+- **Dashboard de BI — Visão executiva, implementado, API e UI**. Nenhum
+  dos quatro itens desta fase tinha escopo definido (uma linha genérica
+  no plano original) — Gmail avançado e visão executiva de BI são
+  extensões diretas de padrões já implementados (Office/Google Workspace,
+  agregação de dados já existentes), enquanto exportação CAD/Revit e a
+  versão mobile exigem decisão técnica prévia (formato de exportação;
+  stack mobile) antes de qualquer código, então ficaram de fora desta
+  entrega. Giulia escolheu começar pela Visão executiva.
+  - `GET /v1/bi/executivo` (`apps/api/src/bi/`) agrega três seções numa
+    única chamada, scoped por `accountId` via `@SessionAccount()`:
+    **pipeline** (Opportunity por estágio do kanban — mesmo vocabulário
+    de `opportunities-board.tsx` — com taxa de conversão ganho/resolvidas,
+    `null` em vez de 0% quando não há nada resolvido ainda, pra não
+    sugerir uma taxa que não existe); **faturamento** (Invoice por status:
+    pendente/emitida/paga, quantidade e valor); e **orçado × realizado
+    por projeto**.
+  - **Achado ao construir**: "realizado" nunca tinha sido implementado de
+    verdade em lugar nenhum do sistema (a Fase 1 dizia "orçado ×
+    realizado" na tela de projeto, mas essa tela só mostra o orçado —
+    corrigido acima). Implementado agora como
+    `TimeEntry.hours × User.costPerHour`, reaproveitando o mesmo padrão
+    já usado em `/team/planning` pra custo projetado de `Allocation`
+    (`apps/web/src/lib/allocations.ts`), só trocando horas planejadas por
+    horas de fato lançadas no timesheet. Verificado contra dado real: os
+    únicos `TimeEntry` existentes hoje pertencem a usuários sem
+    `costPerHour` cadastrado, então o realizado aparece como R$0 em todo
+    lugar agora — não é bug (confirmado consultando o banco direto), é
+    reflexo de nenhum colaborador ter esse campo preenchido ainda; a
+    lógica ignora custo desconhecido em vez de tratá-lo como zero, que
+    subestimaria o realizado assim que alguém preencher `costPerHour`.
+  - UI em `/dashboard` (`apps/web/src/app/(dashboard)/dashboard/`), link
+    novo na navegação. Barras de progresso simples em CSS (sem lib de
+    gráfico nova — o resto do app não usa nenhuma). Verificado no
+    navegador contra a API local de verdade e coberto por 5 casos novos
+    no smoke test (110/111 no total — a 1 falha é a mesma pré-existente e
+    não relacionada, `ASAAS_API_KEY` configurada no `.env` de dev quebra
+    a premissa de um teste que espera a Asaas "não configurada").
 
 ## Fase 5 — Beta & go-live
 
