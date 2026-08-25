@@ -14,6 +14,7 @@ export default async function DashboardPage() {
   const data = await apiGet<VisaoExecutiva>("bi/executivo");
 
   const maiorEstagio = Math.max(1, ...data.pipeline.porEstagio.map((e) => e.quantidade));
+  const maiorRecebido = Math.max(1, ...data.tendencia.map((m) => m.recebido));
 
   return (
     <main className="mx-auto flex max-w-4xl flex-col gap-6 px-6 py-12">
@@ -48,6 +49,28 @@ export default async function DashboardPage() {
           <p className="mt-1 font-mono text-xl text-emerald-700 dark:text-emerald-400">
             R$ {data.kpis.recebidoEsteMes.toLocaleString("pt-BR")}
           </p>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+        <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Tendência (últimos 6 meses)</h2>
+        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Recebido por mês e oportunidades ganhas.</p>
+        <div className="mt-4 flex items-end gap-3">
+          {data.tendencia.map((m) => (
+            <div key={m.mes} className="flex flex-1 flex-col items-center gap-1">
+              <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                R$ {m.recebido.toLocaleString("pt-BR", { notation: "compact" })}
+              </span>
+              <div className="flex h-24 w-full items-end">
+                <div
+                  className="w-full rounded-t bg-zinc-900 dark:bg-zinc-50"
+                  style={{ height: `${Math.max((m.recebido / maiorRecebido) * 100, 2)}%` }}
+                />
+              </div>
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">{m.label}</span>
+              <span className="text-xs text-zinc-400 dark:text-zinc-600">{m.oportunidadesGanhas} ganha(s)</span>
+            </div>
+          ))}
         </div>
       </section>
 

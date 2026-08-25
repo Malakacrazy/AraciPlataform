@@ -262,6 +262,13 @@ export interface VisaoExecutivaKpis {
   recebidoEsteMes: number;
 }
 
+export interface TendenciaMes {
+  mes: string;
+  label: string;
+  recebido: number;
+  oportunidadesGanhas: number;
+}
+
 export interface VisaoExecutiva {
   kpis: VisaoExecutivaKpis;
   pipeline: {
@@ -270,6 +277,7 @@ export interface VisaoExecutiva {
   };
   faturamento: FaturamentoStatus[];
   projetos: ProjetoResumoFinanceiro[];
+  tendencia: TendenciaMes[];
 }
 
 export interface CapacidadePessoa {

@@ -1081,6 +1081,18 @@ async function main() {
     typeof projetoDoRun?.orcado === "number" && typeof projetoDoRun?.realizado === "number",
     projetoDoRun
   );
+  report(
+    "tendencia tem os últimos 6 meses, mês corrente por último",
+    biData?.tendencia?.length === 6 &&
+      biData.tendencia[5].mes === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`,
+    biData?.tendencia
+  );
+  const mesCorrente = biData?.tendencia?.[5];
+  report(
+    "tendencia do mês corrente reflete o pagamento via webhook e a oportunidade ganha deste run",
+    (mesCorrente?.recebido ?? 0) > 0 && (mesCorrente?.oportunidadesGanhas ?? 0) >= 1,
+    mesCorrente
+  );
 
   const capacidadeRes = await api("/v1/bi/capacidade");
   const capacidadeData = capacidadeRes.body?.data;

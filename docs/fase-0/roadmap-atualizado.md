@@ -483,6 +483,20 @@ horas e aprovação de FF&E em campo — como no plano original.
     - Ambas verificadas no navegador com dado real e cobertas por 5 casos
       novos no smoke test (120/121 no total, confirmado estável em duas
       execuções seguidas — mesma 1 falha pré-existente de sempre).
+  - **Tendência dos últimos 6 meses, adicionada em seguida**: até aqui a
+    visão executiva era só foto do agora, sem direção/momento. Nova
+    seção `tendencia` em `GET /v1/bi/executivo` (mês corrente incluso,
+    sem query nova) com recebido por mês (`Invoice.paidAt`) e
+    oportunidades ganhas por mês (`Opportunity.wonAt`) — as duas métricas
+    de tendência mais diretas com o dado que já existe (`Invoice` não
+    tem `createdAt` próprio, só `dueDate`/`issuedAt`/`paidAt`, então
+    "faturas geradas por mês" não dava pra fazer sem ambiguidade;
+    ficou fora por decisão, não esquecimento). Gráfico de barras verticais
+    em CSS na UI, mesmo padrão sem lib nova do resto do dashboard.
+    Coberto por 2 casos novos no smoke test (122/123 no total) e
+    confirmado no navegador: mês corrente (ago/2026) mostrando R$903 e 3
+    oportunidades ganhas, meses anteriores corretamente zerados (sem
+    dado histórico ainda).
 - **Gmail avançado — vínculo de e-mail a Project/Client, implementado,
   API e UI**. Terceiro provider do `OfficeLink` (`DRIVE`/`CALENDAR` já
   existiam), reaproveitando 100% da infraestrutura já construída: o

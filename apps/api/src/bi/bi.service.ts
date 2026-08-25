@@ -113,6 +113,38 @@ function summarizeKpis(
   return { pipelineEmAberto, projetosAtivos, aReceber, recebidoEsteMes };
 }
 
+const MESES_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+// Tendência dos últimos 6 meses (mês corrente incluso) -- tudo que a
+// visão executiva mostrava antes era foto do agora, sem direção/momento.
+// Reaproveita opportunities/invoices já buscados, sem query nova.
+function summarizeTendencia(invoices: InvoiceRow[], opportunities: OpportunityRow[]) {
+  const agora = new Date();
+  const meses = Array.from({ length: 6 }, (_, i) => {
+    const offset = 5 - i;
+    const inicio = new Date(agora.getFullYear(), agora.getMonth() - offset, 1);
+    const fim = new Date(agora.getFullYear(), agora.getMonth() - offset + 1, 1);
+    return {
+      mes: `${inicio.getFullYear()}-${String(inicio.getMonth() + 1).padStart(2, '0')}`,
+      label: `${MESES_PT[inicio.getMonth()]}/${inicio.getFullYear()}`,
+      inicio,
+      fim,
+    };
+  });
+
+  return meses.map(({ mes, label, inicio, fim }) => {
+    const recebido = invoices
+      .filter((i) => i.status === 'paga' && i.paidAt && i.paidAt >= inicio && i.paidAt < fim)
+      .reduce((sum, i) => sum + Number(i.amount), 0);
+
+    const oportunidadesGanhas = opportunities.filter(
+      (o) => o.wonAt && o.wonAt >= inicio && o.wonAt < fim,
+    ).length;
+
+    return { mes, label, recebido, oportunidadesGanhas };
+  });
+}
+
 function summarizeProjetos(projects: ProjectRow[]) {
   return projects.map((p) => {
     const orcado = p.phases.reduce((sum, ph) => sum + Number(ph.budget ?? 0), 0);
@@ -343,6 +375,7 @@ export class BiService {
       pipeline: summarizePipeline(opportunities),
       faturamento: summarizeFaturamento(invoices),
       projetos: summarizeProjetos(projects),
+      tendencia: summarizeTendencia(invoices, opportunities),
     };
   }
 }
