@@ -30,6 +30,7 @@ interface OpportunityRow {
 interface InvoiceRow {
   status: string;
   amount: unknown;
+  paidAt: Date | null;
 }
 
 interface ProjectRow {
@@ -83,6 +84,35 @@ function summarizeFaturamento(invoices: InvoiceRow[]) {
   });
 }
 
+// KPIs de topo -- respondem "como está o negócio agora" numa olhada só,
+// sem precisar ler as três seções detalhadas abaixo. Reaproveita os
+// mesmos dados já buscados pra pipeline/faturamento/projetos, sem
+// nenhuma query nova.
+function summarizeKpis(
+  opportunities: OpportunityRow[],
+  invoices: InvoiceRow[],
+  projects: Pick<ProjectRow, 'status'>[],
+) {
+  const pipelineEmAberto = opportunities
+    .filter((o) => !o.wonAt && !o.lostAt)
+    .reduce((sum, o) => sum + Number(o.estimatedValue ?? 0), 0);
+
+  const projetosAtivos = projects.filter((p) => p.status === 'ativo').length;
+
+  const aReceber = invoices
+    .filter((i) => i.status === 'pendente' || i.status === 'emitida')
+    .reduce((sum, i) => sum + Number(i.amount), 0);
+
+  const agora = new Date();
+  const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1);
+  const inicioProximoMes = new Date(agora.getFullYear(), agora.getMonth() + 1, 1);
+  const recebidoEsteMes = invoices
+    .filter((i) => i.status === 'paga' && i.paidAt && i.paidAt >= inicioMes && i.paidAt < inicioProximoMes)
+    .reduce((sum, i) => sum + Number(i.amount), 0);
+
+  return { pipelineEmAberto, projetosAtivos, aReceber, recebidoEsteMes };
+}
+
 function summarizeProjetos(projects: ProjectRow[]) {
   return projects.map((p) => {
     const orcado = p.phases.reduce((sum, ph) => sum + Number(ph.budget ?? 0), 0);
@@ -121,7 +151,7 @@ export class BiService {
       }),
       this.prisma.db.invoice.findMany({
         where: { project: { accountId } },
-        select: { status: true, amount: true },
+        select: { status: true, amount: true, paidAt: true },
       }),
       this.prisma.db.project.findMany({
         where: { accountId },
@@ -137,6 +167,7 @@ export class BiService {
     ]);
 
     return {
+      kpis: summarizeKpis(opportunities, invoices, projects),
       pipeline: summarizePipeline(opportunities),
       faturamento: summarizeFaturamento(invoices),
       projetos: summarizeProjetos(projects),

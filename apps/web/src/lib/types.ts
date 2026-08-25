@@ -255,7 +255,15 @@ export interface ProjetoResumoFinanceiro {
   realizado: number;
 }
 
+export interface VisaoExecutivaKpis {
+  pipelineEmAberto: number;
+  projetosAtivos: number;
+  aReceber: number;
+  recebidoEsteMes: number;
+}
+
 export interface VisaoExecutiva {
+  kpis: VisaoExecutivaKpis;
   pipeline: {
     porEstagio: PipelineEstagio[];
     taxaConversao: number | null;

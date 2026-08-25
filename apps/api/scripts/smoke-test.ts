@@ -1042,6 +1042,24 @@ async function main() {
   const biData = biRes.body?.data;
   report("GET /bi/executivo → 200", biRes.status === 200, biRes.body);
   report(
+    "kpis traz os 4 números de topo, todos numéricos",
+    typeof biData?.kpis?.pipelineEmAberto === "number" &&
+      typeof biData?.kpis?.projetosAtivos === "number" &&
+      typeof biData?.kpis?.aReceber === "number" &&
+      typeof biData?.kpis?.recebidoEsteMes === "number",
+    biData?.kpis
+  );
+  report(
+    "kpis.projetosAtivos conta o projeto 'ativo' criado neste run",
+    (biData?.kpis?.projetosAtivos ?? 0) >= 1,
+    biData?.kpis
+  );
+  report(
+    "kpis.recebidoEsteMes reflete o pagamento via webhook feito agora mesmo",
+    (biData?.kpis?.recebidoEsteMes ?? 0) > 0,
+    biData?.kpis
+  );
+  report(
     "pipeline.porEstagio tem os 6 estágios do kanban (novo_lead..perdido)",
     biData?.pipeline?.porEstagio?.length === 6,
     biData?.pipeline?.porEstagio

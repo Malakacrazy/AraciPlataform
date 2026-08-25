@@ -437,6 +437,21 @@ horas e aprovação de FF&E em campo — como no plano original.
     no smoke test (110/111 no total — a 1 falha é a mesma pré-existente e
     não relacionada, `ASAAS_API_KEY` configurada no `.env` de dev quebra
     a premissa de um teste que espera a Asaas "não configurada").
+  - **Feedback da Giulia depois de ver a primeira versão**: "dashboard
+    está subdesenvolvido". Especificado o que faltava (KPIs de topo, não
+    as três seções de detalhe) e adicionada uma quarta seção, `kpis`, no
+    mesmo `GET /v1/bi/executivo` (sem query nova — reaproveita os mesmos
+    dados já buscados pra pipeline/faturamento/projetos): **pipeline em
+    aberto** (soma de `estimatedValue` de oportunidades ainda não
+    resolvidas), **projetos ativos** (`status === 'ativo'`), **a receber**
+    (Invoice pendente + emitida) e **recebido este mês** (Invoice paga
+    com `paidAt` no mês corrente). UI em 4 cards no topo da página, antes
+    das três seções de detalhe. Coberto por 3 casos novos no smoke test
+    (114/115 no total, mesma 1 falha pré-existente de sempre) e
+    confirmado no navegador com dado real (pipeline em aberto R$22.000,
+    3 projetos ativos, R$18.020 a receber, R$902,98 recebido no mês —
+    esse último batendo com o pagamento via webhook do próprio run do
+    smoke test).
 - **Gmail avançado — vínculo de e-mail a Project/Client, implementado,
   API e UI**. Terceiro provider do `OfficeLink` (`DRIVE`/`CALENDAR` já
   existiam), reaproveitando 100% da infraestrutura já construída: o
