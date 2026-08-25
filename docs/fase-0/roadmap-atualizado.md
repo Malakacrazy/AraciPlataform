@@ -452,6 +452,37 @@ horas e aprovação de FF&E em campo — como no plano original.
     3 projetos ativos, R$18.020 a receber, R$902,98 recebido no mês —
     esse último batendo com o pagamento via webhook do próprio run do
     smoke test).
+  - **Duas views novas depois de pedido explícito** ("adicionar
+    capacidade/FF&E"), cada uma sua própria página em `/dashboard/*` com
+    abas pra alternar entre as três (`DashboardTabs`), e seu próprio
+    endpoint no mesmo `BiService`:
+    - `GET /v1/bi/capacidade`: por pessoa, capacidade semanal
+      (`User.weeklyCapacityHours`) × carga **atual** (soma de
+      `hoursPerWeek` das `Allocation` ativas hoje — diferente do pico
+      histórico via sweep-line que `/team/planning` usa, que mistura
+      sobrecarga passada e futura; pra "como está a equipe agora" o
+      corte por hoje é mais direto de explicar) e horas de fato apontadas
+      nos últimos 7/30 dias (mesma janela rolante de `/team`, duplicada
+      aqui porque `apps/api` não depende de `apps/web`, mesmo motivo do
+      ADR 0002).
+    - `GET /v1/bi/ffe`: valor aprovado × pendente por projeto (mesma
+      fórmula de linha do checkout real —
+      `quantity × unitPrice × (1 + markupPercent)`, reaplicada, não
+      reinventada), top 5 produtos mais especificados, markup médio, e
+      contagem de especificações ainda sem preço.
+    - **Achado no smoke test**: a primeira versão do teste de
+      "produtos mais especificados" checava se o produto criado no
+      próprio run aparecia no top 5 — falhou de forma intermitente,
+      porque `POST /products` nesse fluxo sempre cria um produto novo
+      (sem `sourceUrl`, sem upsert), então depois de muitos runs
+      acumulados na mesma conta de dev vários produtos empatam em
+      quantidade 1, e qual deles entra no corte de 5 é arbitrário — não
+      um bug. Corrigido testando a forma da resposta (≤5 itens, ordem
+      decrescente) em vez de depender de qual produto especificamente
+      ganha o empate.
+    - Ambas verificadas no navegador com dado real e cobertas por 5 casos
+      novos no smoke test (120/121 no total, confirmado estável em duas
+      execuções seguidas — mesma 1 falha pré-existente de sempre).
 - **Gmail avançado — vínculo de e-mail a Project/Client, implementado,
   API e UI**. Terceiro provider do `OfficeLink` (`DRIVE`/`CALENDAR` já
   existiam), reaproveitando 100% da infraestrutura já construída: o

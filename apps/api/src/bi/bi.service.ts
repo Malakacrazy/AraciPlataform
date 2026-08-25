@@ -139,9 +139,181 @@ function summarizeProjetos(projects: ProjectRow[]) {
   });
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+interface AllocationRow {
+  userId: string;
+  hoursPerWeek: unknown;
+  startDate: Date;
+  endDate: Date;
+}
+
+interface UserRow {
+  id: string;
+  name: string;
+  weeklyCapacityHours: unknown;
+}
+
+interface TimeEntryRow {
+  userId: string;
+  hours: unknown;
+  date: Date;
+}
+
+// Carga atual = soma de hoursPerWeek das alocações ativas hoje (início <=
+// hoje <= fim) -- não é o pico histórico (peakHoursPerWeek em
+// apps/web/src/lib/allocations.ts), que mistura sobrecarga passada e
+// futura num só número. Pra "como está a equipe agora" o corte por hoje
+// é mais direto de explicar numa tela.
+function summarizeCapacidade(users: UserRow[], allocations: AllocationRow[], timeEntries: TimeEntryRow[]) {
+  const agora = Date.now();
+
+  return users.map((user) => {
+    const alocacoesDaPessoa = allocations.filter((a) => a.userId === user.id);
+    const horasAlocadasAtualmente = alocacoesDaPessoa
+      .filter((a) => a.startDate.getTime() <= agora && a.endDate.getTime() >= agora)
+      .reduce((sum, a) => sum + Number(a.hoursPerWeek), 0);
+
+    const capacidade = Number(user.weeklyCapacityHours);
+
+    // Mesma janela rolante (7d/30d, não mês-calendário) já usada em
+    // /team (ver workloadByUser em apps/web/.../team/page.tsx) --
+    // duplicada aqui em vez de importada porque apps/api não depende de
+    // apps/web (mesmo motivo do ADR 0002 citado em pep-stages.ts).
+    let horasApontadas7d = 0;
+    let horasApontadas30d = 0;
+    for (const entry of timeEntries) {
+      if (entry.userId !== user.id) continue;
+      const ageMs = agora - entry.date.getTime();
+      if (ageMs > 30 * DAY_MS) continue;
+      horasApontadas30d += Number(entry.hours);
+      if (ageMs <= 7 * DAY_MS) horasApontadas7d += Number(entry.hours);
+    }
+
+    return {
+      userId: user.id,
+      nome: user.name,
+      capacidadeSemanal: capacidade,
+      horasAlocadasAtualmente,
+      sobrecarregado: horasAlocadasAtualmente > capacidade,
+      horasApontadas7d,
+      horasApontadas30d,
+    };
+  });
+}
+
+interface ProductSpecificationRow {
+  quantity: number;
+  unitPrice: unknown;
+  markupPercent: unknown;
+  clientApproved: boolean;
+  productId: string;
+  product: { name: string };
+  area: { projectId: string; project: { name: string } };
+}
+
+// Mesma fórmula de valor de linha do checkout real
+// (ProductSpecification.approveCartToInvoiceDraft em
+// apps/api/src/ffe/specifications.service.ts) -- não reinventada aqui,
+// só reaplicada pra somar o que já foi aprovado e o que ainda pode vir a
+// ser (specs com preço definido mas clientApproved ainda false).
+function lineTotal(spec: Pick<ProductSpecificationRow, 'quantity' | 'unitPrice' | 'markupPercent'>): number {
+  return spec.quantity * Number(spec.unitPrice) * (1 + Number(spec.markupPercent ?? 0));
+}
+
+function summarizeFfe(specs: ProductSpecificationRow[]) {
+  const porProjetoMap = new Map<string, { projetoId: string; nome: string; valorAprovado: number; valorPendente: number }>();
+  let especificacoesSemPreco = 0;
+  const produtosMap = new Map<string, { productId: string; nome: string; quantidadeTotal: number }>();
+  let somaMarkup = 0;
+  let contagemMarkup = 0;
+
+  for (const spec of specs) {
+    if (spec.unitPrice === null || spec.unitPrice === undefined) {
+      especificacoesSemPreco++;
+      continue;
+    }
+
+    const projetoId = spec.area.projectId;
+    const entry = porProjetoMap.get(projetoId) ?? {
+      projetoId,
+      nome: spec.area.project.name,
+      valorAprovado: 0,
+      valorPendente: 0,
+    };
+    const valor = lineTotal(spec);
+    if (spec.clientApproved) {
+      entry.valorAprovado += valor;
+    } else {
+      entry.valorPendente += valor;
+    }
+    porProjetoMap.set(projetoId, entry);
+
+    if (spec.markupPercent !== null && spec.markupPercent !== undefined) {
+      somaMarkup += Number(spec.markupPercent);
+      contagemMarkup++;
+    }
+
+    const produto = produtosMap.get(spec.productId) ?? {
+      productId: spec.productId,
+      nome: spec.product.name,
+      quantidadeTotal: 0,
+    };
+    produto.quantidadeTotal += spec.quantity;
+    produtosMap.set(spec.productId, produto);
+  }
+
+  const produtosMaisEspecificados = [...produtosMap.values()]
+    .sort((a, b) => b.quantidadeTotal - a.quantidadeTotal)
+    .slice(0, 5);
+
+  return {
+    porProjeto: [...porProjetoMap.values()],
+    produtosMaisEspecificados,
+    markupMedioPercent: contagemMarkup > 0 ? somaMarkup / contagemMarkup : null,
+    especificacoesSemPreco,
+  };
+}
+
 @Injectable()
 export class BiService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async getCapacidade(accountId: string) {
+    const [users, allocations, timeEntries] = await Promise.all([
+      this.prisma.db.user.findMany({
+        where: { accountId },
+        select: { id: true, name: true, weeklyCapacityHours: true },
+      }),
+      this.prisma.db.allocation.findMany({
+        where: { user: { accountId } },
+        select: { userId: true, hoursPerWeek: true, startDate: true, endDate: true },
+      }),
+      this.prisma.db.timeEntry.findMany({
+        where: { user: { accountId } },
+        select: { userId: true, hours: true, date: true },
+      }),
+    ]);
+
+    return { porPessoa: summarizeCapacidade(users, allocations, timeEntries) };
+  }
+
+  async getFfe(accountId: string) {
+    const specs = await this.prisma.db.productSpecification.findMany({
+      where: { area: { project: { accountId } } },
+      select: {
+        quantity: true,
+        unitPrice: true,
+        markupPercent: true,
+        clientApproved: true,
+        productId: true,
+        product: { select: { name: true } },
+        area: { select: { projectId: true, project: { select: { name: true } } } },
+      },
+    });
+
+    return summarizeFfe(specs);
+  }
 
   async getExecutiveSummary(accountId: string) {
     const [opportunities, invoices, projects] = await Promise.all([

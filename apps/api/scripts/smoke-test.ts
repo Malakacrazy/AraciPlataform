@@ -1082,6 +1082,45 @@ async function main() {
     projetoDoRun
   );
 
+  const capacidadeRes = await api("/v1/bi/capacidade");
+  const capacidadeData = capacidadeRes.body?.data;
+  report("GET /bi/capacidade → 200", capacidadeRes.status === 200, capacidadeRes.body);
+  const pessoaDoRun = capacidadeData?.porPessoa?.find((p: any) => p.userId === user2.id);
+  report(
+    "porPessoa inclui o colaborador criado neste run, com capacidade default 40h",
+    pessoaDoRun?.capacidadeSemanal === 40,
+    pessoaDoRun
+  );
+
+  const ffeRes = await api("/v1/bi/ffe");
+  const ffeData = ffeRes.body?.data;
+  report("GET /bi/ffe → 200", ffeRes.status === 200, ffeRes.body);
+  const ffeProjetoDoRun = ffeData?.porProjeto?.find((p: any) => p.projetoId === projectIdFirst);
+  report(
+    "porProjeto reflete o checkout do carrinho deste run (valorAprovado = 9020)",
+    Math.abs((ffeProjetoDoRun?.valorAprovado ?? 0) - 9020) < 0.01,
+    ffeProjetoDoRun
+  );
+  report(
+    "especificacoesSemPreco conta a especificação genérica sem unitPrice deste run",
+    (ffeData?.especificacoesSemPreco ?? 0) >= 1,
+    ffeData?.especificacoesSemPreco
+  );
+  // Não afirma que o produto deste run está no top 5 -- depois de muitos
+  // runs acumulados na mesma conta de dev, vários produtos empatam em
+  // quantidadeTotal=1, e qual deles entra no corte de 5 é arbitrário
+  // (não reflete um bug, só empate). Testa a forma da resposta em vez
+  // disso: ordenado decrescente, no máximo 5 itens.
+  const listaProdutos = ffeData?.produtosMaisEspecificados ?? [];
+  const ordenadaDecrescente = listaProdutos.every(
+    (p: any, i: number) => i === 0 || listaProdutos[i - 1].quantidadeTotal >= p.quantidadeTotal
+  );
+  report(
+    "produtosMaisEspecificados: no máximo 5 itens, ordenados por quantidade decrescente",
+    listaProdutos.length <= 5 && ordenadaDecrescente,
+    listaProdutos
+  );
+
   console.log(`\n${passed} passaram, ${failed} falharam.\n`);
   process.exit(failed > 0 ? 1 : 0);
 }

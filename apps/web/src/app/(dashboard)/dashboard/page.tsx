@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet } from "@/lib/api";
 import type { VisaoExecutiva } from "@/lib/types";
+import { DashboardTabs } from "@/components/dashboard/dashboard-tabs";
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
@@ -22,6 +23,8 @@ export default async function DashboardPage() {
           Pipeline, faturamento e orçado × realizado por projeto.
         </p>
       </div>
+
+      <DashboardTabs active="/dashboard" />
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">

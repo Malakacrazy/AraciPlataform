@@ -12,4 +12,16 @@ export class BiController {
     const data = await this.biService.getExecutiveSummary(accountId);
     return { data };
   }
+
+  @Get('capacidade')
+  async capacidade(@SessionAccount() { accountId }: SessionAccountType) {
+    const data = await this.biService.getCapacidade(accountId);
+    return { data };
+  }
+
+  @Get('ffe')
+  async ffe(@SessionAccount() { accountId }: SessionAccountType) {
+    const data = await this.biService.getFfe(accountId);
+    return { data };
+  }
 }

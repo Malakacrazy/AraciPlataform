@@ -271,3 +271,37 @@ export interface VisaoExecutiva {
   faturamento: FaturamentoStatus[];
   projetos: ProjetoResumoFinanceiro[];
 }
+
+export interface CapacidadePessoa {
+  userId: string;
+  nome: string;
+  capacidadeSemanal: number;
+  horasAlocadasAtualmente: number;
+  sobrecarregado: boolean;
+  horasApontadas7d: number;
+  horasApontadas30d: number;
+}
+
+export interface DashboardCapacidade {
+  porPessoa: CapacidadePessoa[];
+}
+
+export interface FfeProjetoResumo {
+  projetoId: string;
+  nome: string;
+  valorAprovado: number;
+  valorPendente: number;
+}
+
+export interface FfeProdutoResumo {
+  productId: string;
+  nome: string;
+  quantidadeTotal: number;
+}
+
+export interface DashboardFfe {
+  porProjeto: FfeProjetoResumo[];
+  produtosMaisEspecificados: FfeProdutoResumo[];
+  markupMedioPercent: number | null;
+  especificacoesSemPreco: number;
+}
