@@ -15,6 +15,7 @@ import {
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { AdminOnly } from '../auth/admin-only.decorator';
 
 // Sem POST aqui de propósito: um Project só nasce via
 // OpportunitiesService.convertToProject (Opportunity.wonAt), nunca criado
@@ -48,6 +49,7 @@ export class ProjectsController {
     return { data };
   }
 
+  @AdminOnly()
   @Delete(':id')
   @HttpCode(204)
   async remove(

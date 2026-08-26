@@ -18,9 +18,11 @@ import {
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { AdminOnly } from '../auth/admin-only.decorator';
 
 // Ação dedicada, como .../approve — só cria fatura para um estágio cujo
 // gate já foi aprovado (ver InvoicesService).
+@AdminOnly()
 @Controller('v1/projects/:projectId/phases/:phaseId/invoice')
 export class PhaseInvoiceController {
   constructor(private readonly invoicesService: InvoicesService) {}
@@ -46,6 +48,7 @@ export class PhaseInvoiceController {
 // Sem POST aqui de propósito, mesmo padrão de /projects — uma Invoice só
 // nasce via POST .../phases/:phaseId/invoice, que valida o gate aprovado
 // antes de criar (ou, no FF&E, via checkout do carrinho).
+@AdminOnly()
 @Controller('v1/invoices')
 export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}

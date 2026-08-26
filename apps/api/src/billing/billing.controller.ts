@@ -2,7 +2,9 @@ import { Controller, HttpCode, Param, Post } from '@nestjs/common';
 import { BillingService } from './billing.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
+import { AdminOnly } from '../auth/admin-only.decorator';
 
+@AdminOnly()
 @Controller('v1/invoices/:id')
 export class BillingController {
   constructor(private readonly billingService: BillingService) {}

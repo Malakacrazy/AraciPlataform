@@ -22,3 +22,9 @@ export class NotFoundError extends ApiError {
     super('NOT_FOUND', `${resource} não encontrado(a).`, 404);
   }
 }
+
+export class ForbiddenError extends ApiError {
+  constructor(message = 'Sua conta não tem permissão para esta ação.') {
+    super('FORBIDDEN', message, 403);
+  }
+}

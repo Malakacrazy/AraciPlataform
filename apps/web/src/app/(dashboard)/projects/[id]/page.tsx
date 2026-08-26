@@ -3,10 +3,11 @@ import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet, ApiError } from "@/lib/api";
-import type { Project, OfficeLink, Invoice, ProjectMember, User } from "@/lib/types";
+import type { Project, OfficeLink, Invoice, ProjectMember, User, Activity } from "@/lib/types";
 import { OfficeLinksSection } from "@/components/office-links/office-links-section";
 import { CronogramaViews } from "@/components/projects/cronograma-views";
 import { markInvoiceIssued, chargeInvoice, addMember, removeMember } from "@/components/projects/actions";
+import { ActivityTimeline } from "@/components/activities/activity-timeline";
 
 const INVOICE_STATUS_LABELS: Record<string, string> = {
   pendente: "Pendente",
@@ -24,14 +25,12 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
   let project: Project;
   let officeLinks: OfficeLink[];
-  let invoices: Invoice[];
   let members: ProjectMember[];
   let users: User[];
   try {
-    [project, officeLinks, invoices, members, users] = await Promise.all([
+    [project, officeLinks, members, users] = await Promise.all([
       apiGet<Project>(`projects/${id}`),
       apiGet<OfficeLink[]>(`projects/${id}/office-links`),
-      apiGet<Invoice[]>(`invoices?projectId=${id}`),
       apiGet<ProjectMember[]>(`projects/${id}/members`),
       apiGet<User[]>("users"),
     ]);
@@ -41,6 +40,20 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     }
     throw err;
   }
+
+  let invoices: Invoice[] = [];
+  let canSeeFinanceiro = true;
+  try {
+    invoices = await apiGet<Invoice[]>(`invoices?projectId=${id}`);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 403) {
+      canSeeFinanceiro = false;
+    } else {
+      throw err;
+    }
+  }
+
+  const activities = await apiGet<Activity[]>(`projects/${id}/activities`);
 
   const memberUserIds = new Set(members.map((m) => m.userId));
   const availableUsers = users.filter((u) => !memberUserIds.has(u.id));
@@ -65,7 +78,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
         <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Financeiro</h2>
-        {invoices.length === 0 ? (
+        {!canSeeFinanceiro ? (
+          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+            Sua conta não tem permissão para ver o financeiro deste projeto.
+          </p>
+        ) : invoices.length === 0 ? (
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Nenhuma fatura ainda.</p>
         ) : (
           <ul className="mt-3 flex flex-col gap-2">
@@ -177,6 +194,13 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         entityId={project.id}
         links={officeLinks}
         userEmail={session.user.email}
+      />
+
+      <ActivityTimeline
+        entityType="PROJECT"
+        entityId={project.id}
+        activities={activities}
+        currentUserEmail={session.user.email}
       />
     </main>
   );

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { apiGet } from "@/lib/api";
+import { apiGet, ApiError } from "@/lib/api";
 import type { RoleRate } from "@/lib/types";
 import { upsertRoleRate, deleteRoleRate } from "@/components/role-rates/actions";
 
@@ -25,7 +25,21 @@ export default async function RoleRatesPage() {
     redirect("/api/auth/signin");
   }
 
-  const roleRates = await apiGet<RoleRate[]>("role-rates");
+  let roleRates: RoleRate[];
+  try {
+    roleRates = await apiGet<RoleRate[]>("role-rates");
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 403) {
+      return (
+        <main className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-12">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            Sua conta não tem permissão para ver tarifas por papel.
+          </p>
+        </main>
+      );
+    }
+    throw err;
+  }
 
   return (
     <main className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-12">

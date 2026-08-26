@@ -3,9 +3,10 @@ import { Reflector } from '@nestjs/core';
 import { jwtVerify } from 'jose';
 import { createHash } from 'node:crypto';
 import type { Request } from 'express';
-import { UnauthorizedError } from '../common/api-error';
+import { ForbiddenError, UnauthorizedError } from '../common/api-error';
 import { AuthService } from './auth.service';
 import { IS_PUBLIC_KEY } from './public.decorator';
+import { IS_ADMIN_ONLY_KEY } from './admin-only.decorator';
 import type { SessionAccount } from './session-account.interface';
 
 // Este serviço nunca é chamado pelo navegador — só por apps/web,
@@ -43,6 +44,11 @@ export class AuthGuard implements CanActivate {
     // — não tem como forjar o JWT interno de curta duração que só
     // apps/web sabe assinar). Verificada antes do Bearer para não pagar o
     // custo de jwtVerify quando a chave já resolve a requisição.
+    const isAdminOnly = this.reflector.getAllAndOverride<boolean>(IS_ADMIN_ONLY_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
     const apiKey = request.headers['x-api-key'];
     if (typeof apiKey === 'string' && apiKey.length > 0) {
       const apiKeyHash = createHash('sha256').update(apiKey).digest('hex');
@@ -50,10 +56,14 @@ export class AuthGuard implements CanActivate {
       if (!user) {
         throw new UnauthorizedError();
       }
+      if (isAdminOnly && user.accessLevel !== 'admin') {
+        throw new ForbiddenError();
+      }
       request.sessionAccount = {
         accountId: user.accountId,
         userId: user.id,
         email: user.email,
+        accessLevel: user.accessLevel,
       };
       return true;
     }
@@ -89,10 +99,14 @@ export class AuthGuard implements CanActivate {
     }
 
     const user = await this.authService.ensureAccountAndUser(email, email);
+    if (isAdminOnly && user.accessLevel !== 'admin') {
+      throw new ForbiddenError();
+    }
     request.sessionAccount = {
       accountId: user.accountId,
       userId: user.id,
       email,
+      accessLevel: user.accessLevel,
     };
     return true;
   }

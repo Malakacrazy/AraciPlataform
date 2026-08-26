@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { apiGet } from "@/lib/api";
+import { apiGet, ApiError } from "@/lib/api";
 import type { Account } from "@/lib/types";
 import { updateTaxRegime, simulateFatorR } from "@/components/financeiro/actions";
 
@@ -11,7 +11,21 @@ export default async function FinanceiroPage() {
     redirect("/api/auth/signin");
   }
 
-  const account = await apiGet<Account>("account");
+  let account: Account;
+  try {
+    account = await apiGet<Account>("account");
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 403) {
+      return (
+        <main className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-12">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            Sua conta não tem permissão para ver o financeiro do estúdio.
+          </p>
+        </main>
+      );
+    }
+    throw err;
+  }
   const isMei = account.taxRegime === "MEI";
 
   return (

@@ -16,6 +16,7 @@ import {
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { AdminOnly } from '../auth/admin-only.decorator';
 
 @Controller('v1/clients')
 export class ClientsController {
@@ -57,6 +58,7 @@ export class ClientsController {
     return { data };
   }
 
+  @AdminOnly()
   @Delete(':id')
   @HttpCode(204)
   async remove(

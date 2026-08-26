@@ -19,16 +19,21 @@ export class AuthService {
       return existingUser;
     }
 
-    const account =
-      (await this.prisma.db.account.findFirst()) ??
-      (await this.prisma.db.account.create({ data: { name: 'Studio Araci' } }));
+    const existingAccount = await this.prisma.db.account.findFirst();
+    const account = existingAccount ?? (await this.prisma.db.account.create({ data: { name: 'Studio Araci' } }));
 
+    // Quem cria a conta pela primeira vez é o admin -- todo mundo que
+    // entra depois (existingAccount já existia) começa como staff e
+    // precisa ser promovido por um admin em /team. Antes deste campo,
+    // `role: 'admin'` era setado pra QUALQUER login novo, sem
+    // distinção nenhuma de permissão real (ver User.accessLevel).
     return this.prisma.db.user.create({
       data: {
         accountId: account.id,
         email,
         name,
         role: 'admin',
+        accessLevel: existingAccount ? 'staff' : 'admin',
       },
     });
   }

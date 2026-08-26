@@ -15,6 +15,12 @@ export const userUpdateSchema = z.object({
   specialty: z.string().min(1).optional(),
   costPerHour: z.number().nonnegative().optional(),
   weeklyCapacityHours: z.number().positive().optional(),
+  // Só um admin pode de fato setar isto -- ver UsersController.update, que
+  // remove o campo do input antes de chegar aqui se quem pediu não for
+  // admin. Fica no schema (não só no controller) porque validar o
+  // formato é responsabilidade do schema; quem pode setar é autorização,
+  // não validação.
+  accessLevel: z.enum(['admin', 'staff']).optional(),
 });
 
 export type UserUpdateInput = z.infer<typeof userUpdateSchema>;

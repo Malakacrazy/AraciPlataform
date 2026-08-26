@@ -38,6 +38,12 @@ enum OfficeLinkEntityType {
   CLIENT
 }
 
+enum ActivityEntityType {
+  PROJECT
+  CLIENT
+  OPPORTUNITY
+}
+
 // Tenant: the architecture firm using the platform. Every domain record
 // hangs off an Account so the schema supports multiple firms later
 // without a redesign, even though Giulia is the only tenant today.
@@ -60,6 +66,7 @@ model Account {
   products    Product[]
   roleRates   RoleRate[]
   officeLinks OfficeLink[]
+  activities  Activity[]
 }
 
 // Hourly rate per role, already net of overhead/margin/tax (the output of
@@ -88,6 +95,15 @@ model User {
   email               String   @unique
   name                String
   role                String // admin | architect | designer | freelancer | ...
+  // Nível de permissão real (admin | staff) -- distinto de `role` acima,
+  // que é um título de precificação/exibição (ex.: "Arquiteto Sênior")
+  // nunca checado por código nenhum. Antes deste campo não havia
+  // permissão nenhuma: qualquer login autenticado enxergava e editava
+  // tudo, inclusive financeiro e custo/hora de outra pessoa. `admin` só
+  // é o default pra quem cria a conta pela primeira vez (ver
+  // AuthService.ensureAccountAndUser); todo mundo depois entra como
+  // `staff` e precisa ser promovido por um admin.
+  accessLevel         String   @default("staff")
   specialty           String?
   costPerHour         Decimal?
   // Base para detectar sobrecarga no planejamento de alocação (Allocation,
@@ -108,6 +124,7 @@ model User {
   timeEntries       TimeEntry[]
   projectMembership ProjectMember[]
   allocations       Allocation[]
+  activities        Activity[]
 }
 
 // CRM: pessoa física/jurídica captada como lead ou já cliente
@@ -425,6 +442,26 @@ model OfficeLink {
   url        String
   title      String
   createdAt  DateTime             @default(now())
+
+  @@index([accountId, entityType, entityId])
+}
+
+// Nota/atividade em texto livre anexada a Project, Client ou Opportunity
+// -- mesmo padrão polimórfico do OfficeLink acima (accountId + entityType
+// + entityId, sem FK direta pro alvo, escopo e existência validados na
+// service layer). Existe porque nenhum desses três registros tinha
+// histórico algum antes: nada registrava o que foi dito numa ligação ou
+// quando algo mudou de mãos.
+model Activity {
+  id         String             @id @default(cuid())
+  accountId  String
+  account    Account            @relation(fields: [accountId], references: [id])
+  entityType ActivityEntityType
+  entityId   String
+  authorId   String
+  author     User               @relation(fields: [authorId], references: [id])
+  body       String
+  createdAt  DateTime           @default(now())
 
   @@index([accountId, entityType, entityId])
 }

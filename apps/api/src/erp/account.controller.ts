@@ -7,7 +7,9 @@ import {
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { AdminOnly } from '../auth/admin-only.decorator';
 
+@AdminOnly()
 @Controller('v1/account')
 export class AccountController {
   constructor(private readonly accountService: AccountService) {}

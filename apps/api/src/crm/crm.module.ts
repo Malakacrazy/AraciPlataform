@@ -23,6 +23,6 @@ import { RoleRatesService } from './role-rates.service';
     ProposalsService,
     RoleRatesService,
   ],
-  exports: [ClientsService],
+  exports: [ClientsService, OpportunitiesService],
 })
 export class CrmModule {}

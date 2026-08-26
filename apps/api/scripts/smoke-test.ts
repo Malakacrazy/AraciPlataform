@@ -66,6 +66,15 @@ async function main() {
   report("POST /clients → 201", clientRes.status === 201, clientRes.body);
   const clientId = clientRes.body?.data?.id;
 
+  // O primeiro POST acima já criou o User (ensureAccountAndUser, lazy no
+  // primeiro request autenticado) -- mas como a Account já existe há
+  // muito tempo, ele nasce accessLevel:'staff' por padrão (só quem cria a
+  // conta pela primeira vez nasce admin, ver AuthService). O resto deste
+  // script sempre assumiu acesso total (fiscal, invoices, role-rates,
+  // deletes) -- promovido aqui pra manter esse comportamento, não pra
+  // testar o caminho staff (isso tem seção própria mais abaixo).
+  await prisma.user.update({ where: { email: EMAIL }, data: { accessLevel: "admin" } });
+
   const badClient = await api("/v1/clients", { method: "POST", body: JSON.stringify({}) });
   report(
     "POST /clients sem nome → 400 VALIDATION_ERROR",
@@ -172,6 +181,31 @@ async function main() {
     "GET /projects inclui o projeto recém-criado",
     listProjectsRes.status === 200 && listProjectsRes.body?.data?.some((p: any) => p.id === projectId),
     listProjectsRes.body
+  );
+
+  const activityRes = await api(`/v1/projects/${projectId}/activities`, {
+    method: "POST",
+    body: JSON.stringify({ body: "Ligação com a cliente: aprovou o conceito por telefone." }),
+  });
+  report("POST /projects/:id/activities → 201", activityRes.status === 201, activityRes.body);
+  const activityId = activityRes.body?.data?.id;
+
+  const listActivitiesRes = await api(`/v1/projects/${projectId}/activities`);
+  const activityCreated = listActivitiesRes.body?.data?.find((a: any) => a.id === activityId);
+  report(
+    "GET /projects/:id/activities inclui a nota recém-criada, com autor",
+    listActivitiesRes.status === 200 && activityCreated?.author?.email === EMAIL,
+    listActivitiesRes.body
+  );
+
+  const deleteActivityRes = await api(`/v1/activities/${activityId}`, { method: "DELETE" });
+  report("DELETE /activities/:id → 204", deleteActivityRes.status === 204, deleteActivityRes.body);
+
+  const listActivitiesAfterDeleteRes = await api(`/v1/projects/${projectId}/activities`);
+  report(
+    "Após remover, GET /projects/:id/activities não inclui mais a nota",
+    !listActivitiesAfterDeleteRes.body?.data?.some((a: any) => a.id === activityId),
+    listActivitiesAfterDeleteRes.body
   );
 
   const phasesRes = await api(`/v1/projects/${projectId}/phases`);
@@ -1131,6 +1165,127 @@ async function main() {
     "produtosMaisEspecificados: no máximo 5 itens, ordenados por quantidade decrescente",
     listaProdutos.length <= 5 && ordenadaDecrescente,
     listaProdutos
+  );
+
+  // --- Permissões: Admin vs Staff -------------------------------------
+  // Deixado pro final de propósito: se um bug deixasse um DELETE staff
+  // passar de verdade, isso derrubaria clientId/projectId que todo o
+  // resto do script acima já usou e já verificou -- rodando por último,
+  // uma falha aqui nunca invalida retroativamente o que já passou.
+  const staffEmail = `smoke-test-staff-${Date.now()}@studioaraci.com.br`;
+  const staffToken = await mintToken(staffEmail);
+  async function apiAsStaff(path: string, init: RequestInit = {}) {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${staffToken}`, ...(init.headers ?? {}) },
+    });
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      // 204 No Content etc.
+    }
+    return { status: res.status, body: body as any };
+  }
+
+  const meAsAdminRes = await api("/v1/me");
+  report(
+    "GET /me como admin (promovido no início deste run) → accessLevel admin",
+    meAsAdminRes.body?.data?.accessLevel === "admin",
+    meAsAdminRes.body
+  );
+
+  const meAsStaffRes = await apiAsStaff("/v1/me");
+  const staffUserId = meAsStaffRes.body?.data?.userId;
+  report(
+    "GET /me como staff (usuário novo) → accessLevel staff por padrão",
+    meAsStaffRes.body?.data?.accessLevel === "staff",
+    meAsStaffRes.body
+  );
+
+  const staffRoleRatesRes = await apiAsStaff("/v1/role-rates");
+  report(
+    "GET /role-rates como staff → 403 FORBIDDEN",
+    staffRoleRatesRes.status === 403 && staffRoleRatesRes.body?.error?.code === "FORBIDDEN",
+    staffRoleRatesRes.body
+  );
+
+  const staffInvoicesRes = await apiAsStaff("/v1/invoices");
+  report("GET /invoices como staff → 403 FORBIDDEN", staffInvoicesRes.status === 403, staffInvoicesRes.body);
+
+  const staffAccountRes = await apiAsStaff("/v1/account");
+  report("GET /account como staff → 403 FORBIDDEN", staffAccountRes.status === 403, staffAccountRes.body);
+
+  const staffFiscalRes = await apiAsStaff("/v1/fiscal/fator-r/simulate", {
+    method: "POST",
+    body: JSON.stringify({ folhaPagamento12m: 1000, receitaBruta12m: 5000 }),
+  });
+  report(
+    "POST /fiscal/fator-r/simulate como staff → 403 FORBIDDEN",
+    staffFiscalRes.status === 403,
+    staffFiscalRes.body
+  );
+
+  const staffDeleteClientRes = await apiAsStaff(`/v1/clients/${clientId}`, { method: "DELETE" });
+  report(
+    "DELETE /clients/:id como staff → 403 FORBIDDEN (não deleta)",
+    staffDeleteClientRes.status === 403,
+    staffDeleteClientRes.body
+  );
+
+  const staffDeleteProjectRes = await apiAsStaff(`/v1/projects/${projectId}`, { method: "DELETE" });
+  report(
+    "DELETE /projects/:id como staff → 403 FORBIDDEN (não deleta)",
+    staffDeleteProjectRes.status === 403,
+    staffDeleteProjectRes.body
+  );
+
+  const clientAindaExisteRes = await api(`/v1/clients/${clientId}`);
+  report(
+    "Cliente principal ainda existe depois da tentativa de delete como staff",
+    clientAindaExisteRes.status === 200,
+    clientAindaExisteRes.body
+  );
+
+  const staffUsersRes = await apiAsStaff("/v1/users");
+  report(
+    "GET /users como staff → costPerHour ausente em todo mundo",
+    staffUsersRes.status === 200 && staffUsersRes.body?.data?.every((u: any) => !("costPerHour" in u)),
+    staffUsersRes.body
+  );
+
+  const adminUsersRes = await api("/v1/users");
+  report(
+    "GET /users como admin → costPerHour presente",
+    adminUsersRes.status === 200 && adminUsersRes.body?.data?.some((u: any) => "costPerHour" in u),
+    adminUsersRes.body
+  );
+
+  const staffSelfPromoteRes = await apiAsStaff(`/v1/users/${staffUserId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ accessLevel: "admin", costPerHour: 999 }),
+  });
+  report(
+    "PATCH /users/:id (staff tentando se promover às cegas) → 200, sem erro",
+    staffSelfPromoteRes.status === 200,
+    staffSelfPromoteRes.body
+  );
+
+  const staffAfterSelfPromoteRes = await apiAsStaff("/v1/me");
+  report(
+    "...mas continua staff — accessLevel/costPerHour são removidos do PATCH antes de chegar no service",
+    staffAfterSelfPromoteRes.body?.data?.accessLevel === "staff",
+    staffAfterSelfPromoteRes.body
+  );
+
+  const adminPromoteRes = await api(`/v1/users/${staffUserId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ accessLevel: "admin" }),
+  });
+  report(
+    "Admin de verdade promove o mesmo usuário via PATCH /users/:id → 200",
+    adminPromoteRes.status === 200 && adminPromoteRes.body?.data?.accessLevel === "admin",
+    adminPromoteRes.body
   );
 
   console.log(`\n${passed} passaram, ${failed} falharam.\n`);

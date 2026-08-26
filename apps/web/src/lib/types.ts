@@ -97,15 +97,27 @@ export interface Invoice {
   asaasInvoiceUrl?: string | null;
 }
 
+export type AccessLevel = "admin" | "staff";
+
 export interface User {
   id: string;
   name: string;
   email: string;
   role: string;
+  accessLevel: AccessLevel;
   specialty?: string | null;
+  // Ausente (não null) pra quem não é admin -- a API remove o campo da
+  // resposta em vez de mandar null, ver UsersController.redactCost.
   costPerHour?: string | null;
   weeklyCapacityHours: string;
   apiKeyHash?: string | null;
+}
+
+export interface Me {
+  accountId: string;
+  userId: string;
+  email: string;
+  accessLevel: AccessLevel;
 }
 
 export interface ProjectMember {
@@ -312,4 +324,17 @@ export interface DashboardFfe {
   produtosMaisEspecificados: FfeProdutoResumo[];
   markupMedioPercent: number | null;
   especificacoesSemPreco: number;
+}
+
+export interface ActivityAuthor {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export interface Activity {
+  id: string;
+  body: string;
+  createdAt: string;
+  author: ActivityAuthor;
 }

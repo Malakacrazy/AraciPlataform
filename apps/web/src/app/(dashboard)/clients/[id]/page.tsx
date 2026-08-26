@@ -3,8 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet, ApiError } from "@/lib/api";
-import type { Client, Opportunity, OfficeLink } from "@/lib/types";
+import type { Client, Opportunity, OfficeLink, Activity } from "@/lib/types";
 import { OfficeLinksSection } from "@/components/office-links/office-links-section";
+import { ActivityTimeline } from "@/components/activities/activity-timeline";
 
 function opportunityStatus(opp: Opportunity): { label: string; className: string } {
   if (opp.wonAt) return { label: "Ganho", className: "text-emerald-700 dark:text-emerald-400" };
@@ -36,6 +37,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
     throw err;
   }
   const clientOpportunities = opportunities.filter((o) => o.clientId === id);
+  const activities = await apiGet<Activity[]>(`clients/${id}/activities`);
 
   return (
     <main className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-12">
@@ -92,6 +94,13 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
         entityId={client.id}
         links={officeLinks}
         userEmail={session.user.email}
+      />
+
+      <ActivityTimeline
+        entityType="CLIENT"
+        entityId={client.id}
+        activities={activities}
+        currentUserEmail={session.user.email}
       />
     </main>
   );

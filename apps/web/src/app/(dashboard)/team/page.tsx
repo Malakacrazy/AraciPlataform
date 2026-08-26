@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet } from "@/lib/api";
-import type { User, TimeEntry, Project } from "@/lib/types";
+import type { User, TimeEntry, Project, Me } from "@/lib/types";
 import { updateUser } from "@/components/team/actions";
 import { ApiKeyPanel } from "@/components/team/api-key-panel";
 
@@ -44,11 +44,13 @@ export default async function TeamPage() {
     redirect("/api/auth/signin");
   }
 
-  const [users, entries, projects] = await Promise.all([
+  const [me, users, entries, projects] = await Promise.all([
+    apiGet<Me>("me"),
     apiGet<User[]>("users"),
     apiGet<TimeEntry[]>("time-entries"),
     apiGet<Project[]>("projects"),
   ]);
+  const isAdmin = me.accessLevel === "admin";
   const projectById = new Map(projects.map((p) => [p.id, p]));
   const workload = workloadByUser(entries, projectById);
 
@@ -103,17 +105,19 @@ export default async function TeamPage() {
                     className="w-40 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-zinc-500 dark:text-zinc-400">Custo-hora (R$)</span>
-                  <input
-                    name="costPerHour"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    defaultValue={user.costPerHour ?? ""}
-                    className="w-32 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-                  />
-                </label>
+                {isAdmin && (
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="text-zinc-500 dark:text-zinc-400">Custo-hora (R$)</span>
+                    <input
+                      name="costPerHour"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      defaultValue={user.costPerHour ?? ""}
+                      className="w-32 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                    />
+                  </label>
+                )}
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="text-zinc-500 dark:text-zinc-400">Capacidade (h/semana)</span>
                   <input
@@ -125,6 +129,22 @@ export default async function TeamPage() {
                     className="w-32 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
                   />
                 </label>
+                {isAdmin && (
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="text-zinc-500 dark:text-zinc-400">Acesso</span>
+                    <select
+                      name="accessLevel"
+                      key={user.accessLevel}
+                      defaultValue={user.accessLevel}
+                      disabled={user.id === me.userId}
+                      title={user.id === me.userId ? "Você não pode alterar seu próprio nível de acesso." : undefined}
+                      className="w-32 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-50"
+                    >
+                      <option value="staff">Staff</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </label>
+                )}
                 <button
                   type="submit"
                   className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"

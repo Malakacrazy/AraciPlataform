@@ -531,6 +531,79 @@ horas e aprovação de FF&E em campo — como no plano original.
     real) não foi clicado de ponta a ponta — exigiria uma conta Google
     real do estúdio, que só a Giulia pode autorizar.
 
+## Auditoria da plataforma e Fase 1 da correção (permissões + histórico)
+
+Depois de rodar toda a Fase 4 até aqui, foi feita uma auditoria completa
+dos 15 módulos existentes contra o padrão do mercado (Houzz Pro,
+DesignFiles), com nota 1–10 por módulo e um plano de correção em 3 fases.
+Achado estrutural mais importante: **não existia permissão nenhuma** —
+todo login autenticado enxergava e editava tudo, inclusive financeiro e
+custo/hora de qualquer pessoa — e **nenhum dos três registros centrais**
+(Client, Project, Opportunity) tinha histórico ou nota alguma. A Fase 1
+da correção resolve os dois:
+
+- **`User.accessLevel` (admin | staff) — implementado, com enforcement
+  de verdade**. Antes deste campo, `role` (usado pra exibição/tarifa,
+  tipo "Arquiteto Sênior") não tinha relação nenhuma com permissão — o
+  bootstrap de login (`AuthService.ensureAccountAndUser`) dava
+  `role: 'admin'` pra QUALQUER conta nova, sem checagem em lugar nenhum
+  do código. Corrigido: quem cria a conta pela primeira vez nasce admin;
+  todo mundo depois nasce staff e precisa ser promovido.
+  - `@AdminOnly()` (mesmo padrão do `@Public()` já existente, checado no
+    mesmo `AuthGuard` global) bloqueia com `403 FORBIDDEN`, pra staff:
+    `Financeiro`/`Fiscal` (`/v1/account`, `/v1/fiscal/*`), `Invoices` e a
+    cobrança Asaas, `RoleRates`, e o `DELETE` de Client/Project/
+    Opportunity. `costPerHour` some da resposta de `/v1/users` pra quem
+    não é admin (removido na borda HTTP, não no service — `BiService`
+    continua lendo o campo direto via Prisma pro cálculo de realizado,
+    sem passar pelo controller).
+  - **Achado real ao aplicar isso**: duas páginas (`/opportunities/:id`,
+    que busca `role-rates` sem tratar erro nenhum; `/projects/:id`, que
+    buscava `invoices` no mesmo `Promise.all` do resto) teriam devolvido
+    500 pra qualquer staff assim que essas rotas viraram admin-only.
+    Corrigido tratando o 403 explicitamente em cada uma (o resto da
+    página carrega normal, só a seção afetada mostra aviso de permissão)
+    — nenhuma página deveria nunca quebrar por causa de uma permissão
+    que a própria plataforma impôs.
+  - Endpoint novo, `GET /v1/me` — só ecoa o que o `AuthGuard` já resolve
+    por requisição (accountId/userId/email/accessLevel), sem query nova.
+    Existe porque a navegação (esconder "Financeiro"/"Tarifas" pra staff)
+    e a tela de Equipe (saber se quem está vendo é admin) precisavam
+    saber o accessLevel de quem está logado sem depender de uma rota
+    admin-only, que bloquearia justamente quem não é admin.
+  - Tela de Equipe ganhou um seletor Admin/Staff por pessoa, visível só
+    pra admin, com a própria linha do admin logado desabilitada — não dá
+    pra se autorrebaixar sem querer. Confirmado no navegador com sessão
+    real (Giulia): a linha dela mesma vem desabilitada, as outras não.
+  - Verificado: build (api+web) e typecheck limpos, 14 casos novos no
+    smoke test cobrindo `/me` como admin e como staff, 403 em cada
+    superfície gateada, confirmação de que o cliente/projeto principal
+    sobrevive a uma tentativa de delete como staff, redação de
+    `costPerHour` nos dois sentidos, e que staff tentando se
+    autopromover/setar o próprio custo-hora é silenciosamente ignorado
+    (200, sem erro, mas sem efeito) em vez de vazar a possibilidade via
+    erro de validação.
+- **`Activity` (notas) em Project/Client/Opportunity — implementado, API
+  e UI**. Mesmo padrão polimórfico do `OfficeLink` (accountId +
+  entityType + entityId, sem FK direta pro alvo, escopo validado na
+  service layer) — só que pra texto livre com autor e timestamp, não pra
+  um link externo. Um componente único (`ActivityTimeline`) reaproveitado
+  nas três páginas de detalhe, cada uma só passando seu próprio
+  entityType/entityId. Reenviar remover é restrito a quem escreveu a
+  nota (comparado por e-mail, mesmo padrão já usado no `OfficeLinksSection`
+  pra decidir quem vê o botão "Remover").
+  - Verificado: build+typecheck limpos, 4 casos novos no smoke test
+    (criar, listar com autor correto, remover, confirmar que sumiu), e
+    testado de ponta a ponta no navegador com sessão real — nota criada,
+    renderizada com autor/timestamp corretos, removida.
+
+Ainda faltam as outras duas peças do Fase 1 do plano de correção
+(notificações por e-mail via Resend, login de cliente por magic link) —
+dependem de uma chave de API da Resend que só a Giulia pode gerar (não é
+algo que se cria em nome de terceiro). Capacidade/FF&E das outras duas
+views do dashboard e o resto do plano de 3 fases ficam registrados no
+artifact da auditoria, não duplicados aqui.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

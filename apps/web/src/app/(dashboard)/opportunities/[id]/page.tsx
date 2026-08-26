@@ -3,10 +3,11 @@ import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet, ApiError } from "@/lib/api";
-import type { Opportunity, Proposal, RoleRate } from "@/lib/types";
+import type { Opportunity, Proposal, RoleRate, Activity } from "@/lib/types";
 import { ProposalBuilder } from "@/components/proposals/proposal-builder";
 import { updateProposalStatus } from "@/components/proposals/actions";
 import { STAGE_LABELS } from "@/lib/pep-stages";
+import { ActivityTimeline } from "@/components/activities/activity-timeline";
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "Rascunho",
@@ -33,10 +34,20 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
     throw err;
   }
 
-  const [roleRates, proposals] = await Promise.all([
-    apiGet<RoleRate[]>("role-rates"),
-    apiGet<Proposal[]>(`proposals?opportunityId=${id}`),
-  ]);
+  const proposals = await apiGet<Proposal[]>(`proposals?opportunityId=${id}`);
+  const activities = await apiGet<Activity[]>(`opportunities/${id}/activities`);
+
+  let roleRates: RoleRate[] = [];
+  let canSeeRoleRates = true;
+  try {
+    roleRates = await apiGet<RoleRate[]>("role-rates");
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 403) {
+      canSeeRoleRates = false;
+    } else {
+      throw err;
+    }
+  }
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-12">
@@ -119,7 +130,11 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
         <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Nova proposta</h2>
-        {roleRates.length === 0 ? (
+        {!canSeeRoleRates ? (
+          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+            Sua conta não tem permissão para ver tarifas por papel — peça a um admin para calcular a proposta.
+          </p>
+        ) : roleRates.length === 0 ? (
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
             Cadastre pelo menos uma{" "}
             <Link href="/role-rates" className="underline">
@@ -133,6 +148,13 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
           </div>
         )}
       </section>
+
+      <ActivityTimeline
+        entityType="OPPORTUNITY"
+        entityId={id}
+        activities={activities}
+        currentUserEmail={session.user.email}
+      />
     </main>
   );
 }

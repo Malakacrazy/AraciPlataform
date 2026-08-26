@@ -8,12 +8,18 @@ export async function updateUser(userId: string, formData: FormData) {
   const specialty = String(formData.get("specialty") ?? "").trim();
   const costPerHourRaw = String(formData.get("costPerHour") ?? "").trim();
   const weeklyCapacityHoursRaw = String(formData.get("weeklyCapacityHours") ?? "").trim();
+  // Ausente quando quem está vendo não é admin (campo nem existe no
+  // form) ou quando é o próprio select desabilitado da própria linha
+  // (não dá pra se autorrebaixar/promover) -- ambos os casos devem só
+  // não mudar nada, não virar erro.
+  const accessLevel = String(formData.get("accessLevel") ?? "").trim();
 
   const input: Record<string, unknown> = {};
   if (role) input.role = role;
   if (specialty) input.specialty = specialty;
   if (costPerHourRaw) input.costPerHour = Number(costPerHourRaw);
   if (weeklyCapacityHoursRaw) input.weeklyCapacityHours = Number(weeklyCapacityHoursRaw);
+  if (accessLevel) input.accessLevel = accessLevel;
 
   const res = await apiFetch(`users/${userId}`, {
     method: "PATCH",
