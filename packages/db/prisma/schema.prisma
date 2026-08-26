@@ -68,6 +68,7 @@ model Account {
   officeLinks   OfficeLink[]
   activities    Activity[]
   notifications Notification[]
+  auditLogs     AuditLog[]
 }
 
 // Hourly rate per role, already net of overhead/margin/tax (the output of
@@ -527,4 +528,42 @@ model Notification {
   createdAt DateTime  @default(now())
 
   @@index([userId, readAt])
+}
+
+// Trilha de auditoria "quem mudou o quê" -- diferente de Activity (nota em
+// texto livre escrita por um humano) e de Notification (alerta pontual pro
+// sino): esta tabela é preenchida sozinha pelo Prisma Client, via extensão
+// registrada em PrismaService (ver audit/prisma-audit-extension.ts), não
+// por chamada explícita de cada service. accountId é opcional só pelo
+// paradoxo do bootstrap: no create do próprio primeiro Account do sistema,
+// o id ainda não existe antes da escrita -- a extensão resolve isso
+// apontando pro id recém-criado, ver comentário lá.
+model AuditLog {
+  id        String   @id @default(cuid())
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id])
+  // "user" | "client" | "system" -- client quando quem agiu foi um
+  // Client pelo link de apresentação (sem User próprio); system quando não
+  // há ator humano identificável (webhook da Asaas, bootstrap da conta).
+  actorType String
+  actorId   String? // User.id quando actorType = "user"; id do Client quando "client"
+  // Denormalizado no momento da escrita -- sobrevive mesmo se o User/Client
+  // referenciado acima for removido depois, sem precisar de join nenhum
+  // pra exibir "quem" na tela de log.
+  actorEmail String?
+  action     String // "create" | "update" | "delete"
+  entityType String // nome do model Prisma (ex.: "Project")
+  entityId   String
+  // Campo de exibição (Project.name, Client.name, ...) capturado no
+  // momento da escrita, só pros models onde existe um campo óbvio pra
+  // isso -- null pro resto (ex.: ProjectPhase, TimeEntry), que a tela de
+  // log mostra só como "entityType + id curto".
+  entityLabel String?
+  // update: { campo: { from, to } } só dos campos que de fato mudaram;
+  // create/delete: snapshot completo no mesmo formato (from/to null).
+  changes   Json?
+  createdAt DateTime @default(now())
+
+  @@index([accountId, entityType, entityId])
+  @@index([accountId, createdAt])
 }

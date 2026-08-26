@@ -740,6 +740,99 @@ Com isso fecham as quatro peças da Fase 1 do plano de correção
 das outras duas views do dashboard e o resto do plano de 3 fases ficam
 registrados no artifact da auditoria, não duplicados aqui.
 
+## Log de auditoria (quem mudou o quê, o que foi aprovado)
+
+Pedido explícito depois do Fase 1: um jeito de ver quem mudou o quê e o
+que foi aprovado, além dos e-mails/sino pontuais. Diferente de Activity
+(nota em texto livre escrita por um humano) e de Notification (alerta
+pontual), aqui o alvo é sistemático — toda escrita de negócio, não só os
+poucos pontos onde alguém lembrou de chamar algo explicitamente.
+
+- **Decisão de escopo, perguntada antes de construir**: cobrir só os
+  "momentos de aprovação" já existentes (specs aprovadas, gates de fase,
+  status de fatura) seria bem mais barato, mas foi escolhido
+  explicitamente o caminho mais amplo — todo create/update/delete em todo
+  model de negócio, com diff de campo. Isso muda a arquitetura: não dá
+  pra fazer com uma chamada manual em cada service (dezenas de call
+  sites, que ficariam pra trás conforme o app cresce) — precisa ser uma
+  extensão do Prisma Client, que intercepta a escrita no nível do driver,
+  sozinha, pra qualquer model.
+- **`AuditLog` (novo model)**: uma linha por escrita real (não por
+  requisição) — accountId, actorType (user | client | system), actorId +
+  actorEmail (denormalizado no momento da escrita, sobrevive mesmo se o
+  User/Client for removido depois), action (create/update/delete),
+  entityType (nome do model Prisma), entityId, entityLabel (Project.name/
+  Client.name/... só pros models com um campo de exibição óbvio) e
+  changes (JSON `{campo: {from, to}}`, só dos campos que de fato mudaram
+  — `updatedAt` fica de fora, todo update muda isso, não é uma "mudança"
+  que importa pra quem lê o log).
+- **`audit/prisma-audit-extension.ts`**: registrada em `PrismaService`
+  (`prisma.$extends(...)`), intercepta `create`/`update`/`upsert`/
+  `delete`/`updateMany`/`deleteMany` em todo model, exceto uma lista
+  pequena de exclusão — `AuditLog` (senão a própria escrita do log se
+  auditaria, recursão infinita), `Notification`, `ClientMagicLink`,
+  `ClientSession`, `PresentationLink` (pura plumbing de sessão/token, sem
+  valor de auditoria, alto volume de churn). Lê o estado de antes (via um
+  client SEM a extensão, capturado por closure, pra não reentrar nela
+  mesma) antes da escrita de verdade acontecer, e o de depois logo em
+  seguida, e grava só os campos que mudaram — usa o DMMF do schema (não
+  uma heurística sobre o formato do valor) pra saber quais campos são
+  escalares (inclusive Decimal/Json) e quais são relação incluída via
+  `include`, que não deveriam entrar no diff.
+  - `createMany` fica de fora de propósito: Prisma não devolve as linhas
+    criadas (só `{count}`), e o único uso real hoje
+    (`Notification.createMany`) já está na lista de exclusão de qualquer
+    jeito.
+  - `updateMany`/`deleteMany` (ex.: aprovar o carrinho inteiro do FF&E de
+    uma vez, ou o cleanup de OfficeLink ao deletar um Client) geram UMA
+    entrada de log POR LINHA afetada, não uma entrada opaca "N linhas" —
+    é o que faz "o que foi aprovado" ficar de fato legível (cada
+    especificação aprovada aparece com seu próprio antes/depois).
+- **Quem é o ator, propagado sem passar parâmetro por toda a cadeia**: um
+  middleware global (`audit-context.ts`, registrado em `main.ts` antes de
+  qualquer guard) cria um `AsyncLocalStorage` vazio por requisição;
+  `AuthGuard` o preenche assim que resolve a sessão (mesmo lugar nos dois
+  caminhos, chave de API e Bearer JWT). Os dois pontos que mutam dado de
+  negócio sem passar pelo AuthGuard preenchem na mão: `PublicPresentationService`
+  (cliente aprovando pelo link — vira actorType `client`, com o e-mail do
+  Client dono do projeto) e `BillingService` (webhook da Asaas confirmando
+  pagamento — vira actorType `system`, e como Invoice não tem accountId
+  próprio, precisou buscar via `project.accountId` explicitamente, senão o
+  log perderia o vínculo de conta).
+  - **Bootstrap resolvido sem caso especial feio**: o create do primeiro
+    Account/User do sistema acontece ANTES do AuthGuard saber quem é —
+    nesse instante o ator cai no default `system`, e o accountId é
+    resolvido olhando pro próprio registro sendo criado (o novo User já
+    tem `accountId` como campo próprio; o novo Account usa o próprio id).
+- **Verificado com dados reais, não só teoricamente**: essa é a parte que
+  mais importava dar certo — extensão do Prisma rodando por baixo de
+  `$transaction([...])` em array (delete de Client que também limpa
+  OfficeLink numa mesma transação) é exatamente o tipo de composição que
+  poderia sair sutilmente errada. Rodado o smoke suite inteiro (159 casos)
+  e inspecionado o `AuditLog` resultante linha a linha: delete em cascata
+  dentro de transação capturado corretamente pros dois lados, upsert de
+  RoleRate como create na primeira vez, checkout de carrinho FF&E gerando
+  uma entrada por especificação aprovada, aprovação via link público
+  atribuída ao cliente certo, webhook da Asaas atribuído a `system` com o
+  accountId certo, e Decimal (hourlyRate, amount) serializado como string
+  em vez de quebrar ou virar `[object Object]`.
+  - **Achado real de teste, não de produto**: a primeira versão do teste
+    "GET /audit-log como staff → 403" reusava a identidade `staffToken` já
+    promovida a admin por um teste anterior no mesmo script — passou 200
+    em vez de 403 não por falha do `@AdminOnly()`, mas porque
+    `AuthGuard` relê o accessLevel atual do banco a cada requisição, e
+    aquela identidade específica já não era mais staff quando o teste
+    rodou. Corrigido usando uma segunda identidade staff nunca tocada.
+- **`GET /v1/audit-log`** (admin-only, mesmo padrão de Financeiro/
+  Tarifas) — filtros por entityType/entityId/action, paginado (50 por
+  página). Página nova `/log` no dashboard: filtro por entidade/ação,
+  diffs de update aparecem direto na linha, snapshots de create/delete
+  ficam atrás de um `<details>` (evita parede de texto pra um registro
+  com 10 campos), link pra página de detalhe de quem tem uma (Project/
+  Client/Opportunity/Product/User→Equipe/RoleRate→Tarifas) — o resto
+  (Invoice, ProjectPhase, ProductSpecification, ...) mostra só o texto,
+  sem link, por não ter URL própria.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

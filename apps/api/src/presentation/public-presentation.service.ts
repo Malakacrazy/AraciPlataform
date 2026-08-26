@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotFoundError } from '../common/api-error';
 import { NotificationsService } from '../notifications/notifications.service';
+import { setAuditActor } from '../audit/audit-context';
 
 // Só clientApproved/clientComment — nunca productId/quantity/unitPrice/
 // markupPercent. O cliente aprova e comenta; preço e quantidade
@@ -83,6 +84,24 @@ export class PublicPresentationService {
       throw new NotFoundError('Especificação');
     }
 
+    // Buscado uma vez só, antes do update: dá o accountId pro ator de
+    // auditoria (ver setAuditActor abaixo -- sem sessão de User aqui,
+    // quem mutou o dado foi o Client dono do projeto) e é reaproveitado
+    // pela notificação de aprovação mais abaixo, que já precisava do
+    // mesmo project.accountId/name.
+    const project = await this.prisma.db.project.findUnique({
+      where: { id: link.projectId },
+      select: { accountId: true, name: true, clientId: true, client: { select: { email: true } } },
+    });
+    if (project) {
+      setAuditActor({
+        accountId: project.accountId,
+        actorType: 'client',
+        actorId: project.clientId,
+        actorEmail: project.client.email ?? undefined,
+      });
+    }
+
     const updated = await this.prisma.db.productSpecification.update({
       where: { id: specId },
       data: input,
@@ -93,19 +112,13 @@ export class PublicPresentationService {
     // comentário numa especificação já aprovada não deveria mandar
     // e-mail de novo. Achado da auditoria: antes disso, nada avisava a
     // equipe quando um cliente de fato aprovava algo por aqui.
-    if (input.clientApproved === true && !spec.clientApproved) {
-      const project = await this.prisma.db.project.findUnique({
-        where: { id: link.projectId },
-        select: { accountId: true, name: true },
+    if (input.clientApproved === true && !spec.clientApproved && project) {
+      await this.notificationsService.notifySpecificationApproved(project.accountId, {
+        projectId: link.projectId,
+        projectName: project.name,
+        productName: updated.product.name,
+        clientComment: updated.clientComment,
       });
-      if (project) {
-        await this.notificationsService.notifySpecificationApproved(project.accountId, {
-          projectId: link.projectId,
-          projectName: project.name,
-          productName: updated.product.name,
-          clientComment: updated.clientComment,
-        });
-      }
     }
 
     return updated;

@@ -7,6 +7,7 @@ import {
   loadApiKey,
   type AsaasPayment,
 } from './asaas-client';
+import { setAuditActor } from '../audit/audit-context';
 
 // Eventos que contam como "pago" pra fechar o ciclo da Invoice. A Asaas
 // manda PAYMENT_CONFIRMED quando a compensação é iniciada (comum em
@@ -133,6 +134,7 @@ export class BillingService {
 
     const invoice = await this.prisma.db.invoice.findFirst({
       where: { asaasPaymentId },
+      include: { project: { select: { accountId: true } } },
     });
     if (!invoice) {
       // Pode ser um evento de outra integração testando o mesmo endpoint,
@@ -143,6 +145,13 @@ export class BillingService {
     if (invoice.status === 'paga') {
       return; // idempotente -- a Asaas pode reenviar o mesmo evento
     }
+
+    // Rota @Public() chamada pela própria Asaas, sem sessão de User --
+    // Invoice não tem accountId próprio (só via project), então precisa
+    // ser resolvido aqui pra não perder o vínculo de conta no log de
+    // auditoria (ver resolveAccountId em prisma-audit-extension.ts, que
+    // só acharia sozinho se o próprio model tivesse a coluna).
+    setAuditActor({ accountId: invoice.project.accountId, actorType: 'system' });
 
     await this.prisma.db.invoice.update({
       where: { id: invoice.id },

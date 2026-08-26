@@ -353,3 +353,25 @@ export interface NotificationsResponse {
   notifications: Notification[];
   unreadCount: number;
 }
+
+export type AuditChangeValue = string | number | boolean | null;
+
+export interface AuditLogEntry {
+  id: string;
+  actorType: "user" | "client" | "system";
+  actorId?: string | null;
+  actorEmail?: string | null;
+  action: "create" | "update" | "delete";
+  entityType: string;
+  entityId: string;
+  entityLabel?: string | null;
+  changes?: Record<string, { from: AuditChangeValue; to: AuditChangeValue }> | null;
+  createdAt: string;
+}
+
+export interface AuditLogResponse {
+  entries: AuditLogEntry[];
+  total: number;
+  page: number;
+  pageSize: number;
+}

@@ -8,6 +8,7 @@ import { AuthService } from './auth.service';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { IS_ADMIN_ONLY_KEY } from './admin-only.decorator';
 import type { SessionAccount } from './session-account.interface';
+import { setAuditActor } from '../audit/audit-context';
 
 // Este serviço nunca é chamado pelo navegador — só por apps/web,
 // server-to-server, e pela extensão Captura (chave de API, ver abaixo). O
@@ -65,6 +66,7 @@ export class AuthGuard implements CanActivate {
         email: user.email,
         accessLevel: user.accessLevel,
       };
+      setAuditActor({ accountId: user.accountId, actorType: 'user', actorId: user.id, actorEmail: user.email });
       return true;
     }
 
@@ -108,6 +110,7 @@ export class AuthGuard implements CanActivate {
       email,
       accessLevel: user.accessLevel,
     };
+    setAuditActor({ accountId: user.accountId, actorType: 'user', actorId: user.id, actorEmail: email });
     return true;
   }
 }

@@ -13,12 +13,13 @@ const LINKS = [
   { href: "/team", label: "Equipe" },
   { href: "/products", label: "Produtos" },
   { href: "/financeiro", label: "Financeiro", adminOnly: true },
+  { href: "/log", label: "Log", adminOnly: true },
 ];
 
 // adminOnly esconde o link em vez de deixar staff clicar numa página que
-// só vai devolver 403 -- as duas telas por trás (Tarifas, Financeiro) são
-// só dados de custo/tarifa, que staff não pode ver de qualquer jeito (ver
-// User.accessLevel no schema).
+// só vai devolver 403 -- Tarifas/Financeiro são custo/tarifa, e Log é
+// quem-mudou-o-quê da conta inteira; nenhum dos três é algo que staff
+// pode ver de qualquer jeito (ver User.accessLevel no schema).
 export function Nav({
   accessLevel,
   notifications,
