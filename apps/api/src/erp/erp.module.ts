@@ -10,6 +10,8 @@ import {
   PhaseInvoiceController,
 } from './invoices.controller';
 import { InvoicesService } from './invoices.service';
+import { ExpensesController } from './expenses.controller';
+import { ExpensesService } from './expenses.service';
 import { TimeEntriesController } from './time-entries.controller';
 import { TimeEntriesService } from './time-entries.service';
 import { ProjectMembersController } from './project-members.controller';
@@ -30,6 +32,7 @@ import { NfseService } from './fiscal/nfse.service';
     PhasesController,
     PhaseInvoiceController,
     InvoicesController,
+    ExpensesController,
     TimeEntriesController,
     ProjectMembersController,
     AllocationsController,
@@ -42,6 +45,7 @@ import { NfseService } from './fiscal/nfse.service';
     UsersService,
     PhasesService,
     InvoicesService,
+    ExpensesService,
     TimeEntriesService,
     ProjectMembersService,
     AllocationsService,

@@ -1269,6 +1269,71 @@ async function main() {
     restoreMeiRes.body
   );
 
+  // --- Despesas (lado de saída do caixa, achado da auditoria) ---------
+  const expenseProjetoRes = await api("/v1/expenses", {
+    method: "POST",
+    body: JSON.stringify({
+      description: "Marcenaria sob medida",
+      category: "subcontratado",
+      amount: 1200,
+      projectId: projectIdFirst,
+    }),
+  });
+  report(
+    "POST /expenses (com projectId) → 201, nasce 'pendente'",
+    expenseProjetoRes.status === 201 && expenseProjetoRes.body?.data?.status === "pendente",
+    expenseProjetoRes.body
+  );
+  const expenseProjetoId = expenseProjetoRes.body?.data?.id;
+
+  const expenseGeralRes = await api("/v1/expenses", {
+    method: "POST",
+    body: JSON.stringify({ description: "Assinatura do software de renderização", category: "software", amount: 300 }),
+  });
+  report(
+    "POST /expenses sem projectId → 201, despesa geral (project null)",
+    expenseGeralRes.status === 201 && expenseGeralRes.body?.data?.project === null,
+    expenseGeralRes.body
+  );
+  const expenseGeralId = expenseGeralRes.body?.data?.id;
+
+  const expenseBadProjectRes = await api("/v1/expenses", {
+    method: "POST",
+    body: JSON.stringify({ description: "x", category: "x", amount: 10, projectId: "nonexistent-id" }),
+  });
+  report(
+    "POST /expenses com projectId de outra conta/inexistente → 404",
+    expenseBadProjectRes.status === 404,
+    expenseBadProjectRes.body
+  );
+
+  const markExpensePaidRes = await api(`/v1/expenses/${expenseProjetoId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "paga", paidAt: new Date().toISOString() }),
+  });
+  report(
+    "PATCH /expenses/:id { status: 'paga' } → 200",
+    markExpensePaidRes.status === 200 && markExpensePaidRes.body?.data?.status === "paga",
+    markExpensePaidRes.body
+  );
+
+  const listExpensesByProjectRes = await api(`/v1/expenses?projectId=${projectIdFirst}`);
+  report(
+    "GET /expenses?projectId= só traz a despesa deste projeto, não a geral",
+    listExpensesByProjectRes.body?.data?.length === 1 &&
+      listExpensesByProjectRes.body?.data?.[0]?.id === expenseProjetoId,
+    listExpensesByProjectRes.body
+  );
+
+  const deleteExpenseRes = await api(`/v1/expenses/${expenseGeralId}`, { method: "DELETE" });
+  report("DELETE /expenses/:id → 204", deleteExpenseRes.status === 204, deleteExpenseRes.body);
+  const listAfterDeleteRes = await api("/v1/expenses");
+  report(
+    "Após remover, a despesa geral não aparece mais na listagem",
+    !listAfterDeleteRes.body?.data?.some((e: any) => e.id === expenseGeralId),
+    listAfterDeleteRes.body
+  );
+
   const biRes = await api("/v1/bi/executivo");
   const biData = biRes.body?.data;
   report("GET /bi/executivo → 200", biRes.status === 200, biRes.body);
@@ -1279,6 +1344,17 @@ async function main() {
       typeof biData?.kpis?.aReceber === "number" &&
       typeof biData?.kpis?.recebidoEsteMes === "number",
     biData?.kpis
+  );
+  report(
+    "kpis.pagoEsteMes reflete a despesa marcada como paga agora mesmo, margemEsteMes = recebido - pago",
+    biData?.kpis?.pagoEsteMes >= 1200 &&
+      Math.abs(biData?.kpis?.margemEsteMes - (biData?.kpis?.recebidoEsteMes - biData?.kpis?.pagoEsteMes)) < 0.01,
+    biData?.kpis
+  );
+  report(
+    "despesas tem os 2 status de Expense (pendente/paga)",
+    biData?.despesas?.length === 2,
+    biData?.despesas
   );
   report(
     "kpis.projetosAtivos conta o projeto 'ativo' criado neste run",
@@ -1313,6 +1389,12 @@ async function main() {
     projetoDoRun
   );
   report(
+    "projetoDoRun.despesas reflete a despesa paga deste projeto; margem = recebido - realizado - despesas",
+    projetoDoRun?.despesas >= 1200 &&
+      Math.abs(projetoDoRun?.margem - (projetoDoRun?.recebido - projetoDoRun?.realizado - projetoDoRun?.despesas)) < 0.01,
+    projetoDoRun
+  );
+  report(
     "tendencia tem os últimos 6 meses, mês corrente por último",
     biData?.tendencia?.length === 6 &&
       biData.tendencia[5].mes === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`,
@@ -1322,6 +1404,12 @@ async function main() {
   report(
     "tendencia do mês corrente reflete o pagamento via webhook e a oportunidade ganha deste run",
     (mesCorrente?.recebido ?? 0) > 0 && (mesCorrente?.oportunidadesGanhas ?? 0) >= 1,
+    mesCorrente
+  );
+  report(
+    "tendencia do mês corrente reflete a despesa paga deste run; margem = recebido - despesas",
+    (mesCorrente?.despesas ?? 0) >= 1200 &&
+      Math.abs(mesCorrente?.margem - (mesCorrente?.recebido - mesCorrente?.despesas)) < 0.01,
     mesCorrente
   );
 
@@ -1412,6 +1500,9 @@ async function main() {
 
   const staffAccountRes = await apiAsStaff("/v1/account");
   report("GET /account como staff → 403 FORBIDDEN", staffAccountRes.status === 403, staffAccountRes.body);
+
+  const staffExpensesRes = await apiAsStaff("/v1/expenses");
+  report("GET /expenses como staff → 403 FORBIDDEN", staffExpensesRes.status === 403, staffExpensesRes.body);
 
   const staffFiscalRes = await apiAsStaff("/v1/fiscal/fator-r/simulate", {
     method: "POST",

@@ -43,3 +43,51 @@ export async function simulateFatorR(formData: FormData) {
   }
   revalidatePath("/financeiro");
 }
+
+export async function createExpense(formData: FormData) {
+  const description = String(formData.get("description") ?? "").trim();
+  const category = String(formData.get("category") ?? "").trim();
+  const amountRaw = String(formData.get("amount") ?? "").trim();
+  const projectId = String(formData.get("projectId") ?? "").trim();
+  const dueDate = String(formData.get("dueDate") ?? "").trim();
+  if (!description || !category || !amountRaw) {
+    throw new Error("Descrição, categoria e valor são obrigatórios.");
+  }
+
+  const res = await apiFetch("expenses", {
+    method: "POST",
+    body: JSON.stringify({
+      description,
+      category,
+      amount: Number(amountRaw),
+      ...(projectId ? { projectId } : {}),
+      ...(dueDate ? { dueDate: new Date(dueDate).toISOString() } : {}),
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error?.message ?? "Não foi possível registrar a despesa.");
+  }
+  revalidatePath("/financeiro");
+}
+
+export async function markExpensePaid(id: string) {
+  const res = await apiFetch(`expenses/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "paga", paidAt: new Date().toISOString() }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error?.message ?? "Não foi possível marcar a despesa como paga.");
+  }
+  revalidatePath("/financeiro");
+}
+
+export async function deleteExpense(id: string) {
+  const res = await apiFetch(`expenses/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error?.message ?? "Não foi possível remover a despesa.");
+  }
+  revalidatePath("/financeiro");
+}

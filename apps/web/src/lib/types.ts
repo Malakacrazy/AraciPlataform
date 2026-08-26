@@ -273,6 +273,9 @@ export interface ProjetoResumoFinanceiro {
   status: string;
   orcado: number;
   realizado: number;
+  recebido: number;
+  despesas: number;
+  margem: number;
 }
 
 export interface VisaoExecutivaKpis {
@@ -280,12 +283,16 @@ export interface VisaoExecutivaKpis {
   projetosAtivos: number;
   aReceber: number;
   recebidoEsteMes: number;
+  pagoEsteMes: number;
+  margemEsteMes: number;
 }
 
 export interface TendenciaMes {
   mes: string;
   label: string;
   recebido: number;
+  despesas: number;
+  margem: number;
   oportunidadesGanhas: number;
 }
 
@@ -296,8 +303,23 @@ export interface VisaoExecutiva {
     taxaConversao: number | null;
   };
   faturamento: FaturamentoStatus[];
+  despesas: FaturamentoStatus[];
   projetos: ProjetoResumoFinanceiro[];
   tendencia: TendenciaMes[];
+}
+
+export interface Expense {
+  id: string;
+  accountId: string;
+  projectId?: string | null;
+  project?: { id: string; name: string } | null;
+  description: string;
+  category: string;
+  amount: string;
+  status: "pendente" | "paga";
+  dueDate?: string | null;
+  paidAt?: string | null;
+  createdAt: string;
 }
 
 export interface CapacidadePessoa {

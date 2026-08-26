@@ -909,6 +909,81 @@ feito nada (achado da auditoria: "a click is not a signature").
   restrição). Resíduo de teste (as duas versões extras criadas na
   oportunidade fixa mantida entre sessões) limpo manualmente depois.
 
+## Fase 2 (correção) — Financeiro: despesas e P&L real
+
+Segundo item da Fase 2. Verbatim da auditoria: "Knows everything about
+money coming in. Has never heard of money going out" -- Financeiro/BI só
+sabiam somar Invoice (dinheiro entrando); nenhum lugar da plataforma
+sabia o que o estúdio gastava pra entregar um projeto ou manter a
+estrutura, então nenhum número que o dashboard mostrava era lucro, só
+receita.
+
+- **`Expense` (novo model)**: espelha `Invoice` de propósito (mesmo
+  vocabulário pendente/paga, mesmo padrão de `dueDate`/`paidAt`), mas mais
+  simples -- só dois status, não três, porque não existe um equivalente
+  de "emitida" (NFS-e) do lado de quem paga. `projectId` é opcional: com
+  projeto é custo externo real de entregar aquele projeto (subcontratado,
+  material fornecido); sem projeto é estrutura do estúdio (aluguel,
+  assinatura de software) -- os dois formatos que a própria auditoria
+  citou. `category` é string livre, mesmo padrão de `RoleRate.role`/
+  `Client.source` (o roster real de categorias vai variar, não vale
+  travar num enum). Diferente de Invoice, tem `DELETE` -- é lançamento
+  manual interno (mais fácil errar digitando), não um fato fiscal
+  consumado.
+- **`ExpensesController`** (`v1/expenses`, admin-only, mesmo padrão de
+  `InvoicesController`): list (com filtro opcional por `projectId`), get,
+  create, PATCH de status, delete.
+- **`BiService` estendido, não substituído** -- `orcado`/`realizado`
+  (planejamento: orçamento de fase × custo de mão de obra interna via
+  `TimeEntry × User.costPerHour`) continuam exatamente como estavam,
+  porque respondem uma pergunta diferente e válida ("estamos gastando
+  mais horas do que orçamos"). Os campos novos (`recebido`/`despesas`/
+  `margem`) são adicionados ao lado, não uma substituição -- resolvem "o
+  que sobrou de caixa de verdade", que orçado/realizado nunca respondia.
+  Os dois lados da margem só contam o que já é caixa de fato
+  (`status: 'paga'` em Invoice e em Expense) -- comprometido/pendente não
+  entra, pra ser uma margem real, não uma projeção otimista.
+  - `kpis`: `pagoEsteMes` (mesma janela de mês corrente que
+    `recebidoEsteMes` já usava) e `margemEsteMes = recebidoEsteMes -
+    pagoEsteMes`.
+  - `despesas`: array por status (pendente/paga), espelha `faturamento`.
+  - `projetos`: `recebido` (soma de Invoice paga do projeto), `despesas`
+    (soma de Expense paga do projeto), `margem = recebido - realizado -
+    despesas` -- a resposta direta a "o que ficou de verdade neste
+    projeto", contando o custo de mão de obra interna e a saída de caixa
+    externa juntos.
+  - `tendencia`: `despesas`/`margem` por mês, mesmo recorte de 6 meses já
+    usado pra `recebido`.
+- **Web**: nova seção "Despesas" em `/financeiro` (listar, registrar,
+  marcar paga, remover) -- mesma tela que já tinha regime tributário e
+  Fator R, não uma página nova. `/dashboard`: dois novos KPIs (Pago este
+  mês, Margem este mês), tendência de 6 meses ganhou despesa/margem por
+  mês, nova seção "Despesas" ao lado de "Faturamento", e a tabela
+  "Orçado × realizado por projeto" virou "Financeiro por projeto" com
+  três colunas novas (Recebido/Despesas/Margem) -- mantendo
+  orçado/realizado intactos ao lado, não substituindo.
+- **Achado real de infraestrutura de teste, não do produto**: o
+  `FOREIGN KEY` de `Expense.projectId` usa `ON DELETE SET NULL` (correto
+  -- apagar um projeto não deveria apagar o histórico de despesa, só
+  soltar o vínculo). Isso significa que o script de limpeza de resíduo do
+  smoke suite (`cleanup-smoke-residue.ts`), que apaga os projetos
+  descartáveis de cada execução, NÃO apagava as despesas ligadas a
+  eles -- elas só perdiam o `projectId` e sobreviviam pra sempre como
+  "despesa geral" órfã, mesmo padrão de acúmulo silencioso já visto com
+  produtos duplicados antes nesta sessão. Corrigido apagando Expense por
+  `projectId` (antes do projeto) e por descrição fixa conhecida do teste
+  (sem ambiguidade aqui, diferente do caso de produtos: nenhuma fixture
+  real usa essas descrições) dentro do próprio `cleanup-smoke-residue.ts`.
+- Verificado: build+typecheck limpos (api e web), 12 casos novos no
+  smoke suite (CRUD de Expense, filtro por projeto, os campos novos do
+  BI com a matemática conferida por igualdade, staff bloqueado com 403),
+  e testado de ponta a ponta no navegador -- despesa registrada num
+  projeto real pela UI, marcada como paga, e conferido que tanto
+  `/financeiro` quanto `/dashboard` (KPIs, tendência, seção Despesas,
+  tabela por projeto) refletem o número certo (margem do projeto = R$
+  902,98 recebido − R$ 500 de despesa paga = R$ 402,98, batendo com o
+  que a tela mostrou).
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

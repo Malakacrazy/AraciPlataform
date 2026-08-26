@@ -25,6 +25,15 @@ const KEEP_CLIENT_ID = "cmt0zae310023bwhd78fxjq7g";
 // entre sessões usa esses mesmos nomes e fica presa a projetos reais).
 const SMOKE_TEST_PRODUCT_NAMES = ["Luminária Pendente Latão", "Sofá Modular Nuvem", "Sofá capturado via extensão"];
 
+// Descrições fixas usadas pelo teste de Expense (POST /v1/expenses) --
+// diferente do caso dos produtos acima, não há ambiguidade nenhuma aqui
+// (nenhuma fixture real usa essas descrições), então apagar por
+// descrição sozinha é seguro, sem precisar checar "está em uso".
+// Achado real: a despesa com projectId perde o vínculo (SET NULL, não
+// cascade) quando o projeto descartável é apagado acima, e sobrevive
+// pra sempre como uma "despesa geral" órfã se nada limpar por descrição.
+const SMOKE_TEST_EXPENSE_DESCRIPTIONS = ["Marcenaria sob medida", "Assinatura do software de renderização"];
+
 async function main() {
   const projects = await prisma.project.findMany({
     where: { name: "Apto Vila Madalena", id: { not: KEEP_PROJECT_ID } },
@@ -55,6 +64,9 @@ async function main() {
     await tx.moodboard.deleteMany({ where: { projectId: { in: doomedProjectIds } } });
     await tx.presentationLink.deleteMany({ where: { projectId: { in: doomedProjectIds } } });
     await tx.invoice.deleteMany({ where: { projectId: { in: doomedProjectIds } } });
+    await tx.expense.deleteMany({
+      where: { OR: [{ projectId: { in: doomedProjectIds } }, { description: { in: SMOKE_TEST_EXPENSE_DESCRIPTIONS } }] },
+    });
     await tx.timeEntry.deleteMany({
       where: { OR: [{ projectId: { in: doomedProjectIds } }, { userId: { in: doomedUserIds } }] },
     });
@@ -109,7 +121,10 @@ async function main() {
   const remainingClients = await prisma.client.count({ where: { name: "Fernanda Ribeiro" } });
   const remainingUsers = await prisma.user.count({ where: { email: { startsWith: "smoke-test" } } });
   const remainingProducts = await prisma.product.count({ where: { name: { in: SMOKE_TEST_PRODUCT_NAMES } } });
-  console.log({ remainingProjects, remainingClients, remainingUsers, remainingProducts });
+  const remainingExpenses = await prisma.expense.count({
+    where: { description: { in: SMOKE_TEST_EXPENSE_DESCRIPTIONS } },
+  });
+  console.log({ remainingProjects, remainingClients, remainingUsers, remainingProducts, remainingExpenses });
 }
 
 main()

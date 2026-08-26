@@ -20,6 +20,11 @@ const INVOICE_STATUS_LABELS: Record<string, string> = {
   paga: 'Paga',
 };
 
+const EXPENSE_STATUS_LABELS: Record<string, string> = {
+  pendente: 'Pendente',
+  paga: 'Paga',
+};
+
 interface OpportunityRow {
   stage: string;
   estimatedValue: unknown;
@@ -28,6 +33,14 @@ interface OpportunityRow {
 }
 
 interface InvoiceRow {
+  projectId: string;
+  status: string;
+  amount: unknown;
+  paidAt: Date | null;
+}
+
+interface ExpenseRow {
+  projectId: string | null;
   status: string;
   amount: unknown;
   paidAt: Date | null;
@@ -84,6 +97,20 @@ function summarizeFaturamento(invoices: InvoiceRow[]) {
   });
 }
 
+// Contraparte de summarizeFaturamento pro lado da saída -- achado da
+// auditoria: financeiro só modelava dinheiro entrando, nunca saindo.
+function summarizeDespesas(expenses: ExpenseRow[]) {
+  return Object.keys(EXPENSE_STATUS_LABELS).map((status) => {
+    const items = expenses.filter((e) => e.status === status);
+    return {
+      status,
+      label: EXPENSE_STATUS_LABELS[status],
+      quantidade: items.length,
+      valorTotal: items.reduce((sum, e) => sum + Number(e.amount), 0),
+    };
+  });
+}
+
 // KPIs de topo -- respondem "como está o negócio agora" numa olhada só,
 // sem precisar ler as três seções detalhadas abaixo. Reaproveita os
 // mesmos dados já buscados pra pipeline/faturamento/projetos, sem
@@ -91,6 +118,7 @@ function summarizeFaturamento(invoices: InvoiceRow[]) {
 function summarizeKpis(
   opportunities: OpportunityRow[],
   invoices: InvoiceRow[],
+  expenses: ExpenseRow[],
   projects: Pick<ProjectRow, 'status'>[],
 ) {
   const pipelineEmAberto = opportunities
@@ -110,15 +138,28 @@ function summarizeKpis(
     .filter((i) => i.status === 'paga' && i.paidAt && i.paidAt >= inicioMes && i.paidAt < inicioProximoMes)
     .reduce((sum, i) => sum + Number(i.amount), 0);
 
-  return { pipelineEmAberto, projetosAtivos, aReceber, recebidoEsteMes };
+  const pagoEsteMes = expenses
+    .filter((e) => e.status === 'paga' && e.paidAt && e.paidAt >= inicioMes && e.paidAt < inicioProximoMes)
+    .reduce((sum, e) => sum + Number(e.amount), 0);
+
+  return {
+    pipelineEmAberto,
+    projetosAtivos,
+    aReceber,
+    recebidoEsteMes,
+    pagoEsteMes,
+    margemEsteMes: recebidoEsteMes - pagoEsteMes,
+  };
 }
 
 const MESES_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
 // Tendência dos últimos 6 meses (mês corrente incluso) -- tudo que a
 // visão executiva mostrava antes era foto do agora, sem direção/momento.
-// Reaproveita opportunities/invoices já buscados, sem query nova.
-function summarizeTendencia(invoices: InvoiceRow[], opportunities: OpportunityRow[]) {
+// Reaproveita opportunities/invoices/expenses já buscados, sem query
+// nova. `despesas`/`margem` (recebido - despesas) fecham o achado da
+// auditoria: antes só dava pra ver receita mês a mês, nunca lucro.
+function summarizeTendencia(invoices: InvoiceRow[], expenses: ExpenseRow[], opportunities: OpportunityRow[]) {
   const agora = new Date();
   const meses = Array.from({ length: 6 }, (_, i) => {
     const offset = 5 - i;
@@ -137,15 +178,19 @@ function summarizeTendencia(invoices: InvoiceRow[], opportunities: OpportunityRo
       .filter((i) => i.status === 'paga' && i.paidAt && i.paidAt >= inicio && i.paidAt < fim)
       .reduce((sum, i) => sum + Number(i.amount), 0);
 
+    const despesas = expenses
+      .filter((e) => e.status === 'paga' && e.paidAt && e.paidAt >= inicio && e.paidAt < fim)
+      .reduce((sum, e) => sum + Number(e.amount), 0);
+
     const oportunidadesGanhas = opportunities.filter(
       (o) => o.wonAt && o.wonAt >= inicio && o.wonAt < fim,
     ).length;
 
-    return { mes, label, recebido, oportunidadesGanhas };
+    return { mes, label, recebido, despesas, margem: recebido - despesas, oportunidadesGanhas };
   });
 }
 
-function summarizeProjetos(projects: ProjectRow[]) {
+function summarizeProjetos(projects: ProjectRow[], invoices: InvoiceRow[], expenses: ExpenseRow[]) {
   return projects.map((p) => {
     const orcado = p.phases.reduce((sum, ph) => sum + Number(ph.budget ?? 0), 0);
 
@@ -154,11 +199,27 @@ function summarizeProjetos(projects: ProjectRow[]) {
     // apps/web/src/lib/allocations.ts), só trocando horas planejadas por
     // horas de fato lançadas no timesheet. Ignora entradas de quem não
     // tem costPerHour cadastrado (custo desconhecido, tratado como
-    // ausente -- não como custo zero, que subestimaria o realizado).
+    // ausente -- não como custo zero, que subestimaria o realizado). Isso
+    // é custo de mão de obra INTERNA, diferente de despesas abaixo (saída
+    // de caixa real com terceiros/estrutura) -- os dois juntos é que
+    // formam o custo total de entregar o projeto.
     const realizado = p.timeEntries.reduce((sum, te) => {
       if (te.user.costPerHour === null || te.user.costPerHour === undefined) return sum;
       return sum + Number(te.hours) * Number(te.user.costPerHour);
     }, 0);
+
+    // recebido/despesas/margem: achado da auditoria ("what did we
+    // actually keep on this project" não era respondível em lugar
+    // nenhum) -- os dois lados só contam o que de fato virou caixa
+    // (status "paga" em ambos), não o comprometido/pendente, pra ser uma
+    // margem real, não uma projeção.
+    const recebido = invoices
+      .filter((i) => i.projectId === p.id && i.status === 'paga')
+      .reduce((sum, i) => sum + Number(i.amount), 0);
+    const despesasProjeto = expenses
+      .filter((e) => e.projectId === p.id && e.status === 'paga')
+      .reduce((sum, e) => sum + Number(e.amount), 0);
+    const margem = recebido - realizado - despesasProjeto;
 
     return {
       projetoId: p.id,
@@ -167,6 +228,9 @@ function summarizeProjetos(projects: ProjectRow[]) {
       status: p.status,
       orcado,
       realizado,
+      recebido,
+      despesas: despesasProjeto,
+      margem,
     };
   });
 }
@@ -348,14 +412,18 @@ export class BiService {
   }
 
   async getExecutiveSummary(accountId: string) {
-    const [opportunities, invoices, projects] = await Promise.all([
+    const [opportunities, invoices, expenses, projects] = await Promise.all([
       this.prisma.db.opportunity.findMany({
         where: { client: { accountId } },
         select: { stage: true, estimatedValue: true, wonAt: true, lostAt: true },
       }),
       this.prisma.db.invoice.findMany({
         where: { project: { accountId } },
-        select: { status: true, amount: true, paidAt: true },
+        select: { projectId: true, status: true, amount: true, paidAt: true },
+      }),
+      this.prisma.db.expense.findMany({
+        where: { accountId },
+        select: { projectId: true, status: true, amount: true, paidAt: true },
       }),
       this.prisma.db.project.findMany({
         where: { accountId },
@@ -371,11 +439,12 @@ export class BiService {
     ]);
 
     return {
-      kpis: summarizeKpis(opportunities, invoices, projects),
+      kpis: summarizeKpis(opportunities, invoices, expenses, projects),
       pipeline: summarizePipeline(opportunities),
       faturamento: summarizeFaturamento(invoices),
-      projetos: summarizeProjetos(projects),
-      tendencia: summarizeTendencia(invoices, opportunities),
+      despesas: summarizeDespesas(expenses),
+      projetos: summarizeProjetos(projects, invoices, expenses),
+      tendencia: summarizeTendencia(invoices, expenses, opportunities),
     };
   }
 }

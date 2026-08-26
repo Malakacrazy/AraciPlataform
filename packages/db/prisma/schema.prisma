@@ -69,6 +69,7 @@ model Account {
   activities    Activity[]
   notifications Notification[]
   auditLogs     AuditLog[]
+  expenses      Expense[]
 }
 
 // Hourly rate per role, already net of overhead/margin/tax (the output of
@@ -285,6 +286,33 @@ model Project {
   moodboards       Moodboard[]
   presentationLink PresentationLink?
   allocations      Allocation[]
+  expenses         Expense[]
+}
+
+// Lado da saída do caixa -- achado da auditoria: Financeiro só modelava
+// o que entra (Invoice), nunca o que sai (subcontratado, software,
+// aluguel, material). projectId opcional -- null é despesa de estrutura
+// do estúdio, não amarrada a nenhum projeto (aluguel, ferramentas); com
+// projeto é o custo externo real de entregar aquele projeto específico
+// (diferente de TimeEntry × User.costPerHour, que é custo de mão de obra
+// interna, não uma saída de caixa de verdade). category é string livre
+// (mesmo padrão de RoleRate.role/Client.source) -- o roster real de
+// categorias vai variar, não vale travar num enum. Só duas situações
+// (pendente/paga), mais simples que Invoice (pendente/emitida/paga):
+// não existe um equivalente de "emitida" (NFS-e) do lado de quem paga.
+model Expense {
+  id          String    @id @default(cuid())
+  accountId   String
+  account     Account   @relation(fields: [accountId], references: [id])
+  projectId   String?
+  project     Project?  @relation(fields: [projectId], references: [id])
+  description String
+  category    String
+  amount      Decimal
+  status      String // pendente | paga
+  dueDate     DateTime?
+  paidAt      DateTime?
+  createdAt   DateTime  @default(now())
 }
 
 // Planejamento de capacidade: quem está previsto para trabalhar em qual
