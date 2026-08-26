@@ -1,17 +1,28 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
+import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { apiGet } from "@/lib/api";
 import type { VisaoExecutiva } from "@/lib/types";
 import { DashboardTabs } from "@/components/dashboard/dashboard-tabs";
+import { ExportProjetosCsv } from "@/components/dashboard/export-projetos-csv";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string; to?: string }>;
+}) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     redirect("/api/auth/signin");
   }
 
-  const data = await apiGet<VisaoExecutiva>("bi/executivo");
+  const { from, to } = await searchParams;
+  const query = new URLSearchParams();
+  if (from) query.set("from", from);
+  if (to) query.set("to", to);
+
+  const data = await apiGet<VisaoExecutiva>(`bi/executivo?${query.toString()}`);
 
   const maiorEstagio = Math.max(1, ...data.pipeline.porEstagio.map((e) => e.quantidade));
   const maiorRecebido = Math.max(1, ...data.tendencia.map((m) => m.recebido));
@@ -26,6 +37,38 @@ export default async function DashboardPage() {
       </div>
 
       <DashboardTabs active="/dashboard" />
+
+      <form method="get" className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-zinc-500 dark:text-zinc-400">De</span>
+          <input
+            type="month"
+            name="from"
+            defaultValue={data.periodo.from}
+            className="rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-zinc-500 dark:text-zinc-400">Até</span>
+          <input
+            type="month"
+            name="to"
+            defaultValue={data.periodo.to}
+            className="rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+          />
+        </label>
+        <button
+          type="submit"
+          className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
+        >
+          Filtrar período
+        </button>
+        {(from || to) && (
+          <Link href="/dashboard" className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
+            Limpar (últimos 6 meses)
+          </Link>
+        )}
+      </form>
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
@@ -45,25 +88,25 @@ export default async function DashboardPage() {
           </p>
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-          <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Recebido este mês</p>
+          <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Recebido no período</p>
           <p className="mt-1 font-mono text-xl text-emerald-700 dark:text-emerald-400">
-            R$ {data.kpis.recebidoEsteMes.toLocaleString("pt-BR")}
+            R$ {data.kpis.recebidoNoPeriodo.toLocaleString("pt-BR")}
           </p>
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-          <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Pago este mês</p>
+          <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Pago no período</p>
           <p className="mt-1 font-mono text-xl text-red-600 dark:text-red-400">
-            R$ {data.kpis.pagoEsteMes.toLocaleString("pt-BR")}
+            R$ {data.kpis.pagoNoPeriodo.toLocaleString("pt-BR")}
           </p>
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-          <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Margem este mês</p>
+          <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Margem no período</p>
           <p
             className={`mt-1 font-mono text-xl ${
-              data.kpis.margemEsteMes < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"
+              data.kpis.margemNoPeriodo < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"
             }`}
           >
-            R$ {data.kpis.margemEsteMes.toLocaleString("pt-BR")}
+            R$ {data.kpis.margemNoPeriodo.toLocaleString("pt-BR")}
           </p>
         </div>
       </section>
@@ -113,7 +156,11 @@ export default async function DashboardPage() {
         )}
         <div className="mt-3 flex flex-col gap-2">
           {data.pipeline.porEstagio.map((e) => (
-            <div key={e.estagio} className="flex items-center gap-3 text-sm">
+            <Link
+              key={e.estagio}
+              href={`/opportunities#stage-${e.estagio}`}
+              className="flex items-center gap-3 rounded text-sm hover:bg-zinc-50 dark:hover:bg-zinc-900"
+            >
               <span className="w-36 shrink-0 text-zinc-500 dark:text-zinc-400">{e.label}</span>
               <div className="h-4 flex-1 overflow-hidden rounded bg-zinc-100 dark:bg-zinc-900">
                 <div
@@ -127,7 +174,7 @@ export default async function DashboardPage() {
               <span className="w-28 shrink-0 text-right font-mono text-xs text-zinc-500 dark:text-zinc-400">
                 R$ {e.valorEstimado.toLocaleString("pt-BR")}
               </span>
-            </div>
+            </Link>
           ))}
         </div>
       </section>
@@ -151,21 +198,29 @@ export default async function DashboardPage() {
         <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Despesas</h2>
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           {data.despesas.map((d) => (
-            <div key={d.status} className="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
+            <Link
+              key={d.status}
+              href={`/financeiro?status=${d.status}`}
+              className="rounded-md border border-zinc-200 p-3 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+            >
               <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{d.label}</p>
               <p className="mt-1 font-mono text-lg text-zinc-900 dark:text-zinc-50">
                 R$ {d.valorTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
               </p>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">{d.quantidade} despesa(s)</p>
-            </div>
+            </Link>
           ))}
         </div>
       </section>
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-        <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Financeiro por projeto</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Financeiro por projeto</h2>
+          <ExportProjetosCsv projetos={data.projetos} periodo={data.periodo} />
+        </div>
         <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          Orçado/realizado é planejamento (orçamento × custo de mão de obra interna). Recebido/despesas/margem é
+          Orçado é o escopo contratado (sempre total do projeto). Realizado/recebido/despesas/margem são do período
+          selecionado acima — realizado é custo de mão de obra interna (horas × custo/hora), recebido/despesas é
           caixa real (o que já foi de fato pago e recebido).
         </p>
         {data.projetos.length === 0 ? (
@@ -187,7 +242,11 @@ export default async function DashboardPage() {
               <tbody>
                 {data.projetos.map((p) => (
                   <tr key={p.projetoId} className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
-                    <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-50">{p.nome}</td>
+                    <td className="py-2 pr-3">
+                      <Link href={`/projects/${p.projetoId}`} className="text-zinc-900 hover:underline dark:text-zinc-50">
+                        {p.nome}
+                      </Link>
+                    </td>
                     <td className="py-2 pr-3 text-zinc-500 dark:text-zinc-400">{p.clienteNome}</td>
                     <td className="py-2 pr-3 text-right font-mono text-zinc-900 dark:text-zinc-50">
                       R$ {p.orcado.toLocaleString("pt-BR")}

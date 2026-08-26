@@ -61,7 +61,7 @@ export function OpportunitiesBoard({ opportunities }: { opportunities: Opportuni
         {columns.map((col) => {
           const items = opportunities.filter((o) => columnFor(o) === col.key);
           return (
-            <div key={col.key} className="w-64 flex-shrink-0">
+            <div key={col.key} id={`stage-${col.key}`} className="w-64 flex-shrink-0 scroll-mt-4">
               <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                 {col.label} <span className="text-zinc-400 dark:text-zinc-600">({items.length})</span>
               </h3>

@@ -52,7 +52,7 @@ interface ProjectRow {
   status: string;
   client: { name: string };
   phases: { budget: unknown }[];
-  timeEntries: { hours: unknown; user: { costPerHour: unknown } }[];
+  timeEntries: { hours: unknown; date: Date; user: { costPerHour: unknown } }[];
 }
 
 function stageOf(o: Pick<OpportunityRow, 'stage' | 'wonAt' | 'lostAt'>): string {
@@ -85,9 +85,18 @@ function summarizePipeline(opportunities: OpportunityRow[]) {
   };
 }
 
-function summarizeFaturamento(invoices: InvoiceRow[]) {
+// "paga" é filtrada pelo período selecionado (paidAt dentro do range) --
+// é dinheiro que efetivamente entrou naquela janela. pendente/emitida são
+// backlog em aberto agora, sem data de referência que faça sentido
+// recortar por período (mesmo raciocínio do KPI aReceber, que também não
+// é filtrado por período).
+function summarizeFaturamento(invoices: InvoiceRow[], from: Date, fimExclusivo: Date) {
   return Object.keys(INVOICE_STATUS_LABELS).map((status) => {
-    const items = invoices.filter((i) => i.status === status);
+    const items = invoices.filter((i) => {
+      if (i.status !== status) return false;
+      if (status !== 'paga') return true;
+      return i.paidAt !== null && i.paidAt >= from && i.paidAt < fimExclusivo;
+    });
     return {
       status,
       label: INVOICE_STATUS_LABELS[status],
@@ -98,10 +107,15 @@ function summarizeFaturamento(invoices: InvoiceRow[]) {
 }
 
 // Contraparte de summarizeFaturamento pro lado da saída -- achado da
-// auditoria: financeiro só modelava dinheiro entrando, nunca saindo.
-function summarizeDespesas(expenses: ExpenseRow[]) {
+// auditoria: financeiro só modelava dinheiro entrando, nunca saindo. Mesmo
+// raciocínio de período: só "paga" é recortada pelo range.
+function summarizeDespesas(expenses: ExpenseRow[], from: Date, fimExclusivo: Date) {
   return Object.keys(EXPENSE_STATUS_LABELS).map((status) => {
-    const items = expenses.filter((e) => e.status === status);
+    const items = expenses.filter((e) => {
+      if (e.status !== status) return false;
+      if (status !== 'paga') return true;
+      return e.paidAt !== null && e.paidAt >= from && e.paidAt < fimExclusivo;
+    });
     return {
       status,
       label: EXPENSE_STATUS_LABELS[status],
@@ -120,7 +134,14 @@ function summarizeKpis(
   invoices: InvoiceRow[],
   expenses: ExpenseRow[],
   projects: Pick<ProjectRow, 'status'>[],
+  from: Date,
+  fimExclusivo: Date,
 ) {
+  // pipelineEmAberto/projetosAtivos/aReceber são fotografia de agora, não
+  // do período selecionado -- "quanto ainda não foi recebido/quantos
+  // projetos ativos existem hoje" não muda de sentido com um filtro de
+  // data (diferente de recebido/pago, que são fluxo de caixa de uma
+  // janela de tempo).
   const pipelineEmAberto = opportunities
     .filter((o) => !o.wonAt && !o.lostAt)
     .reduce((sum, o) => sum + Number(o.estimatedValue ?? 0), 0);
@@ -131,40 +152,84 @@ function summarizeKpis(
     .filter((i) => i.status === 'pendente' || i.status === 'emitida')
     .reduce((sum, i) => sum + Number(i.amount), 0);
 
-  const agora = new Date();
-  const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1);
-  const inicioProximoMes = new Date(agora.getFullYear(), agora.getMonth() + 1, 1);
-  const recebidoEsteMes = invoices
-    .filter((i) => i.status === 'paga' && i.paidAt && i.paidAt >= inicioMes && i.paidAt < inicioProximoMes)
+  const recebidoNoPeriodo = invoices
+    .filter((i) => i.status === 'paga' && i.paidAt && i.paidAt >= from && i.paidAt < fimExclusivo)
     .reduce((sum, i) => sum + Number(i.amount), 0);
 
-  const pagoEsteMes = expenses
-    .filter((e) => e.status === 'paga' && e.paidAt && e.paidAt >= inicioMes && e.paidAt < inicioProximoMes)
+  const pagoNoPeriodo = expenses
+    .filter((e) => e.status === 'paga' && e.paidAt && e.paidAt >= from && e.paidAt < fimExclusivo)
     .reduce((sum, e) => sum + Number(e.amount), 0);
 
   return {
     pipelineEmAberto,
     projetosAtivos,
     aReceber,
-    recebidoEsteMes,
-    pagoEsteMes,
-    margemEsteMes: recebidoEsteMes - pagoEsteMes,
+    recebidoNoPeriodo,
+    pagoNoPeriodo,
+    margemNoPeriodo: recebidoNoPeriodo - pagoNoPeriodo,
   };
 }
 
 const MESES_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
-// Tendência dos últimos 6 meses (mês corrente incluso) -- tudo que a
-// visão executiva mostrava antes era foto do agora, sem direção/momento.
-// Reaproveita opportunities/invoices/expenses já buscados, sem query
-// nova. `despesas`/`margem` (recebido - despesas) fecham o achado da
-// auditoria: antes só dava pra ver receita mês a mês, nunca lucro.
-function summarizeTendencia(invoices: InvoiceRow[], expenses: ExpenseRow[], opportunities: OpportunityRow[]) {
+// Granularidade de mês (não de dia) pro filtro de período do dashboard --
+// todo o resto da visão executiva já é mensal (tendência, "este mês"
+// antes de virar "no período"), então um seletor dia-a-dia adicionaria
+// precisão que nada aqui usa. "YYYY-MM"; qualquer outro formato ou
+// ausência cai no fallback.
+function parseMonthParam(value: string | undefined, fallback: Date): Date {
+  const match = value ? /^(\d{4})-(\d{2})$/.exec(value) : null;
+  if (!match) return fallback;
+  return new Date(Number(match[1]), Number(match[2]) - 1, 1);
+}
+
+const MAX_MESES_NO_PERIODO = 24;
+
+// Resolve o range efetivo do filtro: default é os últimos 6 meses (mesmo
+// comportamento de antes do date-range existir, pra não mudar a visão de
+// quem nunca mexeu no filtro), swapa se vier invertido, e limita o
+// tamanho do range pra não gerar uma tendência com décadas de barras por
+// engano de digitação.
+function parsePeriodo(fromParam: string | undefined, toParam: string | undefined) {
   const agora = new Date();
-  const meses = Array.from({ length: 6 }, (_, i) => {
-    const offset = 5 - i;
-    const inicio = new Date(agora.getFullYear(), agora.getMonth() - offset, 1);
-    const fim = new Date(agora.getFullYear(), agora.getMonth() - offset + 1, 1);
+  const defaultTo = new Date(agora.getFullYear(), agora.getMonth(), 1);
+  const defaultFrom = new Date(agora.getFullYear(), agora.getMonth() - 5, 1);
+
+  let from = parseMonthParam(fromParam, defaultFrom);
+  let to = parseMonthParam(toParam, defaultTo);
+  if (from > to) {
+    [from, to] = [to, from];
+  }
+
+  const totalMeses = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) + 1;
+  if (totalMeses > MAX_MESES_NO_PERIODO) {
+    from = new Date(to.getFullYear(), to.getMonth() - (MAX_MESES_NO_PERIODO - 1), 1);
+  }
+
+  const fimExclusivo = new Date(to.getFullYear(), to.getMonth() + 1, 1);
+  const formatMonth = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+  return { from, to, fimExclusivo, label: { from: formatMonth(from), to: formatMonth(to) } };
+}
+
+// Tendência mês a mês do período selecionado (`from`-`to`, ambos já
+// truncados pro dia 1 do mês por parsePeriodo) -- antes era sempre foto
+// dos últimos 6 meses fixos; agora seguem o filtro de data-range da
+// visão executiva. Reaproveita opportunities/invoices/expenses já
+// buscados, sem query nova. `despesas`/`margem` (recebido - despesas)
+// fecham o achado da auditoria: antes só dava pra ver receita mês a mês,
+// nunca lucro.
+function summarizeTendencia(
+  invoices: InvoiceRow[],
+  expenses: ExpenseRow[],
+  opportunities: OpportunityRow[],
+  from: Date,
+  to: Date,
+) {
+  const totalMeses = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) + 1;
+  const meses = Array.from({ length: totalMeses }, (_, i) => {
+    const inicio = new Date(from.getFullYear(), from.getMonth() + i, 1);
+    const fim = new Date(from.getFullYear(), from.getMonth() + i + 1, 1);
     return {
       mes: `${inicio.getFullYear()}-${String(inicio.getMonth() + 1).padStart(2, '0')}`,
       label: `${MESES_PT[inicio.getMonth()]}/${inicio.getFullYear()}`,
@@ -190,20 +255,33 @@ function summarizeTendencia(invoices: InvoiceRow[], expenses: ExpenseRow[], oppo
   });
 }
 
-function summarizeProjetos(projects: ProjectRow[], invoices: InvoiceRow[], expenses: ExpenseRow[]) {
+// Recebido/despesas/realizado agora recortados pelo período selecionado
+// (from/fimExclusivo) -- vira um P&L real "o que este projeto rendeu
+// NESTA janela", não só desde sempre. `orcado` fica de fora do recorte:
+// orçamento é um valor fixo do escopo contratado, não um fluxo de caixa
+// que aconteceu num período.
+function summarizeProjetos(
+  projects: ProjectRow[],
+  invoices: InvoiceRow[],
+  expenses: ExpenseRow[],
+  from: Date,
+  fimExclusivo: Date,
+) {
   return projects.map((p) => {
     const orcado = p.phases.reduce((sum, ph) => sum + Number(ph.budget ?? 0), 0);
 
-    // Realizado = horas apontadas × custo/hora da pessoa -- mesmo padrão
-    // já usado em /team/planning pra custo projetado de Allocation (ver
-    // apps/web/src/lib/allocations.ts), só trocando horas planejadas por
-    // horas de fato lançadas no timesheet. Ignora entradas de quem não
-    // tem costPerHour cadastrado (custo desconhecido, tratado como
-    // ausente -- não como custo zero, que subestimaria o realizado). Isso
-    // é custo de mão de obra INTERNA, diferente de despesas abaixo (saída
-    // de caixa real com terceiros/estrutura) -- os dois juntos é que
-    // formam o custo total de entregar o projeto.
+    // Realizado = horas apontadas no período × custo/hora da pessoa --
+    // mesmo padrão já usado em /team/planning pra custo projetado de
+    // Allocation (ver apps/web/src/lib/allocations.ts), só trocando horas
+    // planejadas por horas de fato lançadas no timesheet dentro do range.
+    // Ignora entradas de quem não tem costPerHour cadastrado (custo
+    // desconhecido, tratado como ausente -- não como custo zero, que
+    // subestimaria o realizado). Isso é custo de mão de obra INTERNA,
+    // diferente de despesas abaixo (saída de caixa real com
+    // terceiros/estrutura) -- os dois juntos é que formam o custo total
+    // de entregar o projeto.
     const realizado = p.timeEntries.reduce((sum, te) => {
+      if (te.date < from || te.date >= fimExclusivo) return sum;
       if (te.user.costPerHour === null || te.user.costPerHour === undefined) return sum;
       return sum + Number(te.hours) * Number(te.user.costPerHour);
     }, 0);
@@ -211,13 +289,13 @@ function summarizeProjetos(projects: ProjectRow[], invoices: InvoiceRow[], expen
     // recebido/despesas/margem: achado da auditoria ("what did we
     // actually keep on this project" não era respondível em lugar
     // nenhum) -- os dois lados só contam o que de fato virou caixa
-    // (status "paga" em ambos), não o comprometido/pendente, pra ser uma
-    // margem real, não uma projeção.
+    // (status "paga" em ambos, paidAt dentro do período), não o
+    // comprometido/pendente, pra ser uma margem real, não uma projeção.
     const recebido = invoices
-      .filter((i) => i.projectId === p.id && i.status === 'paga')
+      .filter((i) => i.projectId === p.id && i.status === 'paga' && i.paidAt && i.paidAt >= from && i.paidAt < fimExclusivo)
       .reduce((sum, i) => sum + Number(i.amount), 0);
     const despesasProjeto = expenses
-      .filter((e) => e.projectId === p.id && e.status === 'paga')
+      .filter((e) => e.projectId === p.id && e.status === 'paga' && e.paidAt && e.paidAt >= from && e.paidAt < fimExclusivo)
       .reduce((sum, e) => sum + Number(e.amount), 0);
     const margem = recebido - realizado - despesasProjeto;
 
@@ -411,7 +489,9 @@ export class BiService {
     return summarizeFfe(specs);
   }
 
-  async getExecutiveSummary(accountId: string) {
+  async getExecutiveSummary(accountId: string, fromParam?: string, toParam?: string) {
+    const { from, to, fimExclusivo, label } = parsePeriodo(fromParam, toParam);
+
     const [opportunities, invoices, expenses, projects] = await Promise.all([
       this.prisma.db.opportunity.findMany({
         where: { client: { accountId } },
@@ -433,18 +513,19 @@ export class BiService {
           status: true,
           client: { select: { name: true } },
           phases: { select: { budget: true } },
-          timeEntries: { select: { hours: true, user: { select: { costPerHour: true } } } },
+          timeEntries: { select: { hours: true, date: true, user: { select: { costPerHour: true } } } },
         },
       }),
     ]);
 
     return {
-      kpis: summarizeKpis(opportunities, invoices, expenses, projects),
+      periodo: label,
+      kpis: summarizeKpis(opportunities, invoices, expenses, projects, from, fimExclusivo),
       pipeline: summarizePipeline(opportunities),
-      faturamento: summarizeFaturamento(invoices),
-      despesas: summarizeDespesas(expenses),
-      projetos: summarizeProjetos(projects, invoices, expenses),
-      tendencia: summarizeTendencia(invoices, expenses, opportunities),
+      faturamento: summarizeFaturamento(invoices, from, fimExclusivo),
+      despesas: summarizeDespesas(expenses, from, fimExclusivo),
+      projetos: summarizeProjetos(projects, invoices, expenses, from, fimExclusivo),
+      tendencia: summarizeTendencia(invoices, expenses, opportunities, from, to),
     };
   }
 }

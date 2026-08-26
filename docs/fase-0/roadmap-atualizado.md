@@ -1443,6 +1443,65 @@ app, move from manual linking to webhook sync."
     tocado por nenhuma das duas correções acima, e já tinha sido
     verificado antes desta correção de Fase 2.
 
+## Fase 2 (correção) — Dashboard: filtro de período, drill-through, export
+
+Décimo e último item da lista original de dez. Verbatim da auditoria:
+"Dashboard date-range filters/drill-through/export".
+
+- **Filtro de período**: a visão executiva (`/dashboard`) tinha duas
+  janelas de tempo fixas e diferentes -- KPIs de caixa sempre "este mês",
+  tendência sempre "últimos 6 meses" -- nenhuma configurável. Unificadas
+  numa granularidade só (mês, via `<input type="month">`, já que todo o
+  resto da tela raciocina em mês, não em dia) e num filtro só
+  (`from`/`to` em `GET /v1/bi/executivo`, default = últimos 6 meses,
+  igual ao comportamento de antes de existir o filtro). Range invertido é
+  trocado automaticamente; maior que 24 meses é limitado a 24 (evita uma
+  tendência com décadas de barra por erro de digitação). KPIs viraram
+  "recebido/pago/margem no período" (antes "este mês"); `pipelineEmAberto`,
+  `projetosAtivos` e `aReceber` continuam foto de agora, não filtrados por
+  período -- não fazem sentido recortados por data (é "quanto existe
+  hoje", não "quanto aconteceu nesta janela"). Mesmo raciocínio aplicado a
+  faturamento/despesas por status: só o bucket "paga" é recortado por
+  `paidAt` no período; pendente/emitida são backlog em aberto agora. A
+  tabela "Financeiro por projeto" ganhou o mesmo recorte pra
+  recebido/despesas/realizado (realizado agora soma só `TimeEntry.date`
+  dentro do período) -- `orcado` fica de fora, é escopo contratado fixo,
+  não fluxo de caixa de uma janela.
+- **Drill-through**: cada estágio do pipeline linka pro board de
+  oportunidades já scrollado/ancorado nesse estágio
+  (`/opportunities#stage-<estagio>`, `id` novo em cada coluna do
+  `OpportunitiesBoard`); cada card de despesa por status linka pra
+  `/financeiro?status=<status>`, que agora aceita esse filtro e mostra um
+  indicador "Filtrando: X ×" pra limpar; cada linha da tabela "Financeiro
+  por projeto" linka pro projeto (`/projects/:id`). Faturamento por status
+  ficou sem drill-through: não existe hoje uma tela de listagem global de
+  faturas (só por projeto, dentro de `/projects/:id`) -- criar uma só pra
+  isso seria escopo bem maior que "adicionar drill-through ao dashboard
+  existente", registrado aqui como lacuna consciente, não esquecimento.
+- **Export**: botão "Exportar CSV" na tabela "Financeiro por projeto" --
+  CSV client-side (sem lib nova, é só texto e número), com `;` como
+  separador e vírgula decimal (não `,`/`.`) porque é o que o Excel em
+  pt-BR espera abrir direto, e BOM UTF-8 pra acento não virar lixo no
+  Windows. Nome do arquivo carrega o período selecionado.
+- Verificado: build+typecheck limpos (api e web), smoke suite com 3 casos
+  novos pro filtro de período (range de 1 mês ecoa `periodo` de volta e
+  zera tendência pra 1 item; mês sem nenhum dado zera recebido/pago;
+  ambos verificando que o filtro de fato exclui, não só aceita o
+  parâmetro sem aplicar) -- 233 passaram, a mesma falha pré-existente e já
+  documentada de `ASAAS_API_KEY` continua a única exceção. Testado no
+  navegador: formulário de período com os defaults certos, os três
+  drill-throughs (pipeline → âncora do board, despesa → `/financeiro`
+  filtrado, projeto → `/projects/:id`) confirmados via `href` real e
+  navegação de verdade. O clique em "Exportar CSV" não lançou erro e a
+  lógica (Blob + object URL + `<a download>`, padrão de navegador comum,
+  sem nada específico deste projeto) foi revisada por leitura de código,
+  mas o arquivo em si não apareceu na pasta Downloads depois do clique --
+  o Chrome controlado por automação nesta sessão parece bloquear download
+  de verdade (sem barra de download visível, sem arquivo em disco), o que
+  é uma restrição do ambiente de teste automatizado, não do código
+  publicado: um clique de uma pessoa de verdade no próprio Chrome deve
+  salvar o arquivo normalmente.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
+import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { apiGet, ApiError } from "@/lib/api";
 import type { Account, Expense, Project } from "@/lib/types";
@@ -10,11 +11,17 @@ const EXPENSE_STATUS_LABELS: Record<string, string> = {
   paga: "Paga",
 };
 
-export default async function FinanceiroPage() {
+export default async function FinanceiroPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string }>;
+}) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     redirect("/api/auth/signin");
   }
+
+  const { status: statusFilter } = await searchParams;
 
   let account: Account;
   let expenses: Expense[];
@@ -38,6 +45,10 @@ export default async function FinanceiroPage() {
     throw err;
   }
   const isMei = account.taxRegime === "MEI";
+  const filteredExpenses =
+    statusFilter && statusFilter in EXPENSE_STATUS_LABELS
+      ? expenses.filter((e) => e.status === statusFilter)
+      : expenses;
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-12">
@@ -49,12 +60,24 @@ export default async function FinanceiroPage() {
       </div>
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-        <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Despesas</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Despesas</h2>
+          {statusFilter && filteredExpenses.length !== expenses.length && (
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+              Filtrando: {EXPENSE_STATUS_LABELS[statusFilter] ?? statusFilter}{" "}
+              <Link href="/financeiro" className="hover:underline">
+                ×
+              </Link>
+            </span>
+          )}
+        </div>
         <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
           Pagamento a terceiros e estrutura do estúdio — sem projeto vinculado é despesa geral (aluguel, software).
         </p>
-        {expenses.length === 0 ? (
-          <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">Nenhuma despesa registrada ainda.</p>
+        {filteredExpenses.length === 0 ? (
+          <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+            {expenses.length === 0 ? "Nenhuma despesa registrada ainda." : "Nenhuma despesa com este status."}
+          </p>
         ) : (
           <table className="mt-3 w-full text-left text-sm">
             <thead>
@@ -68,7 +91,7 @@ export default async function FinanceiroPage() {
               </tr>
             </thead>
             <tbody>
-              {expenses.map((e) => (
+              {filteredExpenses.map((e) => (
                 <tr key={e.id} className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
                   <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-50">{e.description}</td>
                   <td className="py-2 pr-3 text-zinc-500 dark:text-zinc-400">{e.category}</td>

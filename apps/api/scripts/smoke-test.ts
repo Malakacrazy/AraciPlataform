@@ -1804,13 +1804,13 @@ async function main() {
     typeof biData?.kpis?.pipelineEmAberto === "number" &&
       typeof biData?.kpis?.projetosAtivos === "number" &&
       typeof biData?.kpis?.aReceber === "number" &&
-      typeof biData?.kpis?.recebidoEsteMes === "number",
+      typeof biData?.kpis?.recebidoNoPeriodo === "number",
     biData?.kpis
   );
   report(
-    "kpis.pagoEsteMes reflete a despesa marcada como paga agora mesmo, margemEsteMes = recebido - pago",
-    biData?.kpis?.pagoEsteMes >= 1200 &&
-      Math.abs(biData?.kpis?.margemEsteMes - (biData?.kpis?.recebidoEsteMes - biData?.kpis?.pagoEsteMes)) < 0.01,
+    "kpis.pagoNoPeriodo reflete a despesa marcada como paga agora mesmo, margemNoPeriodo = recebido - pago",
+    biData?.kpis?.pagoNoPeriodo >= 1200 &&
+      Math.abs(biData?.kpis?.margemNoPeriodo - (biData?.kpis?.recebidoNoPeriodo - biData?.kpis?.pagoNoPeriodo)) < 0.01,
     biData?.kpis
   );
   report(
@@ -1824,8 +1824,8 @@ async function main() {
     biData?.kpis
   );
   report(
-    "kpis.recebidoEsteMes reflete o pagamento via webhook feito agora mesmo",
-    (biData?.kpis?.recebidoEsteMes ?? 0) > 0,
+    "kpis.recebidoNoPeriodo reflete o pagamento via webhook feito agora mesmo",
+    (biData?.kpis?.recebidoNoPeriodo ?? 0) > 0,
     biData?.kpis
   );
   report(
@@ -1873,6 +1873,37 @@ async function main() {
     (mesCorrente?.despesas ?? 0) >= 1200 &&
       Math.abs(mesCorrente?.margem - (mesCorrente?.recebido - mesCorrente?.despesas)) < 0.01,
     mesCorrente
+  );
+
+  // Filtro de data-range: sem from/to, o default continua sendo os
+  // últimos 6 meses (verificado acima). Com from=to=mês corrente, o
+  // range vira 1 mês só -- prova que o range é de verdade variável, não
+  // sempre 6 meses fixos por baixo do pano.
+  const mesAtualStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+  const biMesUnicoRes = await api(`/v1/bi/executivo?from=${mesAtualStr}&to=${mesAtualStr}`);
+  const biMesUnicoData = biMesUnicoRes.body?.data;
+  report(
+    "GET /bi/executivo?from=to=mês corrente → periodo ecoa o range pedido e tendencia tem só 1 mês",
+    biMesUnicoData?.periodo?.from === mesAtualStr &&
+      biMesUnicoData?.periodo?.to === mesAtualStr &&
+      biMesUnicoData?.tendencia?.length === 1,
+    biMesUnicoData?.periodo
+  );
+  report(
+    "Recorte de 1 mês (mês corrente) inclui o pagamento/despesa criados agora mesmo neste run",
+    (biMesUnicoData?.kpis?.recebidoNoPeriodo ?? 0) > 0 && (biMesUnicoData?.kpis?.pagoNoPeriodo ?? 0) >= 1200,
+    biMesUnicoData?.kpis
+  );
+
+  // Range num mês totalmente fora de qualquer fixture deste run (bem no
+  // futuro) tem que zerar recebido/pago -- prova que o filtro de fato
+  // exclui, não só ecoa o parâmetro sem aplicar.
+  const mesSemDadoRes = await api("/v1/bi/executivo?from=2099-01&to=2099-01");
+  const mesSemDadoData = mesSemDadoRes.body?.data;
+  report(
+    "Range num mês sem nenhum dado → recebido/pago no período zerados",
+    mesSemDadoData?.kpis?.recebidoNoPeriodo === 0 && mesSemDadoData?.kpis?.pagoNoPeriodo === 0,
+    mesSemDadoData?.kpis
   );
 
   const capacidadeRes = await api("/v1/bi/capacidade");

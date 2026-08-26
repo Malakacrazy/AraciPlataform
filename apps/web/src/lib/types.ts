@@ -333,9 +333,9 @@ export interface VisaoExecutivaKpis {
   pipelineEmAberto: number;
   projetosAtivos: number;
   aReceber: number;
-  recebidoEsteMes: number;
-  pagoEsteMes: number;
-  margemEsteMes: number;
+  recebidoNoPeriodo: number;
+  pagoNoPeriodo: number;
+  margemNoPeriodo: number;
 }
 
 export interface TendenciaMes {
@@ -348,6 +348,7 @@ export interface TendenciaMes {
 }
 
 export interface VisaoExecutiva {
+  periodo: { from: string; to: string };
   kpis: VisaoExecutivaKpis;
   pipeline: {
     porEstagio: PipelineEstagio[];
