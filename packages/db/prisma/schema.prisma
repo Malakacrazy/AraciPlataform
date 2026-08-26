@@ -60,13 +60,14 @@ model Account {
   fatorRPercent  Decimal? // last computed folha/receita 12m ratio, for the Fator R simulator
   createdAt      DateTime @default(now())
 
-  users       User[]
-  clients     Client[]
-  projects    Project[]
-  products    Product[]
-  roleRates   RoleRate[]
-  officeLinks OfficeLink[]
-  activities  Activity[]
+  users         User[]
+  clients       Client[]
+  projects      Project[]
+  products      Product[]
+  roleRates     RoleRate[]
+  officeLinks   OfficeLink[]
+  activities    Activity[]
+  notifications Notification[]
 }
 
 // Hourly rate per role, already net of overhead/margin/tax (the output of
@@ -125,6 +126,7 @@ model User {
   projectMembership ProjectMember[]
   allocations       Allocation[]
   activities        Activity[]
+  notifications     Notification[]
 }
 
 // CRM: pessoa física/jurídica captada como lead ou já cliente
@@ -501,4 +503,28 @@ model Activity {
   createdAt  DateTime           @default(now())
 
   @@index([accountId, entityType, entityId])
+}
+
+// Contraparte in-app do que NotificationsService já manda por e-mail via
+// Resend -- pra quem não está de olho na caixa de entrada (sino na Nav).
+// Uma linha por destinatário, não por conta: cada admin marca a sua como
+// lida sem afetar as outras. `projectId` fica solto (não um par
+// entityType/entityId polimórfico como Activity/OfficeLink) porque hoje
+// só existe um gatilho (aprovação de especificação) e ele sempre aponta
+// pra um Project -- generalizar antes de existir um segundo tipo de alvo
+// seria abstração sem uso real.
+model Notification {
+  id        String    @id @default(cuid())
+  accountId String
+  account   Account   @relation(fields: [accountId], references: [id])
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  type      String // "specification_approved" -- único gatilho hoje
+  title     String
+  body      String?
+  projectId String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
 }

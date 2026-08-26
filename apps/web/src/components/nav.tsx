@@ -1,5 +1,6 @@
 import Link from "next/link";
-import type { AccessLevel } from "@/lib/types";
+import type { AccessLevel, NotificationsResponse } from "@/lib/types";
+import { NotificationBell } from "./notifications/notification-bell";
 
 const LINKS = [
   { href: "/dashboard", label: "Dashboard" },
@@ -18,7 +19,13 @@ const LINKS = [
 // só vai devolver 403 -- as duas telas por trás (Tarifas, Financeiro) são
 // só dados de custo/tarifa, que staff não pode ver de qualquer jeito (ver
 // User.accessLevel no schema).
-export function Nav({ accessLevel }: { accessLevel: AccessLevel }) {
+export function Nav({
+  accessLevel,
+  notifications,
+}: {
+  accessLevel: AccessLevel;
+  notifications: NotificationsResponse;
+}) {
   const links = LINKS.filter((link) => !link.adminOnly || accessLevel === "admin");
   return (
     <nav className="print:hidden flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-zinc-200 bg-white px-6 py-2.5 text-sm dark:border-zinc-800 dark:bg-zinc-950">
@@ -34,6 +41,9 @@ export function Nav({ accessLevel }: { accessLevel: AccessLevel }) {
           {link.label}
         </Link>
       ))}
+      <div className="ml-auto flex items-center">
+        <NotificationBell initial={notifications} />
+      </div>
     </nav>
   );
 }

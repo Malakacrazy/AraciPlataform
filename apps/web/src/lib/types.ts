@@ -338,3 +338,18 @@ export interface Activity {
   createdAt: string;
   author: ActivityAuthor;
 }
+
+export interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  body?: string | null;
+  projectId?: string | null;
+  readAt?: string | null;
+  createdAt: string;
+}
+
+export interface NotificationsResponse {
+  notifications: Notification[];
+  unreadCount: number;
+}

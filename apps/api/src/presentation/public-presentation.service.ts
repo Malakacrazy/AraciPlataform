@@ -100,6 +100,7 @@ export class PublicPresentationService {
       });
       if (project) {
         await this.notificationsService.notifySpecificationApproved(project.accountId, {
+          projectId: link.projectId,
           projectName: project.name,
           productName: updated.product.name,
           clientComment: updated.clientComment,

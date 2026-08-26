@@ -19,18 +19,31 @@ export class NotificationsService {
   // Primeiro gatilho real de notificação da plataforma -- antes disso,
   // nada avisava a equipe quando um cliente de fato aprovava algo pelo
   // link de apresentação (achado da auditoria). Nunca deixa uma falha de
-  // e-mail derrubar a aprovação em si, que é a ação real do cliente e
-  // já foi persistida antes desta chamada -- só loga e segue.
+  // e-mail (ou de gravar o sino) derrubar a aprovação em si, que é a ação
+  // real do cliente e já foi persistida antes desta chamada -- só loga e
+  // segue.
   async notifySpecificationApproved(
     accountId: string,
-    params: { projectName: string; productName: string; clientComment?: string | null },
+    params: { projectId: string; projectName: string; productName: string; clientComment?: string | null },
   ) {
     try {
       const admins = await this.prisma.db.user.findMany({
         where: { accountId, accessLevel: 'admin' },
-        select: { email: true },
+        select: { id: true, email: true },
       });
       if (admins.length === 0) return;
+
+      const title = `${params.projectName}: item aprovado pelo cliente`;
+      await this.prisma.db.notification.createMany({
+        data: admins.map((admin) => ({
+          accountId,
+          userId: admin.id,
+          type: 'specification_approved',
+          title,
+          body: params.clientComment ?? null,
+          projectId: params.projectId,
+        })),
+      });
 
       const commentHtml = params.clientComment
         ? `<p><strong>Comentário do cliente:</strong> ${escapeHtml(params.clientComment)}</p>`
@@ -38,12 +51,44 @@ export class NotificationsService {
 
       await sendEmail({
         to: admins.map((a) => a.email),
-        subject: `${params.projectName}: item aprovado pelo cliente`,
+        subject: title,
         html: `<p>O cliente aprovou <strong>${escapeHtml(params.productName)}</strong> no projeto <strong>${escapeHtml(params.projectName)}</strong>.</p>${commentHtml}`,
       });
     } catch (error) {
       this.logger.warn(`Falha ao notificar aprovação de especificação: ${(error as Error).message}`);
     }
+  }
+
+  // Sino da Nav (apps/web) -- contraparte visual do e-mail acima. Só as
+  // últimas 20 pra não crescer sem limite na resposta; marcar como lida
+  // não apaga, só seta readAt (histórico continua consultável se um dia
+  // precisar).
+  listForUser(accountId: string, userId: string) {
+    return this.prisma.db.notification.findMany({
+      where: { accountId, userId },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    });
+  }
+
+  countUnread(accountId: string, userId: string) {
+    return this.prisma.db.notification.count({
+      where: { accountId, userId, readAt: null },
+    });
+  }
+
+  async markRead(accountId: string, userId: string, id: string) {
+    await this.prisma.db.notification.updateMany({
+      where: { id, accountId, userId },
+      data: { readAt: new Date() },
+    });
+  }
+
+  async markAllRead(accountId: string, userId: string) {
+    await this.prisma.db.notification.updateMany({
+      where: { accountId, userId, readAt: null },
+      data: { readAt: new Date() },
+    });
   }
 
   // Diferente de notifySpecificationApproved acima: aqui o e-mail É a

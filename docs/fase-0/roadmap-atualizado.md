@@ -692,6 +692,49 @@ da correção resolve os dois:
     confirmar que sair de fato invalida o acesso (`/portal` depois de
     sair volta pro login).
 
+- **Sino de notificações in-app na Nav — implementado**. As notificações
+  até aqui só existiam por e-mail (`NotificationsService`/Resend) — quem
+  não estivesse de olho na caixa de entrada não tinha como saber que um
+  cliente aprovou algo. Novo modelo `Notification` (uma linha por
+  destinatário, não por conta — cada admin marca a sua como lida
+  independente das outras); `projectId` fica solto em vez de um par
+  entityType/entityId polimórfico como `Activity`/`OfficeLink` porque só
+  existe um gatilho hoje (aprovação de especificação) e ele sempre aponta
+  pra um Project — generalizar antes de existir um segundo tipo de alvo
+  seria abstração sem uso real.
+  - `notifySpecificationApproved` agora grava a notificação de cada admin
+    no mesmo `try/catch` que já envolvia o envio do e-mail — uma falha em
+    qualquer um dos dois nunca derruba a aprovação em si, mesma postura
+    de sempre.
+  - `GET /v1/notifications` (últimas 20 + contagem de não lidas),
+    `PATCH /v1/notifications/:id/read`, `POST /v1/notifications/read-all`
+    — todos escopados por `accountId` + `userId` da sessão (nunca por ID
+    isolado, mesmo princípio já usado em `deleteActivity`).
+  - Sem infra de tempo real (websocket/SSE): o sino (`NotificationBell`,
+    client component) faz poll a cada 30s chamando uma server action, o
+    mesmo padrão de "mutação sempre por server action, nunca fetch direto
+    do navegador contra o proxy BFF" já usado no resto do apps/web — não
+    dava pra resolver isso com um Server Component comum porque abrir/
+    fechar o dropdown e atualizar o contador em intervalo exige estado no
+    cliente.
+  - **Achado real ao testar no navegador**: o smoke suite original desta
+    sessão evita de propósito cruzar a transição `clientApproved`
+    false→true pra não mandar e-mail real repetido pro admin a cada
+    execução (ver seção de notificações acima). Testar o sino pelo
+    gatilho de verdade reabriria exatamente esse problema, já que os dois
+    ficam no mesmo bloco de código. Os 6 casos novos no smoke test
+    inserem a `Notification` direto via prisma (mesmo espírito de "achar
+    o token no banco em vez de ler o inbox" já usado no teste do magic
+    link) e testam só o CRUD/escopo do sino — listar, isolamento entre
+    usuários, marcar uma como lida, marcar todas — ortogonal a como a
+    notificação nasce.
+  - Verificado: build+typecheck limpos (api e web), 6 casos novos no
+    smoke test, e testado de ponta a ponta no navegador com a conta real
+    da Giulia — notificação inserida direto no banco, sino mostra o
+    badge "1", dropdown lista título/corpo/hora, clique navega pro
+    projeto certo e marca como lida (confirmado sobrevivendo a um reload
+    completo da página, não só otimista no cliente).
+
 Com isso fecham as quatro peças da Fase 1 do plano de correção
 (permissões, histórico, notificações, login de cliente). Capacidade/FF&E
 das outras duas views do dashboard e o resto do plano de 3 fases ficam
