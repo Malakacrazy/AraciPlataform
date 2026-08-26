@@ -51,6 +51,12 @@ export interface Opportunity {
   estimatedValue?: string | null;
   wonAt?: string | null;
   lostAt?: string | null;
+  // Obrigatório junto de lostAt -- só setado via POST .../mark-lost, ver
+  // opportunities.service.ts.
+  lostReason?: string | null;
+  // Só preenchido quando a oportunidade nasceu do formulário público de
+  // captação (POST /v1/leads) -- a mensagem que o visitante escreveu.
+  leadMessage?: string | null;
   project?: { id: string } | null;
 }
 

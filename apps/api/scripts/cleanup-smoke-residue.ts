@@ -34,14 +34,43 @@ const SMOKE_TEST_PRODUCT_NAMES = ["Luminária Pendente Latão", "Sofá Modular N
 // pra sempre como uma "despesa geral" órfã se nada limpar por descrição.
 const SMOKE_TEST_EXPENSE_DESCRIPTIONS = ["Marcenaria sob medida", "Assinatura do software de renderização"];
 
+// E-mail fixo usado pelo teste do formulário público de captação
+// (POST /v1/leads) -- diferente de todo o resto do smoke suite, esse
+// Client não nasce vinculado a nenhum projeto "Apto Vila Madalena", então
+// precisa ser localizado à parte, por e-mail.
+const SMOKE_TEST_LEAD_EMAIL = "visitante-lead@example.com";
+
 async function main() {
   const projects = await prisma.project.findMany({
     where: { name: "Apto Vila Madalena", id: { not: KEEP_PROJECT_ID } },
-    select: { id: true, clientId: true, opportunityId: true },
+    select: { id: true, clientId: true },
   });
   const doomedProjectIds = projects.map((p) => p.id);
-  const doomedOppIds = projects.map((p) => p.opportunityId).filter((id): id is string => !!id);
-  const doomedClientIds = [...new Set(projects.map((p) => p.clientId))].filter((id) => id !== KEEP_CLIENT_ID);
+  // findMany, não findFirst -- Client não tem unique em email, e cada
+  // execução do smoke suite manda o mesmo e-mail fixo pro formulário de
+  // lead. Achado real: com findFirst, só um cliente com esse e-mail era
+  // limpo por execução; os acumulados de execuções anteriores ficavam
+  // presos pra sempre.
+  const leadClients = await prisma.client.findMany({
+    where: { email: SMOKE_TEST_LEAD_EMAIL },
+    select: { id: true },
+  });
+  const doomedClientIds = [
+    ...new Set([...projects.map((p) => p.clientId), ...leadClients.map((c) => c.id)]),
+  ].filter((id) => id !== KEEP_CLIENT_ID);
+
+  // Todas as Opportunity desses clientes -- não só as que viraram Project
+  // via Project.opportunityId. Achado real: uma Opportunity marcada
+  // 'perdido' (POST .../mark-lost) nunca gera Project, então ficava fora
+  // do doomedOppIds antigo (derivado só de projects.opportunityId) e
+  // sobrevivia como órfã -- travando com RESTRICT o delete do Client
+  // logo abaixo (Opportunity_clientId_fkey), quebrando o cleanup inteiro
+  // no meio da transação.
+  const doomedOpportunities = await prisma.opportunity.findMany({
+    where: { clientId: { in: doomedClientIds } },
+    select: { id: true },
+  });
+  const doomedOppIds = doomedOpportunities.map((o) => o.id);
 
   const smokeUsers = await prisma.user.findMany({
     where: { email: { startsWith: "smoke-test" } },
@@ -129,7 +158,15 @@ async function main() {
   const remainingExpenses = await prisma.expense.count({
     where: { description: { in: SMOKE_TEST_EXPENSE_DESCRIPTIONS } },
   });
-  console.log({ remainingProjects, remainingClients, remainingUsers, remainingProducts, remainingExpenses });
+  const remainingLeadClients = await prisma.client.count({ where: { email: SMOKE_TEST_LEAD_EMAIL } });
+  console.log({
+    remainingProjects,
+    remainingClients,
+    remainingUsers,
+    remainingProducts,
+    remainingExpenses,
+    remainingLeadClients,
+  });
 }
 
 main()

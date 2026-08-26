@@ -67,7 +67,10 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                   className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800"
                 >
                   <span className="text-zinc-900 dark:text-zinc-50">{opp.title}</span>
-                  <span className={`text-xs ${status.className}`}>{status.label}</span>
+                  <span className={`text-xs ${status.className}`}>
+                    {status.label}
+                    {opp.lostAt && opp.lostReason ? ` — ${opp.lostReason}` : ""}
+                  </span>
                   {opp.project && (
                     <Link
                       href={`/projects/${opp.project.id}`}

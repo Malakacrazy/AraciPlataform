@@ -1180,6 +1180,97 @@ sem quebra por tipo de item (mobiliário × iluminação × tecidos).
   do "Sem categoria" já existente. Resíduo da verificação removido
   depois.
 
+## Fase 2 (correção) — Opportunities: motivo de perda, captação web-to-lead, lembrete de lead parada
+
+Sexto item da Fase 2, o último da lista original de dez. Verbatim da
+auditoria: "Lost-reason tracking, a web-to-lead capture form, follow-up
+reminders for a stalled lead" -- um lead marcado "perdido" desaparecia
+sem registrar por quê, todo lead entrava digitado à mão por alguém da
+equipe, e nada avisava quando uma oportunidade ficava parada.
+
+- **Motivo de perda virou endpoint dedicado**: `POST
+  .../mark-lost { lostReason }`, não mais `PATCH` genérico com `lostAt`
+  solto -- mesmo padrão de `approvalChannel` em `ProjectPhase` (exigência
+  impossível de contornar por acidente). Bloqueia marcar como perdida uma
+  oportunidade já ganha (`422 OPPORTUNITY_ALREADY_WON`). `lostReason` é
+  string livre com opções comuns sugeridas na tela (Preço, Escolheu outro
+  escritório, Projeto cancelado, Não retornou contato, Fora do escopo,
+  Outro), mesmo espírito de `Client.source`.
+- **Captação web-to-lead**: `POST /v1/leads`, 6ª família de rota
+  `@Public()` (ver `public.decorator.ts`, comentário atualizado) -- a
+  primeira rota pública de ESCRITA sem token nenhum; mitigada por ser
+  write-only (resposta genérica, nenhum id devolvido) e pelo
+  `ThrottlerGuard` global já existente, não por CAPTCHA (não existe essa
+  infra no projeto). Cria `Client` (nunca tenta casar com um já existente
+  por e-mail -- dedupe de contato é redline separado do módulo Clients,
+  registrado à parte na auditoria) e `Opportunity` em `novo_lead` com
+  `feeModel: hora_tecnica` fixo (um visitante anônimo não tem como saber
+  que é o único modelo em uso real hoje). A mensagem do formulário vai
+  pro novo campo `Opportunity.leadMessage`, não pra `Activity` -- ver
+  achado de arquitetura abaixo. Página pública em `/lead`, sem `<Nav>`,
+  mesmo padrão de `/portal/login`.
+- **Lembrete de lead parada é o primeiro job em background da
+  plataforma**: decisão tomada explicitamente com a Giulia antes de
+  codar, entre um badge calculado na hora (zero infra nova) e um push de
+  verdade -- optamos pelo push. `@nestjs/schedule` (dependência nova),
+  `StalledOpportunitiesCron` roda todo dia às 8h, verifica toda
+  oportunidade em aberto (`wonAt`/`lostAt` nulos) sem nenhuma `Activity`
+  há 14+ dias (ou, sem nenhuma `Activity` nunca, 14+ dias desde a
+  criação) e manda notificação real (sino + e-mail via Resend) pelo mesmo
+  `NotificationsService` já usado pra "proposta assinada". Não reavisa
+  todo dia enquanto a oportunidade continuar parada -- só quando não
+  existe uma notificação desse tipo mais recente que a última interação
+  (`NotificationsService.hasRecentNotification`), reabrindo sozinho se
+  uma `Activity` nova acontecer depois.
+- **Achado de arquitetura de módulo**: o cron precisa ler `Opportunity`
+  (dono: `CrmModule`) e `Activity` (dono: `ActivitiesModule`) ao mesmo
+  tempo. Como `ActivitiesModule` já importa `CrmModule` (não o contrário),
+  colocar o cron dentro de `ActivitiesModule` foi o único jeito sem import
+  circular -- mesma classe de restrição que já tinha movido
+  `RoleRatesService` de módulo na correção de Timesheet→Invoice. Por essa
+  mesma razão, a mensagem do lead vai num campo novo em `Opportunity`
+  (`leadMessage`) em vez de virar uma `Activity`: `Activity.authorId` é
+  FK obrigatória pra `User`, e um visitante anônimo não é nenhum `User` —
+  criar a `Activity` a partir de `LeadsService` (dono: `CrmModule`)
+  também esbarraria no mesmo limite de módulo pra alcançar
+  `ActivitiesService`.
+- **Achado real de infraestrutura de teste, dois bugs distintos no mesmo
+  cleanup**: `cleanup-smoke-residue.ts` quebrou no meio da transação
+  (`RESTRICT` em `Opportunity_clientId_fkey`) assim que o smoke suite
+  passou a testar `mark-lost` -- o script derivava `doomedOppIds` só das
+  oportunidades que viraram `Project` (`projects.map(p =>
+  p.opportunityId)`); uma oportunidade marcada perdida nunca gera
+  `Project`, então ficava órfã e travava o delete do cliente. Corrigido
+  buscando TODA `Opportunity` dos clientes descartáveis, não só as
+  convertidas. Segundo achado, descoberto só depois de corrigir o
+  primeiro: o cliente criado pelo teste de `/v1/leads` usa um e-mail fixo
+  igual em toda execução, mas `Client` não tem `@unique` em `email` —
+  `findFirst` só limpava o cliente de UMA execução por vez, deixando os
+  das execuções anteriores presos pra sempre; virou `findMany`.
+- Verificado: build+typecheck limpos (api e web), `npm install
+  @nestjs/schedule` + `ScheduleModule.forRoot()` sem quebrar o boot do
+  Nest, 8 casos novos no smoke suite (PATCH genérico ignora lostAt,
+  bloqueio de marcar perdida uma oportunidade ganha, motivo obrigatório,
+  sucesso, lead sem e-mail rejeitado, lead público cria Client+Opportunity
+  com a mensagem certa). O cron não tem rota nenhuma pra disparar sob
+  demanda (é job de fundo, não ação de usuário) — verificado à parte por
+  um script novo (`npm run verify-stalled-cron`) que sobe o container de
+  DI do Nest direto (sem abrir a porta HTTP) e chama o método real duas
+  vezes seguidas contra uma oportunidade forjada há 20 dias, confirmando
+  a notificação na 1ª chamada e a ausência de duplicata na 2ª. Esse
+  script roda via `ts-node`, não `tsx` como todo o resto de `scripts/` —
+  achado real: a injeção de dependência do Nest depende de
+  `emitDecoratorMetadata`, que o transform do `tsx` (esbuild) não emite
+  direito; sob `tsx` os parâmetros do construtor chegavam `undefined`
+  sem erro nenhum na inicialização, só estourando depois, ao tentar usar
+  o serviço. Testado de ponta a ponta no navegador também: enviei um lead
+  de verdade por `/lead` (sem sessão, aba anônima), confirmei o
+  Client/Opportunity/leadMessage certos no banco e a mensagem aparecendo
+  na tela da oportunidade, depois marquei essa mesma oportunidade como
+  perdida pelo Pipeline com motivo "Preço" e confirmei o card migrando pra
+  coluna Perdido com "Motivo: preco" visível. Resíduo da verificação
+  removido depois.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

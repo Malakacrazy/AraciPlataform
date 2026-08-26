@@ -53,6 +53,17 @@ export async function markWon(id: string) {
   await patchOpportunity(id, { wonAt: new Date().toISOString() });
 }
 
-export async function markLost(id: string) {
-  await patchOpportunity(id, { lostAt: new Date().toISOString() });
+// Endpoint dedicado (não o PATCH genérico) -- a API exige lostReason,
+// ver opportunities.service.ts.
+export async function markLost(id: string, lostReason: string) {
+  const res = await apiFetch(`opportunities/${id}/mark-lost`, {
+    method: "POST",
+    body: JSON.stringify({ lostReason }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error?.message ?? "Não foi possível marcar como perdida.");
+  }
+  revalidatePath("/opportunities");
+  revalidatePath("/clients", "layout");
 }

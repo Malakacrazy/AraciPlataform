@@ -12,6 +12,19 @@ const STAGE_COLUMNS = [
   { key: "negociacao", label: "Negociação" },
 ] as const;
 
+// Mesmo espírito do approvalChannel de gate de fase: a razão só existe
+// pra alimentar uma análise futura de "por que perdemos", não é um enum
+// fechado no banco (Opportunity.lostReason é string livre) -- só as
+// opções mais comuns, com "Outro" como fallback.
+const LOST_REASONS = [
+  { value: "preco", label: "Preço" },
+  { value: "outro_escritorio", label: "Escolheu outro escritório" },
+  { value: "projeto_cancelado", label: "Projeto cancelado pelo cliente" },
+  { value: "sem_retorno", label: "Não retornou contato" },
+  { value: "fora_do_escopo", label: "Fora do escopo do estúdio" },
+  { value: "outro", label: "Outro" },
+] as const;
+
 function columnFor(opp: Opportunity): string {
   if (opp.wonAt) return "ganho";
   if (opp.lostAt) return "perdido";
@@ -21,6 +34,7 @@ function columnFor(opp: Opportunity): string {
 export function OpportunitiesBoard({ opportunities }: { opportunities: Opportunity[] }) {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lostReasonDraft, setLostReasonDraft] = useState<Record<string, string>>({});
 
   async function run(id: string, action: () => Promise<void>) {
     setError(null);
@@ -96,25 +110,40 @@ export function OpportunitiesBoard({ opportunities }: { opportunities: Opportuni
                             </option>
                           ))}
                         </select>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
+                        <button
+                          type="button"
+                          disabled={pendingId === opp.id}
+                          onClick={() => run(opp.id, () => markWon(opp.id))}
+                          className="text-left text-xs text-emerald-700 hover:underline disabled:opacity-50 dark:text-emerald-400"
+                        >
+                          Marcar ganho
+                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={lostReasonDraft[opp.id] ?? ""}
                             disabled={pendingId === opp.id}
-                            onClick={() => run(opp.id, () => markWon(opp.id))}
-                            className="text-xs text-emerald-700 hover:underline disabled:opacity-50 dark:text-emerald-400"
+                            onChange={(e) => setLostReasonDraft((prev) => ({ ...prev, [opp.id]: e.target.value }))}
+                            className="rounded border border-zinc-300 bg-transparent px-1.5 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
                           >
-                            Marcar ganho
-                          </button>
+                            <option value="">Motivo…</option>
+                            {LOST_REASONS.map((r) => (
+                              <option key={r.value} value={r.value}>
+                                {r.label}
+                              </option>
+                            ))}
+                          </select>
                           <button
                             type="button"
-                            disabled={pendingId === opp.id}
-                            onClick={() => run(opp.id, () => markLost(opp.id))}
+                            disabled={pendingId === opp.id || !lostReasonDraft[opp.id]}
+                            onClick={() => run(opp.id, () => markLost(opp.id, lostReasonDraft[opp.id]))}
                             className="text-xs text-red-600 hover:underline disabled:opacity-50 dark:text-red-400"
                           >
                             Marcar perdido
                           </button>
                         </div>
                       </div>
+                    ) : col.key === "perdido" && opp.lostReason ? (
+                      <p className="mt-1 text-xs text-red-600 dark:text-red-400">Motivo: {opp.lostReason}</p>
                     ) : null}
                   </div>
                 ))}

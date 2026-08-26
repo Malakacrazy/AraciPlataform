@@ -9,6 +9,8 @@ import { ProposalsController } from './proposals.controller';
 import { ProposalsService } from './proposals.service';
 import { ProposalSigningService } from './proposal-signing.service';
 import { ZapSignWebhookController } from './zapsign-webhook.controller';
+import { LeadsController } from './leads.controller';
+import { LeadsService } from './leads.service';
 
 @Module({
   // ErpModule para ProjectsService (OpportunitiesService, conversão
@@ -22,12 +24,14 @@ import { ZapSignWebhookController } from './zapsign-webhook.controller';
     OpportunitiesController,
     ProposalsController,
     ZapSignWebhookController,
+    LeadsController,
   ],
   providers: [
     ClientsService,
     OpportunitiesService,
     ProposalsService,
     ProposalSigningService,
+    LeadsService,
   ],
   exports: [ClientsService, OpportunitiesService],
 })

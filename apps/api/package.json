@@ -20,13 +20,15 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "smoke-test": "tsx scripts/smoke-test.ts",
-    "smoke-test:cleanup": "tsx scripts/cleanup-smoke-residue.ts"
+    "smoke-test:cleanup": "tsx scripts/cleanup-smoke-residue.ts",
+    "verify-stalled-cron": "ts-node scripts/verify-stalled-cron.ts"
   },
   "dependencies": {
     "@araci/db": "*",
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/schedule": "^6.1.3",
     "@nestjs/throttler": "^6.5.0",
     "@nfewizard/nfse": "^1.0.5",
     "dotenv": "^16.4.0",

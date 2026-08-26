@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service';
-import { NotFoundError } from '../common/api-error';
+import { ApiError, NotFoundError } from '../common/api-error';
 import { ProjectsService } from '../erp/projects.service';
 import { ClientsService } from './clients.service';
 
@@ -19,12 +19,21 @@ export const opportunityInputSchema = z.object({
 
 export type OpportunityInput = z.infer<typeof opportunityInputSchema>;
 
+// lostAt não está aqui de propósito -- marcar como perdida só pelo
+// endpoint dedicado (POST .../mark-lost), que exige lostReason junto.
+// Sem essa separação, um PATCH genérico sempre poderia setar lostAt sem
+// motivo nenhum (mesmo raciocínio de approvalChannel em ProjectPhase).
 export const opportunityUpdateSchema = opportunityInputSchema.partial().extend({
   wonAt: z.iso.datetime().nullable().optional(),
-  lostAt: z.iso.datetime().nullable().optional(),
 });
 
 export type OpportunityUpdateInput = z.infer<typeof opportunityUpdateSchema>;
+
+export const markLostSchema = z.object({
+  lostReason: z.string().min(1),
+});
+
+export type MarkLostInput = z.infer<typeof markLostSchema>;
 
 @Injectable()
 export class OpportunitiesService {
@@ -68,7 +77,6 @@ export class OpportunitiesService {
     id: string,
     input: Partial<OpportunityInput> & {
       wonAt?: Date | null;
-      lostAt?: Date | null;
     },
   ) {
     await this.getOpportunity(accountId, id);
@@ -76,6 +84,35 @@ export class OpportunitiesService {
       await this.clientsService.getClient(accountId, input.clientId);
     }
     return this.prisma.db.opportunity.update({ where: { id }, data: input });
+  }
+
+  // Endpoint dedicado (não o PATCH genérico) -- ver comentário em
+  // opportunityUpdateSchema. Uma oportunidade já ganha não pode virar
+  // perdida (bloqueado, não silenciosamente ignorado).
+  async markLost(accountId: string, id: string, lostReason: string) {
+    const opportunity = await this.getOpportunity(accountId, id);
+    if (opportunity.wonAt) {
+      throw new ApiError(
+        'OPPORTUNITY_ALREADY_WON',
+        'Esta oportunidade já foi marcada como ganha — não pode virar perdida.',
+        422,
+      );
+    }
+    return this.prisma.db.opportunity.update({
+      where: { id },
+      data: { lostAt: new Date(), lostReason },
+    });
+  }
+
+  // Usado só pelo job de lembrete de lead parada (ver
+  // StalledOpportunitiesCron, em activities/) -- cross-conta de propósito,
+  // um cron não tem uma sessão/accountId pra escopar como as rotas HTTP
+  // têm.
+  listOpenOpportunities() {
+    return this.prisma.db.opportunity.findMany({
+      where: { wonAt: null, lostAt: null },
+      select: { id: true, title: true, createdAt: true, client: { select: { accountId: true } } },
+    });
   }
 
   async deleteOpportunity(accountId: string, id: string) {

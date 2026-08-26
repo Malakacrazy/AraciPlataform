@@ -98,6 +98,54 @@ export class NotificationsService {
     }
   }
 
+  // Terceiro gatilho -- diferente dos dois acima, não nasce de uma ação
+  // que já aconteceu (cliente aprovou/assinou algo); nasce da AUSÊNCIA de
+  // ação, detectada pelo StalledOpportunitiesCron (ver activities/).
+  // hasRecentNotification existe pra não mandar o mesmo aviso todo dia
+  // enquanto o lead continuar parado -- só reavisa se aconteceu uma
+  // Activity nova desde o último aviso (o cron recalcula "última
+  // interação" e só chama isto quando ela é mais recente que a
+  // notificação anterior).
+  async notifyStalledOpportunity(
+    accountId: string,
+    params: { opportunityId: string; opportunityTitle: string; daysSinceContact: number },
+  ) {
+    try {
+      const admins = await this.prisma.db.user.findMany({
+        where: { accountId, accessLevel: 'admin' },
+        select: { id: true, email: true },
+      });
+      if (admins.length === 0) return;
+
+      const title = `${params.opportunityTitle}: sem contato há ${params.daysSinceContact} dias`;
+      await this.prisma.db.notification.createMany({
+        data: admins.map((admin) => ({
+          accountId,
+          userId: admin.id,
+          type: 'stalled_opportunity',
+          title,
+          opportunityId: params.opportunityId,
+        })),
+      });
+
+      await sendEmail({
+        to: admins.map((a) => a.email),
+        subject: title,
+        html: `<p>A oportunidade <strong>${escapeHtml(params.opportunityTitle)}</strong> está sem nenhum contato registrado há <strong>${params.daysSinceContact} dias</strong>. Vale um follow-up.</p>`,
+      });
+    } catch (error) {
+      this.logger.warn(`Falha ao notificar oportunidade parada: ${(error as Error).message}`);
+    }
+  }
+
+  async hasRecentNotification(accountId: string, opportunityId: string, type: string, since: Date) {
+    const existing = await this.prisma.db.notification.findFirst({
+      where: { accountId, opportunityId, type, createdAt: { gte: since } },
+      select: { id: true },
+    });
+    return existing !== null;
+  }
+
   // Sino da Nav (apps/web) -- contraparte visual do e-mail acima. Só as
   // últimas 20 pra não crescer sem limite na resposta; marcar como lida
   // não apaga, só seta readAt (histórico continua consultável se um dia

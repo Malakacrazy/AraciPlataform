@@ -282,6 +282,95 @@ async function main() {
     { projectIdFirst, projectIdSecond }
   );
 
+  const patchWithLostAtRes = await api(`/v1/opportunities/${opportunityId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ lostAt: new Date().toISOString() }),
+  });
+  report(
+    "PATCH genérico não aceita mais lostAt (campo desconhecido, ignorado) — não vira perdida por aí",
+    patchWithLostAtRes.status === 200 && patchWithLostAtRes.body?.data?.lostAt === null,
+    patchWithLostAtRes.body
+  );
+
+  const marcarPerdidaJaGanhaRes = await api(`/v1/opportunities/${opportunityId}/mark-lost`, {
+    method: "POST",
+    body: JSON.stringify({ lostReason: "preco" }),
+  });
+  report(
+    "POST .../mark-lost numa oportunidade já ganha → 422 OPPORTUNITY_ALREADY_WON",
+    marcarPerdidaJaGanhaRes.status === 422 && marcarPerdidaJaGanhaRes.body?.error?.code === "OPPORTUNITY_ALREADY_WON",
+    marcarPerdidaJaGanhaRes.body
+  );
+
+  const segundaOppRes = await api("/v1/opportunities", {
+    method: "POST",
+    body: JSON.stringify({ clientId, title: "Reforma Cobertura (vai perder)", stage: "qualificacao", feeModel: "hora_tecnica" }),
+  });
+  const segundaOppId = segundaOppRes.body?.data?.id;
+
+  const semMotivoRes = await api(`/v1/opportunities/${segundaOppId}/mark-lost`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  report(
+    "POST .../mark-lost sem lostReason → 400 VALIDATION_ERROR",
+    semMotivoRes.status === 400 && semMotivoRes.body?.error?.code === "VALIDATION_ERROR",
+    semMotivoRes.body
+  );
+
+  const marcarPerdidaRes = await api(`/v1/opportunities/${segundaOppId}/mark-lost`, {
+    method: "POST",
+    body: JSON.stringify({ lostReason: "sem_retorno" }),
+  });
+  report(
+    "POST .../mark-lost com motivo → 200, lostAt e lostReason setados",
+    marcarPerdidaRes.status === 200 &&
+      !!marcarPerdidaRes.body?.data?.lostAt &&
+      marcarPerdidaRes.body?.data?.lostReason === "sem_retorno",
+    marcarPerdidaRes.body
+  );
+
+  const leadSemEmailRes = await fetch(`${BASE_URL}/v1/leads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Visitante do site" }),
+  });
+  report(
+    "POST /v1/leads sem e-mail (rota pública, sem token) → 400 VALIDATION_ERROR",
+    leadSemEmailRes.status === 400,
+    await leadSemEmailRes.json().catch(() => null)
+  );
+
+  const leadRes = await fetch(`${BASE_URL}/v1/leads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "Visitante do Site",
+      email: "visitante-lead@example.com",
+      phone: "11999990000",
+      message: "Gostaria de um orçamento para reforma de apartamento de 80m².",
+    }),
+  });
+  report("POST /v1/leads (formulário público) → 201, sem exigir token", leadRes.status === 201, await leadRes.json().catch(() => null));
+
+  const clientesAposLeadRes = await api("/v1/clients");
+  const clienteDoLead = clientesAposLeadRes.body?.data?.find((c: any) => c.email === "visitante-lead@example.com");
+  report(
+    "Lead público cria um Client novo com source 'site'",
+    clienteDoLead?.source === "site",
+    clienteDoLead
+  );
+
+  const oppsAposLeadRes = await api("/v1/opportunities");
+  const oppDoLead = oppsAposLeadRes.body?.data?.find((o: any) => o.clientId === clienteDoLead?.id);
+  report(
+    "Lead público cria uma Opportunity em 'novo_lead', feeModel hora_tecnica, com a mensagem gravada",
+    oppDoLead?.stage === "novo_lead" &&
+      oppDoLead?.feeModel === "hora_tecnica" &&
+      oppDoLead?.leadMessage?.includes("80m²"),
+    oppDoLead
+  );
+
   const projectId = wonOpportunity?.project?.id;
 
   const projectRes = await api(`/v1/projects/${projectId}`);

@@ -62,7 +62,19 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
           </Link>{" "}
           · {opportunity.feeModel}
         </p>
+        {opportunity.lostAt && opportunity.lostReason && (
+          <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+            Perdida — motivo: {opportunity.lostReason}
+          </p>
+        )}
       </div>
+
+      {opportunity.leadMessage && (
+        <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+          <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Mensagem do formulário do site</h2>
+          <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700 dark:text-zinc-300">{opportunity.leadMessage}</p>
+        </section>
+      )}
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
         <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Propostas</h2>

@@ -12,8 +12,10 @@ import {
   OpportunitiesService,
   opportunityInputSchema,
   opportunityUpdateSchema,
+  markLostSchema,
   type OpportunityInput,
   type OpportunityUpdateInput,
+  type MarkLostInput,
 } from './opportunities.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
@@ -71,12 +73,6 @@ export class OpportunitiesController {
             : body.wonAt === null
               ? null
               : new Date(body.wonAt),
-        lostAt:
-          body.lostAt === undefined
-            ? undefined
-            : body.lostAt === null
-              ? null
-              : new Date(body.lostAt),
       },
     );
 
@@ -88,6 +84,19 @@ export class OpportunitiesController {
     }
 
     const data = await this.opportunitiesService.getOpportunity(accountId, id);
+    return { data };
+  }
+
+  // Ação dedicada, como .../approve — exige lostReason, impossível de
+  // contornar via PATCH genérico (ver opportunityUpdateSchema).
+  @Post(':id/mark-lost')
+  @HttpCode(200)
+  async markLost(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(markLostSchema)) body: MarkLostInput,
+  ) {
+    const data = await this.opportunitiesService.markLost(accountId, id, body.lostReason);
     return { data };
   }
 

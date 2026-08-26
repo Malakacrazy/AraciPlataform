@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
@@ -34,6 +35,10 @@ import { HttpExceptionFilter } from './common/http-exception.filter';
     // mas um limite de taxa custa pouco e ajuda contra um chamador
     // comprometido/com bug no lado do apps/web.
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
+    // Primeiro job em background da plataforma (ver
+    // activities/stalled-opportunities.cron.ts) — antes disso não havia
+    // nenhum processo rodando fora do ciclo request/response do Nest.
+    ScheduleModule.forRoot(),
   ],
   controllers: [AppController],
   providers: [

@@ -200,7 +200,18 @@ model Opportunity {
   estimatedValue Decimal?
   wonAt          DateTime?
   lostAt         DateTime?
-  createdAt      DateTime  @default(now())
+  // Obrigatório junto de lostAt -- ver OpportunitiesService.markLost. Só
+  // dá pra marcar perdida por um endpoint dedicado (não o PATCH genérico)
+  // exatamente pra tornar essa exigência impossível de contornar, mesmo
+  // padrão de approvalChannel em ProjectPhase.
+  lostReason String?
+  // Preenchido só pelo formulário público de captação de lead
+  // (LeadsService.submitLead) -- a mensagem que o próprio visitante
+  // escreveu antes de qualquer contato humano. Nunca setado pelo
+  // fluxo autenticado normal de criar/editar oportunidade (isso já tem
+  // a timeline de Activity pra notas).
+  leadMessage String?
+  createdAt   DateTime  @default(now())
 
   proposals Proposal[]
   project   Project?
