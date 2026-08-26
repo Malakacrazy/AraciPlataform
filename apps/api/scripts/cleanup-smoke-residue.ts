@@ -55,8 +55,22 @@ async function main() {
     where: { email: SMOKE_TEST_LEAD_EMAIL },
     select: { id: true },
   });
+  // Achado real: se o smoke suite morrer no meio do run (ex.: falha de
+  // rede transitória) entre criar o Client "Fernanda Ribeiro" e criar a
+  // Opportunity/Project, o Client sobrevive sem nenhuma Opportunity
+  // vinculada -- invisível pra derivação via projects.clientId acima.
+  // Varre direto por nome + zero Opportunity, não só pelos dois caminhos
+  // "normais" (projeto ou lead).
+  const orphanedClients = await prisma.client.findMany({
+    where: { name: "Fernanda Ribeiro", id: { not: KEEP_CLIENT_ID }, opportunities: { none: {} } },
+    select: { id: true },
+  });
   const doomedClientIds = [
-    ...new Set([...projects.map((p) => p.clientId), ...leadClients.map((c) => c.id)]),
+    ...new Set([
+      ...projects.map((p) => p.clientId),
+      ...leadClients.map((c) => c.id),
+      ...orphanedClients.map((c) => c.id),
+    ]),
   ].filter((id) => id !== KEEP_CLIENT_ID);
 
   // Todas as Opportunity desses clientes -- não só as que viraram Project

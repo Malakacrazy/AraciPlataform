@@ -56,13 +56,26 @@ export async function chargeInvoice(projectId: string, invoiceId: string) {
   await call(`invoices/${invoiceId}/charge`, { method: "POST" }, projectId);
 }
 
-export async function markInvoiceIssued(projectId: string, invoiceId: string, formData: FormData) {
+// currentStatus vem da própria tela (não relido aqui) só pra decidir se
+// muda o status -- uma fatura que a Asaas já marcou 'paga' via webhook
+// (pagamento confirmado antes de alguém emitir a NFS-e) continua 'paga'
+// depois de registrar o número; não regride pra 'emitida'.
+export async function markInvoiceIssued(
+  projectId: string,
+  invoiceId: string,
+  currentStatus: string,
+  formData: FormData,
+) {
   const nfseNumber = String(formData.get("nfseNumber") ?? "").trim();
   await call(
     `invoices/${invoiceId}`,
     {
       method: "PATCH",
-      body: JSON.stringify({ status: "emitida", nfseNumber: nfseNumber || undefined, issuedAt: new Date().toISOString() }),
+      body: JSON.stringify({
+        status: currentStatus === "paga" ? undefined : "emitida",
+        nfseNumber: nfseNumber || undefined,
+        issuedAt: new Date().toISOString(),
+      }),
     },
     projectId,
   );

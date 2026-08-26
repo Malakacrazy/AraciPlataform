@@ -138,6 +138,47 @@ export class NotificationsService {
     }
   }
 
+  // Quarto gatilho -- achado da auditoria: "Emission is a manual trigger,
+  // not tied to invoice payment". Não emite a NFS-e sozinho (ver
+  // decisoes-pos-descoberta.md #4 e nfse-client.ts: emissão real em
+  // Produção é uma decisão de código deliberada, nunca automática) — só
+  // avisa que o pagamento confirmado deixou uma fatura sem NFS-e, pra um
+  // humano revisar e emitir pela tela (POST/PATCH .../invoices/:id já
+  // existente).
+  async notifyNfseReady(
+    accountId: string,
+    params: { projectId: string; projectName: string; amount: string },
+  ) {
+    try {
+      const admins = await this.prisma.db.user.findMany({
+        where: { accountId, accessLevel: 'admin' },
+        select: { id: true, email: true },
+      });
+      if (admins.length === 0) return;
+
+      const title = `${params.projectName}: pagamento confirmado, falta emitir NFS-e`;
+      const body = `R$ ${params.amount}`;
+      await this.prisma.db.notification.createMany({
+        data: admins.map((admin) => ({
+          accountId,
+          userId: admin.id,
+          type: 'nfse_ready',
+          title,
+          body,
+          projectId: params.projectId,
+        })),
+      });
+
+      await sendEmail({
+        to: admins.map((a) => a.email),
+        subject: title,
+        html: `<p>O pagamento da fatura de <strong>${escapeHtml(params.projectName)}</strong> (R$ ${escapeHtml(params.amount)}) foi confirmado e ainda não tem NFS-e emitida.</p>`,
+      });
+    } catch (error) {
+      this.logger.warn(`Falha ao notificar NFS-e pendente: ${(error as Error).message}`);
+    }
+  }
+
   async hasRecentNotification(accountId: string, opportunityId: string, type: string, since: Date) {
     const existing = await this.prisma.db.notification.findFirst({
       where: { accountId, opportunityId, type, createdAt: { gte: since } },

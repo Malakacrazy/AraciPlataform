@@ -106,17 +106,24 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                 </span>
                 <span className="text-xs text-zinc-500 dark:text-zinc-400">
                   {INVOICE_STATUS_LABELS[inv.status]}
-                  {inv.nfseNumber ? ` · NFS-e ${inv.nfseNumber}` : ""}
+                  {inv.nfseNumber
+                    ? ` · NFS-e ${inv.nfseNumber}`
+                    : inv.status === "paga"
+                      ? " · aguardando emissão de NFS-e"
+                      : ""}
                 </span>
-                {inv.status === "pendente" && (
-                  <form action={markInvoiceIssued.bind(null, id, inv.id)} className="flex items-center gap-2">
+                {(inv.status === "pendente" || (inv.status === "paga" && !inv.nfseNumber)) && (
+                  <form
+                    action={markInvoiceIssued.bind(null, id, inv.id, inv.status)}
+                    className="flex items-center gap-2"
+                  >
                     <input
                       name="nfseNumber"
                       placeholder="nº NFS-e"
                       className="w-28 rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
                     />
                     <button type="submit" className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
-                      Marcar emitida
+                      {inv.status === "paga" ? "Registrar NFS-e" : "Marcar emitida"}
                     </button>
                   </form>
                 )}

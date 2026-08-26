@@ -693,6 +693,54 @@ async function main() {
     await webhookReenviadoRes.json().catch(() => null)
   );
 
+  // Achado da auditoria: "Emission is a manual trigger, not tied to
+  // invoice payment". A fatura acima (invoiceId) já tinha nfseNumber
+  // gravado antes do webhook confirmar o pagamento -- não há nada
+  // pendente pra avisar. Pra testar o caminho onde HÁ algo pendente,
+  // cria uma fatura nova, direto via Prisma (setup, não é o que está
+  // sendo testado), sem nfseNumber.
+  const invoiceSemNfseParaWebhook = await prisma.invoice.create({
+    data: {
+      projectId,
+      amount: 500,
+      status: "pendente",
+      asaasPaymentId: `pay_smoketest_nfse_${Date.now()}`,
+    },
+  });
+  const webhookNfseReadyRes = await fetch(`${BASE_URL}/v1/billing/asaas/webhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "asaas-access-token": process.env.ASAAS_WEBHOOK_AUTH_TOKEN ?? "" },
+    body: JSON.stringify({ event: "PAYMENT_RECEIVED", payment: { id: invoiceSemNfseParaWebhook.asaasPaymentId } }),
+  });
+  report(
+    "POST /billing/asaas/webhook numa fatura sem NFS-e → 200",
+    webhookNfseReadyRes.status === 200,
+    await webhookNfseReadyRes.json().catch(() => null)
+  );
+
+  const nfseReadyNotificationsRes = await api("/v1/notifications");
+  report(
+    "Pagamento confirmado sem NFS-e gera Notification tipo 'nfse_ready' (sino + e-mail)",
+    nfseReadyNotificationsRes.body?.data?.notifications?.some(
+      (n: any) => n.type === "nfse_ready" && n.projectId === projectId
+    ),
+    nfseReadyNotificationsRes.body?.data?.notifications?.map((n: any) => n.type)
+  );
+
+  // Registrar a NFS-e numa fatura já 'paga' (PATCH só com nfseNumber, sem
+  // status) não pode regredir pra 'emitida' -- ver invoiceStatusUpdateSchema.
+  const registrarNfseNaPagaRes = await api(`/v1/invoices/${invoiceSemNfseParaWebhook.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ nfseNumber: "NFSe-0002" }),
+  });
+  report(
+    "PATCH só com nfseNumber (sem status) numa fatura paga → continua 'paga', nfseNumber gravado",
+    registrarNfseNaPagaRes.status === 200 &&
+      registrarNfseNaPagaRes.body?.data?.status === "paga" &&
+      registrarNfseNaPagaRes.body?.data?.nfseNumber === "NFSe-0002",
+    registrarNfseNaPagaRes.body
+  );
+
   const timeEntryRes = await api("/v1/time-entries", {
     method: "POST",
     body: JSON.stringify({

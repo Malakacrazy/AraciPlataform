@@ -15,8 +15,12 @@ export const createInvoiceSchema = z.object({
 
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 
+// status é opcional -- ver comentário em updateInvoiceStatus. Registrar
+// nfseNumber numa fatura que a Asaas já marcou 'paga' via webhook não
+// pode regredir o status pra 'emitida': a fatura continua 'paga', só o
+// número da NFS-e é que estava faltando.
 export const invoiceStatusUpdateSchema = z.object({
-  status: z.enum(['pendente', 'emitida', 'paga']),
+  status: z.enum(['pendente', 'emitida', 'paga']).optional(),
   nfseNumber: z.string().optional(),
   issuedAt: z.iso.datetime().nullable().optional(),
   paidAt: z.iso.datetime().nullable().optional(),

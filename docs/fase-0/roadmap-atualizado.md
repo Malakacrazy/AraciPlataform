@@ -1271,6 +1271,75 @@ equipe, e nada avisava quando uma oportunidade ficava parada.
   coluna Perdido com "Motivo: preco" visível. Resíduo da verificação
   removido depois.
 
+## Fase 2 (correção) — Financeiro: NFS-e avisada pelo pagamento
+
+Sétimo item da Fase 2. Verbatim da auditoria: "Tie NFS-e emission to
+invoice payment instead of a manual trigger" -- o pedaço da Reforma
+Tributária do mesmo item da auditoria (campos IBS/CBS calculados, não
+digitados) fica de fora por enquanto, não foi pedido nesta rodada.
+
+- **Decisão tomada explicitamente com a Giulia antes de codar, e é a mais
+  importante desta correção**: o próprio código já tinha uma regra de
+  segurança deliberada (`nfse-client.ts`) dizendo que emissão em Produção
+  é sempre uma mudança de código, nunca uma variável de ambiente, "pra
+  que uma env mal configurada não possa emitir uma NFS-e real
+  silenciosamente" -- e a própria biblioteca usada (`@nfewizard/nfse`)
+  avisa que a assinatura da DPS não está confirmada como segura pra
+  Produção ainda. Não existe hoje nenhum construtor de DPS a partir de
+  uma Invoice real (só um fictício, de teste) -- faria isso exigir dado
+  fiscal (código de serviço, CNAE, alíquota de ISS, inscrição municipal)
+  que não está confirmado em lugar nenhum do projeto. Diante disso,
+  "atado ao pagamento" virou **avisar automaticamente, não emitir
+  automaticamente** -- o humano continua emitindo pela tela, só não
+  precisa mais lembrar de checar sozinho.
+- **`BillingService.handleWebhookEvent`** (o mesmo webhook que já marca
+  `Invoice.status = 'paga'` quando a Asaas confirma o pagamento) agora,
+  logo depois de marcar como paga, checa se a fatura ainda não tem
+  `nfseNumber` -- se não tiver, chama
+  `NotificationsService.notifyNfseReady` (sino + e-mail pros admins,
+  mesmo caminho já usado pra "proposta assinada"). Se a fatura já tinha
+  NFS-e emitida antes de pagar (ordem tradicional: emite quando entrega o
+  estágio, cliente paga depois), não há nada pendente pra avisar.
+- **Achado real de UI, exposto só agora que faturas passam a virar
+  `paga` sem nunca passar por `emitida`**: o formulário de "Marcar
+  emitida" só aparecia pra fatura `pendente` -- uma fatura que a Asaas
+  marca `paga` direto (pagamento chegou antes de alguém emitir a NFS-e,
+  exatamente o caso que este item resolve) nunca tinha `status: 'emitida'`
+  no meio do caminho, então ficava **sem nenhum jeito na tela de
+  registrar o número da NFS-e depois**. Corrigido: `status` virou opcional
+  em `invoiceStatusUpdateSchema` (registrar `nfseNumber` sem mandar
+  `status` não muda o status atual, igual a qualquer outro campo opcional
+  já tratado como "undefined não mexe" neste service); a tela agora
+  também mostra o formulário pra fatura `paga` sem `nfseNumber`, com
+  rótulo "Registrar NFS-e" (não regride pra `emitida`) em vez de "Marcar
+  emitida".
+- **Achado real de infraestrutura de teste**: rodando o smoke suite de
+  novo depois de uma falha de rede transitória no meio de uma execução
+  anterior, `cleanup-smoke-residue.ts` deixou 1 cliente "Fernanda Ribeiro"
+  órfão -- o crash aconteceu depois de criar o `Client` mas antes de
+  criar a `Opportunity`/`Project`, então esse cliente nunca aparecia na
+  derivação de `doomedClientIds` (que só descobre cliente através de
+  `Project.clientId` ou do e-mail fixo de lead). Corrigido com uma
+  varredura adicional: qualquer "Fernanda Ribeiro" (fora a fixture
+  mantida) sem nenhuma `Opportunity` vinculada também entra em
+  `doomedClientIds`. Não é um bug introduzido por este item -- é uma
+  fragilidade preexistente do script (só nunca tinha sido exposta, porque
+  nenhuma execução anterior desta sessão tinha crashado no meio).
+- Verificado: build+typecheck limpos (api e web), 3 casos novos no smoke
+  suite (webhook numa fatura sem NFS-e gera `Notification` tipo
+  `nfse_ready`, `PATCH` só com `nfseNumber` numa fatura `paga` não
+  regride o status). Testado de ponta a ponta contra o projeto real: com
+  o servidor local rodando, mandei uma chamada HTTP de verdade pro
+  webhook (mesmo token real de `ASAAS_WEBHOOK_AUTH_TOKEN`, mesmo
+  `asaasPaymentId` real de uma cobrança sandbox já criada em sessão
+  anterior) confirmando o pagamento da fatura de R$ 3.000 do projeto
+  mantido; vi a notificação aparecer no sino de verdade
+  ("pagamento confirmado, falta emitir NFS-e") e o formulário "Registrar
+  NFS-e" aparecer na tela no lugar de "Marcar emitida"; registrei
+  NFSe-0002 pela tela e confirmei no banco que o status continuou `paga`
+  (não voltou pra `emitida`). Fatura e notificações de verificação
+  restauradas ao estado exato de antes depois.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

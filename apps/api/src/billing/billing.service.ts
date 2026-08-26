@@ -8,6 +8,7 @@ import {
   type AsaasPayment,
 } from './asaas-client';
 import { setAuditActor } from '../audit/audit-context';
+import { NotificationsService } from '../notifications/notifications.service';
 
 // Eventos que contam como "pago" pra fechar o ciclo da Invoice. A Asaas
 // manda PAYMENT_CONFIRMED quando a compensação é iniciada (comum em
@@ -19,7 +20,10 @@ const PAID_EVENTS = new Set(['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED']);
 
 @Injectable()
 export class BillingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   private async getInvoiceWithClient(accountId: string, invoiceId: string) {
     const invoice = await this.prisma.db.invoice.findFirst({
@@ -134,7 +138,7 @@ export class BillingService {
 
     const invoice = await this.prisma.db.invoice.findFirst({
       where: { asaasPaymentId },
-      include: { project: { select: { accountId: true } } },
+      include: { project: { select: { accountId: true, name: true } } },
     });
     if (!invoice) {
       // Pode ser um evento de outra integração testando o mesmo endpoint,
@@ -157,5 +161,19 @@ export class BillingService {
       where: { id: invoice.id },
       data: { status: 'paga', paidAt: new Date() },
     });
+
+    // Achado da auditoria: "Emission is a manual trigger, not tied to
+    // invoice payment". Não emite NFS-e sozinho (ver
+    // NotificationsService.notifyNfseReady) -- só avisa que agora dá pra
+    // emitir. Se já tinha nfseNumber (emitida antes de pagar, ordem
+    // normal quando o estúdio fatura no momento da entrega do estágio),
+    // não há nada pendente pra avisar.
+    if (!invoice.nfseNumber) {
+      await this.notificationsService.notifyNfseReady(invoice.project.accountId, {
+        projectId: invoice.projectId,
+        projectName: invoice.project.name,
+        amount: Number(invoice.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
+      });
+    }
   }
 }
