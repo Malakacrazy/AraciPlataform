@@ -78,6 +78,14 @@ export interface Proposal {
   status: "draft" | "sent" | "signed" | "expired";
   complexityMultiplier: string;
   packageDiscountPercent: string;
+  version: number;
+  previousVersion?: { version: number } | null;
+  // zapsignSignUrl é a página de assinatura hospedada pela própria
+  // ZapSign (a plataforma nunca hospeda essa UI) -- preenchida só depois
+  // de POST /proposals/:id/send-for-signature. signerName/signedAt só
+  // vêm preenchidos pelo webhook confirmando doc_signed de verdade.
+  zapsignSignUrl?: string | null;
+  signerName?: string | null;
   sentAt?: string | null;
   signedAt?: string | null;
   stages: ProposalStage[];
@@ -345,6 +353,7 @@ export interface Notification {
   title: string;
   body?: string | null;
   projectId?: string | null;
+  opportunityId?: string | null;
   readAt?: string | null;
   createdAt: string;
 }

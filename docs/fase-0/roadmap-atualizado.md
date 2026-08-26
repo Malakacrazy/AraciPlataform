@@ -833,6 +833,82 @@ poucos pontos onde alguém lembrou de chamar algo explicitamente.
   (Invoice, ProjectPhase, ProductSpecification, ...) mostra só o texto,
   sem link, por não ter URL própria.
 
+## Fase 2 (correção) — Assinatura de proposta via ZapSign
+
+Primeiro item começado da Fase 2 do plano de correção da auditoria
+("Per-module depth"): Proposals tinha o motor de precificação mais
+sofisticado da categoria envolto num status flag -- "assinada" era só
+alguém da equipe clicando um botão no próprio painel, sem o cliente ter
+feito nada (achado da auditoria: "a click is not a signature").
+
+- **Decisão real tomada em duas etapas, não uma.** A primeira versão
+  construída aqui foi uma assinatura própria (digitar o nome completo +
+  IP capturado + timestamp, hospedada num link `/proposal/[token]` nosso,
+  mesmo modelo do link de apresentação). Antes de finalizar, a Giulia
+  perguntou diretamente: "não é melhor usar o ZapSign?" -- pergunta certa.
+  Pra um contrato de serviço com valor real, um nome digitado não é de
+  fato mais forte que o clique que a própria auditoria já tinha apontado
+  como insuficiente. A primeira versão foi descartada por
+  completo (nunca chegou a ser commitada) e substituída pela integração
+  de verdade abaixo -- decisão registrada aqui porque é exatamente o tipo
+  de "simples vs. certo" que vale documentar o porquê, não só o resultado.
+- **`zapsign-client.ts`**: cliente HTTP fino, mesmo formato do
+  `asaas-client.ts` (token estático no header `Authorization: Bearer`) --
+  mas diferente da Asaas, sandbox e produção da ZapSign são **domínios**
+  diferentes (`sandbox.api.zapsign.com.br` vs. `api.zapsign.com.br`), não
+  a mesma URL com token diferente. `ZAPSIGN_ENV` decide qual par
+  domínio/token usar, mesmo espírito do `ASAAS_ENV`.
+  - Documento é criado via `markdown_text` (a ZapSign converte sozinha
+    pra um documento assinável), não um PDF gerado por nós -- evita
+    precisar de uma lib de PDF só pra isso.
+  - **Achado real testando no sandbox de verdade**: markdown com sintaxe
+    de tabela (`| col | col |`) não renderiza como tabela no conversor da
+    ZapSign -- imprime os caracteres `|` literalmente. Trocado por uma
+    lista (`- **Etapa** — Xh — R$ Y`), suportada por praticamente
+    qualquer conversor markdown, sem esse risco.
+- **`Proposal.zapsignDocToken`/`zapsignSignUrl`**: a página de assinatura
+  em si é hospedada pela própria ZapSign (`sign_url`, devolvido na
+  criação) -- a plataforma nunca hospeda essa UI. `zapsignDocToken`
+  correlaciona o webhook de volta pro registro certo.
+- **`version`/`previousVersionId`** (mesma Fase 1→2, adicionado junto):
+  recalcular uma proposta pra mesma Opportunity sempre criava uma
+  proposta nova solta (stages não são editáveis depois de criadas), mas
+  não havia relação nenhuma entre elas. Agora incrementa version e liga
+  `previousVersionId`; a versão anterior ainda `draft`/`sent` vira
+  `expired` automaticamente na mesma transação (não faz sentido duas
+  versões abertas pro cliente assinar ao mesmo tempo) -- uma já `signed`
+  nunca é tocada, pode ser um aditivo que convive com o contrato aceito.
+- **Fluxo**: `POST /proposals/:id/send-for-signature` (só numa `draft`)
+  cria o documento na ZapSign de verdade e marca `status: 'sent'` só se a
+  chamada funcionar -- nunca um status solto sem link nenhum por trás. O
+  `PATCH /proposals/:id` que antes aceitava qualquer status foi reduzido
+  pra só `status: 'expired'` (abandonar manualmente); `sent` e `signed`
+  não têm mais caminho manual nenhum.
+- **`ZapSignWebhookController`** (`v1/zapsign/webhook`, quinta rota
+  `@Public()` do sistema): a ZapSign não assina os webhooks como a
+  Asaas ecoa `asaas-access-token` -- o header `zapsign-webhook-token` é
+  um segredo que **nós** escolhemos e configuramos no painel deles na
+  hora de cadastrar o endpoint, mesma função, origem diferente. Só
+  reage a `doc_signed`, idempotente (reenviar o mesmo evento não
+  sobrescreve `signerName`), atribui o log de auditoria ao ator `client`
+  certo (não ao default `system`) via `setAuditActor`.
+- **Verificado com a API real da ZapSign, não só a estrutura do
+  código**: chave sandbox de verdade fornecida pela Giulia (tokens de
+  sandbox e produção, guardados em `.env`, nunca ecoados de volta no
+  chat). `POST /send-for-signature` disparado de verdade contra o
+  sandbox pela UI, documento aberto no navegador em
+  `sandbox.app.zapsign.com.br` (confirmado: nome do cliente, valor,
+  etapas contratadas, banner "Ambiente de Sandbox sem validade
+  jurídica"). Webhook coberto no smoke suite pelo mesmo padrão já usado
+  pra Asaas: não dispara a criação real do documento a cada execução
+  (custo/efeito colateral num serviço externo a cada run), mas fixa via
+  Prisma o que `sendForSignature()` teria gravado e testa o handler do
+  webhook de verdade -- header errado (401), evento processado (200,
+  `status` vira `signed`), reenvio idempotente, e a validação
+  `PROPOSAL_NOT_SENDABLE` (que não toca a API externa, testável sem
+  restrição). Resíduo de teste (as duas versões extras criadas na
+  oportunidade fixa mantida entre sessões) limpo manualmente depois.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

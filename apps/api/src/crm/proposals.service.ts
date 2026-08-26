@@ -29,10 +29,15 @@ export const proposalInputSchema = z.object({
 
 export type ProposalInput = z.infer<typeof proposalInputSchema>;
 
+// Só "expired" -- abandonar um draft/sent manualmente (a oportunidade
+// esfriou, por exemplo) continua fazendo sentido pra equipe decidir. Não
+// existe mais um jeito manual de virar "sent" (isso agora é
+// ProposalSigningService.sendForSignature, que de fato cria o documento
+// na ZapSign) nem "signed" (só o webhook confirma isso de verdade) -- é
+// exatamente o "a click is not a signature" que motivou trocar por um
+// provedor de assinatura de verdade.
 export const statusUpdateSchema = z.object({
-  status: z.enum(['draft', 'sent', 'signed', 'expired']),
-  sentAt: z.iso.datetime().nullable().optional(),
-  signedAt: z.iso.datetime().nullable().optional(),
+  status: z.literal('expired'),
 });
 
 export type ProposalStatusUpdate = z.infer<typeof statusUpdateSchema>;
@@ -50,8 +55,8 @@ export class ProposalsService {
         opportunity: { client: { accountId } },
         ...(opportunityId ? { opportunityId } : {}),
       },
-      include: { stages: true },
-      orderBy: { sentAt: 'desc' },
+      include: { stages: true, previousVersion: { select: { version: true } } },
+      orderBy: [{ opportunityId: 'asc' }, { version: 'desc' }],
     });
   }
 
@@ -96,13 +101,28 @@ export class ProposalsService {
       })),
     });
 
-    return this.prisma.db.proposal.create({
+    // Recalcular sempre cria uma proposta nova (as stages não são
+    // editáveis depois de criadas) -- version/previousVersionId tornam
+    // essa cadeia explícita. A versão anterior ainda assinável
+    // (draft/sent) vira "expired" na mesma transação: não faz sentido
+    // duas versões da mesma proposta abertas pro cliente assinar ao
+    // mesmo tempo. Uma versão já assinada nunca é tocada -- pode ser um
+    // aditivo/renegociação que convive com o contrato já aceito.
+    const latest = await this.prisma.db.proposal.findFirst({
+      where: { opportunityId: input.opportunityId },
+      orderBy: { version: 'desc' },
+    });
+
+    const shouldExpirePrevious = !!latest && (latest.status === 'draft' || latest.status === 'sent');
+    const createOp = this.prisma.db.proposal.create({
       data: {
         opportunityId: input.opportunityId,
         value: result.value,
         status: 'draft',
         complexityMultiplier: result.complexityMultiplier,
         packageDiscountPercent: result.packageDiscountPercent,
+        version: (latest?.version ?? 0) + 1,
+        previousVersionId: latest?.id,
         stages: {
           create: result.stages.map((s) => ({
             stage: s.stage,
@@ -116,6 +136,15 @@ export class ProposalsService {
       },
       include: { stages: true },
     });
+
+    const results = shouldExpirePrevious
+      ? await this.prisma.db.$transaction([
+          this.prisma.db.proposal.update({ where: { id: latest!.id }, data: { status: 'expired' } }),
+          createOp,
+        ])
+      : await this.prisma.db.$transaction([createOp]);
+
+    return results[results.length - 1];
   }
 
   async updateProposalStatus(
@@ -126,21 +155,7 @@ export class ProposalsService {
     await this.getProposal(accountId, id);
     return this.prisma.db.proposal.update({
       where: { id },
-      data: {
-        status: input.status,
-        sentAt:
-          input.sentAt === undefined
-            ? undefined
-            : input.sentAt === null
-              ? null
-              : new Date(input.sentAt),
-        signedAt:
-          input.signedAt === undefined
-            ? undefined
-            : input.signedAt === null
-              ? null
-              : new Date(input.signedAt),
-      },
+      data: { status: input.status },
       include: { stages: true },
     });
   }

@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { apiGet, ApiError } from "@/lib/api";
 import type { Opportunity, Proposal, RoleRate, Activity } from "@/lib/types";
 import { ProposalBuilder } from "@/components/proposals/proposal-builder";
-import { updateProposalStatus } from "@/components/proposals/actions";
+import { expireProposal, sendProposalForSignature } from "@/components/proposals/actions";
 import { STAGE_LABELS } from "@/lib/pep-stages";
 import { ActivityTimeline } from "@/components/activities/activity-timeline";
 
@@ -75,29 +75,49 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="font-mono text-sm text-zinc-900 dark:text-zinc-50">
                     R$ {Number(proposal.value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    <span className="ml-2 text-xs text-zinc-500 dark:text-zinc-400">v{proposal.version}</span>
                   </p>
                   <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
                     <span>{STATUS_LABELS[proposal.status]}</span>
                     {proposal.status === "draft" && (
-                      <form action={updateProposalStatus.bind(null, proposal.id, id, "sent")}>
+                      <form action={sendProposalForSignature.bind(null, proposal.id, id)}>
                         <button type="submit" className="text-zinc-500 hover:underline dark:text-zinc-400">
-                          Marcar como enviada
+                          Enviar para assinatura
                         </button>
                       </form>
                     )}
-                    {proposal.status === "sent" && (
-                      <form action={updateProposalStatus.bind(null, proposal.id, id, "signed")}>
-                        <button type="submit" className="text-emerald-700 hover:underline dark:text-emerald-400">
-                          Marcar como assinada
+                    {(proposal.status === "draft" || proposal.status === "sent") && (
+                      <form action={expireProposal.bind(null, proposal.id, id)}>
+                        <button type="submit" className="text-zinc-500 hover:text-red-600 dark:text-zinc-400">
+                          Expirar
                         </button>
                       </form>
                     )}
                   </div>
                 </div>
+                {proposal.previousVersion && (
+                  <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                    Substitui a v{proposal.previousVersion.version}
+                  </p>
+                )}
                 <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                   Multiplicador de complexidade {Number(proposal.complexityMultiplier).toFixed(2)}× · desconto de
                   pacote {(Number(proposal.packageDiscountPercent) * 100).toFixed(0)}%
                 </p>
+                {proposal.status === "sent" && proposal.zapsignSignUrl && (
+                  <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    Link de assinatura (ZapSign):{" "}
+                    <a href={proposal.zapsignSignUrl} target="_blank" rel="noreferrer" className="underline">
+                      {proposal.zapsignSignUrl}
+                    </a>
+                  </p>
+                )}
+                {proposal.status === "signed" && proposal.signerName && (
+                  <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
+                    Assinada por {proposal.signerName} em{" "}
+                    {proposal.signedAt && new Date(proposal.signedAt).toLocaleString("pt-BR")}
+                  </p>
+                )}
                 <div className="mt-2 overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead>
@@ -130,6 +150,11 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
         <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Nova proposta</h2>
+        {proposals.some((p) => p.status === "draft" || p.status === "sent") && (
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            Calcular de novo cria uma nova versão e marca a versão ainda aberta como expirada.
+          </p>
+        )}
         {!canSeeRoleRates ? (
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
             Sua conta não tem permissão para ver tarifas por papel — peça a um admin para calcular a proposta.

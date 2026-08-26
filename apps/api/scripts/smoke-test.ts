@@ -146,6 +146,117 @@ async function main() {
     stagesRes.body
   );
 
+  // --- Versionamento e assinatura de proposta -----------------------
+  // Recalcular pra mesma Opportunity deve criar v2 e expirar a v1 (ainda
+  // "draft") em vez de deixar duas propostas abertas ao mesmo tempo.
+  const proposalV2Res = await api("/v1/proposals", {
+    method: "POST",
+    body: JSON.stringify({
+      opportunityId,
+      roleHours: [{ role: "Arquiteto Líder (RT)", stage: "CAPTACAO_ALINHAMENTO", hours: 8 }],
+      complexityScores: { tipologia: 3, programaEscopo: 3, terreno: 3, regulatorio: 3, ambicaoDesign: 3 },
+      contractedStages: ["CAPTACAO_ALINHAMENTO"],
+    }),
+  });
+  const proposalV2 = proposalV2Res.body?.data;
+  report(
+    "Recalcular a mesma Opportunity → v2, com previousVersionId apontando pra v1",
+    proposalV2Res.status === 201 && proposalV2?.version === 2 && proposalV2?.previousVersionId === proposal?.id,
+    proposalV2Res.body
+  );
+
+  const proposalV1AfterRes = await api(`/v1/proposals/${proposal?.id}`);
+  report(
+    "v1 (ainda draft) vira 'expired' automaticamente ao criar a v2",
+    proposalV1AfterRes.body?.data?.status === "expired",
+    proposalV1AfterRes.body
+  );
+
+  // sendForSignature chama a ZapSign de verdade -- mesma decisão já
+  // tomada pra Asaas (ver POST /invoices/:id/charge mais abaixo): não
+  // vale a pena disparar isso a cada execução automática do smoke suite
+  // (custo/efeito colateral num serviço externo real), então esta
+  // cobertura fica pra verificação manual, uma vez, com a chave sandbox
+  // de verdade. O que dá pra testar de forma real e repetível é o
+  // webhook: fixa via Prisma o que sendForSignature() teria gravado
+  // (zapsignDocToken/status/zapsignSignUrl), depois faz um POST de
+  // verdade no endpoint do webhook -- mesmo padrão já usado pro webhook
+  // da Asaas.
+  const fakeZapsignDocToken = `smoke-test-zapsign-doc-${Date.now()}`;
+  await prisma.proposal.update({
+    where: { id: proposalV2?.id },
+    data: { status: "sent", sentAt: new Date(), zapsignDocToken: fakeZapsignDocToken, zapsignSignUrl: "https://app.zapsign.com.br/verificar/fake-sandbox-url" },
+  });
+
+  const webhookNoTokenRes = await fetch(`${BASE_URL}/v1/zapsign/webhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event_type: "doc_signed", token: fakeZapsignDocToken }),
+  });
+  report(
+    "POST /zapsign/webhook sem zapsign-webhook-token → 401",
+    webhookNoTokenRes.status === 401,
+    await webhookNoTokenRes.json().catch(() => null)
+  );
+
+  const zapsignWebhookToken = process.env.ZAPSIGN_WEBHOOK_AUTH_TOKEN;
+  const webhookRes = await fetch(`${BASE_URL}/v1/zapsign/webhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "zapsign-webhook-token": zapsignWebhookToken ?? "" },
+    body: JSON.stringify({
+      event_type: "doc_signed",
+      token: fakeZapsignDocToken,
+      signers: [{ name: "Fernanda Ribeiro", email: "fernanda@example.com", signed_at: new Date().toISOString() }],
+    }),
+  });
+  report("POST /zapsign/webhook com token certo → 200", webhookRes.status === 200, await webhookRes.json().catch(() => null));
+
+  const proposalV2AfterWebhookRes = await api(`/v1/proposals/${proposalV2?.id}`);
+  report(
+    "Webhook doc_signed → status vira 'signed' com signerName gravado",
+    proposalV2AfterWebhookRes.body?.data?.status === "signed" &&
+      proposalV2AfterWebhookRes.body?.data?.signerName === "Fernanda Ribeiro",
+    proposalV2AfterWebhookRes.body
+  );
+
+  const webhookAgainRes = await fetch(`${BASE_URL}/v1/zapsign/webhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "zapsign-webhook-token": zapsignWebhookToken ?? "" },
+    body: JSON.stringify({ event_type: "doc_signed", token: fakeZapsignDocToken, signers: [{ name: "Outra pessoa" }] }),
+  });
+  const proposalV2AfterSecondWebhookRes = await api(`/v1/proposals/${proposalV2?.id}`);
+  report(
+    "Reenviar o mesmo evento doc_signed → idempotente (não sobrescreve o signerName já gravado)",
+    webhookAgainRes.status === 200 && proposalV2AfterSecondWebhookRes.body?.data?.signerName === "Fernanda Ribeiro",
+    proposalV2AfterSecondWebhookRes.body
+  );
+
+  // Validação que acontece antes de qualquer chamada real pra ZapSign --
+  // seguro de testar sem tocar no serviço externo.
+  const sendAlreadySignedRes = await api(`/v1/proposals/${proposalV2?.id}/send-for-signature`, { method: "POST" });
+  report(
+    "POST /proposals/:id/send-for-signature numa proposta já assinada → 422 PROPOSAL_NOT_SENDABLE",
+    sendAlreadySignedRes.status === 422 && sendAlreadySignedRes.body?.error?.code === "PROPOSAL_NOT_SENDABLE",
+    sendAlreadySignedRes.body
+  );
+
+  const signAuditRes = await api(`/v1/audit-log?entityType=Proposal&entityId=${proposalV2?.id}&action=update`);
+  const signAuditEntry = signAuditRes.body?.data?.entries?.find((e: any) => e.changes?.status?.to === "signed");
+  report(
+    "Assinar pelo link público atribui o log ao ator 'client' certo, não ao default 'system'",
+    signAuditEntry?.actorType === "client" && signAuditEntry?.actorEmail === "fernanda@example.com",
+    signAuditEntry
+  );
+
+  const proposalSignedNotificationRes = await api("/v1/notifications");
+  report(
+    "Assinar a proposta pelo link público gera notificação pro admin (type: proposal_signed)",
+    proposalSignedNotificationRes.body?.data?.notifications?.some(
+      (n: any) => n.type === "proposal_signed" && n.opportunityId === opportunityId
+    ),
+    proposalSignedNotificationRes.body?.data?.notifications?.length
+  );
+
   const wonRes = await api(`/v1/opportunities/${opportunityId}`, {
     method: "PATCH",
     body: JSON.stringify({ wonAt: new Date().toISOString() }),

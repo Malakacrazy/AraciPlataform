@@ -215,8 +215,32 @@ model Proposal {
   status                 String // draft | sent | signed | expired
   complexityMultiplier   Decimal? // 0.70x–1.50x, from the 5-dimension complexity score (aba 04)
   packageDiscountPercent Decimal? // 10% when 4+ stages are contracted together (aba 05)
-  sentAt                 DateTime?
-  signedAt               DateTime?
+  // Recalcular sempre cria uma proposta nova em vez de editar a existente
+  // (ver comentário em ProposalsController) -- version/previousVersion
+  // tornam essa cadeia explícita em vez de só "várias Proposal soltas na
+  // mesma Opportunity sem ordem". Auto-incrementado em createProposal();
+  // a versão anterior que ainda não tinha sido assinada vira "expired"
+  // automaticamente (não faz sentido duas versões da mesma proposta
+  // ainda assináveis ao mesmo tempo) -- uma já assinada nunca é tocada,
+  // porque pode ser um aditivo/renegociação que convive com o contrato
+  // aceito.
+  version           Int       @default(1)
+  previousVersionId String?   @unique
+  previousVersion   Proposal? @relation("ProposalVersion", fields: [previousVersionId], references: [id])
+  nextVersion       Proposal? @relation("ProposalVersion")
+  // Assinatura de verdade via ZapSign (não um botão "marcar como
+  // assinada" clicado por alguém da equipe) -- zapsignDocToken correlaciona
+  // o webhook (ver ZapSignWebhookController) de volta pra este registro;
+  // zapsignSignUrl é a página de assinatura hospedada pela própria
+  // ZapSign, dada à equipe pra compartilhar com o cliente (a plataforma
+  // nunca hospeda a UI de assinatura em si). signerName/signedAt são
+  // preenchidos só quando o webhook confirma doc_signed, nunca pelo
+  // endpoint autenticado da equipe.
+  zapsignDocToken String?   @unique
+  zapsignSignUrl  String?
+  signerName      String?
+  sentAt          DateTime?
+  signedAt        DateTime?
 
   stages ProposalStage[]
 }
@@ -509,21 +533,22 @@ model Activity {
 // Contraparte in-app do que NotificationsService já manda por e-mail via
 // Resend -- pra quem não está de olho na caixa de entrada (sino na Nav).
 // Uma linha por destinatário, não por conta: cada admin marca a sua como
-// lida sem afetar as outras. `projectId` fica solto (não um par
-// entityType/entityId polimórfico como Activity/OfficeLink) porque hoje
-// só existe um gatilho (aprovação de especificação) e ele sempre aponta
-// pra um Project -- generalizar antes de existir um segundo tipo de alvo
-// seria abstração sem uso real.
+// lida sem afetar as outras. `projectId`/`opportunityId` ficam soltos (não
+// um par entityType/entityId polimórfico como Activity/OfficeLink) porque
+// só existem dois gatilhos hoje, cada um sempre apontando pro mesmo tipo
+// de alvo -- generalizar antes de um terceiro tipo de alvo existir seria
+// abstração sem uso real.
 model Notification {
-  id        String    @id @default(cuid())
-  accountId String
-  account   Account   @relation(fields: [accountId], references: [id])
-  userId    String
-  user      User      @relation(fields: [userId], references: [id])
-  type      String // "specification_approved" -- único gatilho hoje
-  title     String
-  body      String?
-  projectId String?
+  id            String    @id @default(cuid())
+  accountId     String
+  account       Account   @relation(fields: [accountId], references: [id])
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  type          String // "specification_approved" | "proposal_signed"
+  title         String
+  body          String?
+  projectId     String?
+  opportunityId String?
   readAt    DateTime?
   createdAt DateTime  @default(now())
 

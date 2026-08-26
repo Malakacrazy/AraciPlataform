@@ -15,13 +15,17 @@ import {
   type ProposalInput,
   type ProposalStatusUpdate,
 } from './proposals.service';
+import { ProposalSigningService } from './proposal-signing.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 @Controller('v1/proposals')
 export class ProposalsController {
-  constructor(private readonly proposalsService: ProposalsService) {}
+  constructor(
+    private readonly proposalsService: ProposalsService,
+    private readonly proposalSigningService: ProposalSigningService,
+  ) {}
 
   @Get()
   async list(
@@ -80,6 +84,19 @@ export class ProposalsController {
       id,
       input,
     );
+    return { data };
+  }
+
+  // Cria o documento na ZapSign de verdade (não um flag de status
+  // solto) -- ver ProposalSigningService. status vira "sent" só se a
+  // chamada pra ZapSign realmente funcionar.
+  @Post(':id/send-for-signature')
+  @HttpCode(200)
+  async sendForSignature(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
+    const data = await this.proposalSigningService.sendForSignature(accountId, id);
     return { data };
   }
 }

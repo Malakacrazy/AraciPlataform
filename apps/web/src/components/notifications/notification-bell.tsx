@@ -109,11 +109,16 @@ export function NotificationBell({ initial }: { initial: NotificationsResponse }
                     </span>
                   </>
                 );
+                const href = n.projectId
+                  ? `/projects/${n.projectId}`
+                  : n.opportunityId
+                    ? `/opportunities/${n.opportunityId}`
+                    : null;
                 return (
                   <li key={n.id} className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
-                    {n.projectId ? (
+                    {href ? (
                       <Link
-                        href={`/projects/${n.projectId}`}
+                        href={href}
                         onClick={() => {
                           setOpen(false);
                           handleNotificationClick(n.id);

@@ -59,6 +59,45 @@ export class NotificationsService {
     }
   }
 
+  // Segundo gatilho real -- achado da mesma auditoria: "no notification to
+  // the studio when a client actually opens or approves something"
+  // também valia pra proposta assinada, não só especificação aprovada.
+  // Mesma filosofia de nunca deixar uma falha de e-mail/sino derrubar a
+  // assinatura em si, que já foi persistida antes desta chamada.
+  async notifyProposalSigned(
+    accountId: string,
+    params: { opportunityId: string; opportunityTitle: string; signerName: string; value: string },
+  ) {
+    try {
+      const admins = await this.prisma.db.user.findMany({
+        where: { accountId, accessLevel: 'admin' },
+        select: { id: true, email: true },
+      });
+      if (admins.length === 0) return;
+
+      const title = `${params.opportunityTitle}: proposta assinada`;
+      const body = `Assinado por ${params.signerName} — R$ ${params.value}`;
+      await this.prisma.db.notification.createMany({
+        data: admins.map((admin) => ({
+          accountId,
+          userId: admin.id,
+          type: 'proposal_signed',
+          title,
+          body,
+          opportunityId: params.opportunityId,
+        })),
+      });
+
+      await sendEmail({
+        to: admins.map((a) => a.email),
+        subject: title,
+        html: `<p><strong>${escapeHtml(params.signerName)}</strong> assinou a proposta de <strong>${escapeHtml(params.opportunityTitle)}</strong> no valor de R$ ${escapeHtml(params.value)}.</p>`,
+      });
+    } catch (error) {
+      this.logger.warn(`Falha ao notificar proposta assinada: ${(error as Error).message}`);
+    }
+  }
+
   // Sino da Nav (apps/web) -- contraparte visual do e-mail acima. Só as
   // últimas 20 pra não crescer sem limite na resposta; marcar como lida
   // não apaga, só seta readAt (histórico continua consultável se um dia
