@@ -627,10 +627,75 @@ da correção resolve os dois:
     postura já usada pra fluxos que tocam sistemas externos reais demais
     pra automatizar com segurança (OAuth do Google, emissão de NFS-e).
 
-Ainda falta a última peça do Fase 1 do plano de correção: login de
-cliente por magic link. Capacidade/FF&E das outras duas views do
-dashboard e o resto do plano de 3 fases ficam registrados no artifact da
-auditoria, não duplicados aqui.
+- **Login de cliente por magic link (`/portal/*`) — implementado e
+  verificado de ponta a ponta no navegador**. Último achado da auditoria
+  (cliente não tinha acesso nenhum, dependia inteiramente do link de
+  apresentação avulso mandado por e-mail/WhatsApp) fechado sem inventar
+  autenticação nova: mesmo padrão já validado pelo `PresentationLink` —
+  token opaco gerado por `randomUUID()` e guardado no banco (`ClientMagicLink`,
+  `ClientSession`), nunca um JWT decodificado no apps/web. O apps/web só
+  repassa o token pro apps/api, que é o único verificador — a família
+  `v1/client-portal/*` virou o quarto grupo de rotas `@Public()`
+  (autorização própria na service layer, não pelo `AuthGuard` global).
+  - Fluxo: cliente informa e-mail em `/portal/login` → resposta genérica
+    sempre igual, exista ou não o e-mail (`request-link`, sem enumeração)
+    → link de 15 minutos, uso único → `/portal/verify?token=...` troca
+    por uma sessão de 7 dias → `/portal` lista todos os projetos do
+    cliente num dashboard só, cada um com link de apresentação gerado sob
+    demanda se ainda não existir.
+  - **`Client.email` não tem constraint de unicidade no schema** — achado
+    real, não hipotético, ao escrever o teste do magic link: duas linhas
+    de Client podem compartilhar o mesmo e-mail, e o login busca por
+    e-mail (`findFirst`), então qual cliente loga fica não-determinístico
+    nesse caso. Estúdio único hoje torna isso improvável na prática, mas
+    é uma lacuna de verdade — registrada aqui, não corrigida agora
+    (adicionar a constraint é decisão de produto: o que fazer com
+    e-mails duplicados já existentes antes de migrar).
+  - **Quatro bugs reais achados rodando o fluxo de verdade** (não em
+    revisão de código):
+    1. Teste do magic link buscava o link por e-mail em vez de por
+       `clientId` — colidia direto com o problema de unicidade acima
+       contra o próprio cliente fixo de outra verificação (Asaas) que já
+       usa o mesmo e-mail de teste. Corrigido usando e-mail único por
+       execução e busca por `clientId`.
+    2. `listPortalProjects` gera o link de apresentação sob demanda como
+       efeito colateral — rodando cedo demais no smoke suite, isso
+       poluía um teste depois que esperava explicitamente "ainda não foi
+       gerado". Corrigido só pela ordem: bloco do portal movido pra
+       depois do bloco que testa geração de link.
+    3. `components/portal/actions.ts` é um arquivo `"use server"` que
+       exportava uma constante (`SESSION_COOKIE`) ao lado das server
+       actions — Next.js só permite exportar funções assíncronas desse
+       tipo de arquivo. Só apareceu como erro de runtime no navegador,
+       não no `tsc --noEmit`. Corrigido movendo a constante pro
+       `lib/portalApi.ts` (módulo comum, não uma server action).
+    4. `/portal/verify` tentava setar o cookie de sessão durante o render
+       de uma Server Component page — Next.js só permite isso em Server
+       Action ou Route Handler. Corrigido convertendo de `page.tsx` pra
+       `route.ts` (redirect com `Set-Cookie`, sem nenhuma página
+       renderizada nesse passo).
+    5. `logoutPortal` chamava `cookies().delete(SESSION_COOKIE)` sem
+       `path` — como o cookie foi setado com `path: "/portal"`, o delete
+       (que por padrão usa `path: "/"`) virava um cookie diferente pro
+       navegador e não removia nada. Só apareceu testando logout de
+       verdade no navegador (voltar pra `/portal` depois de "sair" ainda
+       mostrava a sessão ativa). Corrigido passando o mesmo `path` no
+       delete.
+  - Verificado: build+typecheck limpos (api e web), 11 casos novos no
+    smoke test (link genérico com e-mail existente/inexistente sem
+    enumeração, persistência no banco, troca por sessão, uso único, 401
+    sem header/com token inválido, projetos do cliente certo com link
+    gerado sob demanda), e o fluxo completo testado de ponta a ponta no
+    navegador com o cliente fixo real (Fernanda Ribeiro): pedir link,
+    localizar o token no banco (sem inbox real disponível), verificar,
+    ver o dashboard com o projeto, abrir a apresentação, sair — e
+    confirmar que sair de fato invalida o acesso (`/portal` depois de
+    sair volta pro login).
+
+Com isso fecham as quatro peças da Fase 1 do plano de correção
+(permissões, histórico, notificações, login de cliente). Capacidade/FF&E
+das outras duas views do dashboard e o resto do plano de 3 fases ficam
+registrados no artifact da auditoria, não duplicados aqui.
 
 ## Fase 5 — Beta & go-live
 

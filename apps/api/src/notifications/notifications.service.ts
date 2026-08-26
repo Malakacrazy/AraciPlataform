@@ -45,4 +45,18 @@ export class NotificationsService {
       this.logger.warn(`Falha ao notificar aprovação de especificação: ${(error as Error).message}`);
     }
   }
+
+  // Diferente de notifySpecificationApproved acima: aqui o e-mail É a
+  // ação (sem ele, o cliente simplesmente não consegue entrar), então o
+  // erro não é engolido -- propaga pra quem chamou decidir. O chamador
+  // (ClientPortalService.requestMagicLink) ainda devolve a mesma
+  // resposta genérica pro cliente independente de sucesso, pra não
+  // vazar se aquele e-mail está cadastrado ou não.
+  async sendClientMagicLink(to: string, clientName: string, link: string) {
+    await sendEmail({
+      to: [to],
+      subject: 'Seu link de acesso — Studio Araci',
+      html: `<p>Olá, ${escapeHtml(clientName)}.</p><p>Clique no link abaixo para acessar seus projetos. Válido por 15 minutos.</p><p><a href="${link}">${link}</a></p>`,
+    });
+  }
 }

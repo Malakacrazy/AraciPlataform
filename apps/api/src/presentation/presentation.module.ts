@@ -12,5 +12,6 @@ import { PublicPresentationService } from './public-presentation.service';
   imports: [ErpModule, NotificationsModule],
   controllers: [PresentationLinksController, PublicPresentationController],
   providers: [PresentationLinksService, PublicPresentationService],
+  exports: [PresentationLinksService],
 })
 export class PresentationModule {}

@@ -145,6 +145,43 @@ model Client {
 
   opportunities Opportunity[]
   projects      Project[]
+  magicLinks    ClientMagicLink[]
+  sessions      ClientSession[]
+}
+
+// Login de cliente por magic link -- pedido de acesso, curto e de uso
+// único. token vem de crypto.randomUUID() (mesma origem de
+// PresentationLink.token), não do id/cuid: cuid existe pra unicidade,
+// não foi desenhado pra ser imprevisível como credencial de portador. Um
+// pedido novo invalida qualquer link anterior ainda não consumido do
+// mesmo cliente (ver ClientPortalService.requestMagicLink) -- só um link
+// vivo por vez, mesmo espírito do "gerar de novo revoga o anterior" já
+// usado em PresentationLink.
+model ClientMagicLink {
+  id         String    @id @default(cuid())
+  clientId   String
+  client     Client    @relation(fields: [clientId], references: [id])
+  token      String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+// Sessão de cliente já autenticado (depois de consumir um
+// ClientMagicLink) -- token opaco guardado num cookie httpOnly pelo
+// apps/web, verificado aqui pelo próprio valor (mesmo modelo de
+// "token na tabela é a credencial" do PresentationLink/ClientMagicLink
+// acima), não um JWT decodificado no lado do apps/web. Existe separado
+// do magic link porque tem vida bem mais longa (dias, não minutos) e
+// pode ser usado repetidas vezes, diferente do link de e-mail, que é de
+// uso único.
+model ClientSession {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id])
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 }
 
 // CRM: oportunidade no pipeline (kanban)

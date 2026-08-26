@@ -12,6 +12,7 @@ import { PresentationModule } from './presentation/presentation.module';
 import { BillingModule } from './billing/billing.module';
 import { BiModule } from './bi/bi.module';
 import { ActivitiesModule } from './activities/activities.module';
+import { ClientPortalModule } from './client-portal/client-portal.module';
 import { HttpExceptionFilter } from './common/http-exception.filter';
 
 @Module({
@@ -26,6 +27,7 @@ import { HttpExceptionFilter } from './common/http-exception.filter';
     BillingModule,
     BiModule,
     ActivitiesModule,
+    ClientPortalModule,
     // Defesa em profundidade — este serviço não é exposto ao navegador,
     // mas um limite de taxa custa pouco e ajuda contra um chamador
     // comprometido/com bug no lado do apps/web.

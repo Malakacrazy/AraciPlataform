@@ -845,6 +845,92 @@ async function main() {
     await revokedTokenRes.json().catch(() => null)
   );
 
+  // --- Portal do cliente: magic link + sessão --------------------------
+  // Roda só depois do bloco de presentation-link acima (não antes): o
+  // portal gera um link sob demanda pra quem ainda não tem um (ver
+  // ClientPortalService.listProjects), e isso teria contaminado o teste
+  // "antes de gerar → data null" logo acima se rodasse primeiro --
+  // achado rodando o smoke suite de verdade, não hipotético.
+  //
+  // Client.email não é único no schema -- e "fernanda@example.com" é
+  // reusado por toda execução deste script E pelo projeto real mantido
+  // entre sessões pra outras verificações (Asaas), então mais de uma
+  // "Fernanda Ribeiro" com o mesmo e-mail sempre vai coexistir no banco
+  // de dev, cleanup ou não. Um e-mail próprio e único pra este cliente
+  // (ainda em example.com, RFC 2606, nunca entrega de verdade) evita
+  // ambiguidade sem precisar mexer no clientId/e-mail compartilhado
+  // usado pelo resto do script.
+  const portalTestEmail = `fernanda-portal-${Date.now()}@example.com`;
+  await api(`/v1/clients/${clientId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ email: portalTestEmail }),
+  });
+
+  const requestLinkRes = await api("/v1/client-portal/request-link", {
+    method: "POST",
+    body: JSON.stringify({ email: portalTestEmail }),
+  });
+  report("POST /client-portal/request-link → 200 (mensagem genérica)", requestLinkRes.status === 200, requestLinkRes.body);
+
+  const requestLinkUnknownRes = await api("/v1/client-portal/request-link", {
+    method: "POST",
+    body: JSON.stringify({ email: "ninguem-cadastrado@example.com" }),
+  });
+  report(
+    "POST /client-portal/request-link com e-mail não cadastrado → mesma resposta 200 (sem enumeração)",
+    requestLinkUnknownRes.status === 200 &&
+      requestLinkUnknownRes.body?.data?.message === requestLinkRes.body?.data?.message,
+    requestLinkUnknownRes.body
+  );
+
+  const magicLink = await prisma.clientMagicLink.findFirst({
+    where: { clientId },
+    orderBy: { createdAt: "desc" },
+  });
+  report("Magic link foi persistido no banco pra o cliente certo", !!magicLink, magicLink);
+
+  const consumeRes = await api("/v1/client-portal/consume", {
+    method: "POST",
+    body: JSON.stringify({ token: magicLink?.token }),
+  });
+  report("POST /client-portal/consume → 200, devolve sessionToken", consumeRes.status === 200 && !!consumeRes.body?.data?.sessionToken, consumeRes.body);
+  const clientSessionToken = consumeRes.body?.data?.sessionToken;
+
+  const consumeAgainRes = await api("/v1/client-portal/consume", {
+    method: "POST",
+    body: JSON.stringify({ token: magicLink?.token }),
+  });
+  report(
+    "Reusar o mesmo magic link → 401 (uso único)",
+    consumeAgainRes.status === 401,
+    consumeAgainRes.body
+  );
+
+  const portalProjectsNoAuthRes = await fetch(`${BASE_URL}/v1/client-portal/projects`);
+  report(
+    "GET /client-portal/projects sem X-Client-Session → 401",
+    portalProjectsNoAuthRes.status === 401
+  );
+
+  const portalProjectsBadTokenRes = await fetch(`${BASE_URL}/v1/client-portal/projects`, {
+    headers: { "X-Client-Session": "token-invalido-qualquer-coisa" },
+  });
+  report(
+    "GET /client-portal/projects com token inválido → 401",
+    portalProjectsBadTokenRes.status === 401
+  );
+
+  const portalProjectsRes = await fetch(`${BASE_URL}/v1/client-portal/projects`, {
+    headers: { "X-Client-Session": clientSessionToken },
+  });
+  const portalProjectsBody = await portalProjectsRes.json().catch(() => null);
+  const portalProject = portalProjectsBody?.data?.projects?.find((p: any) => p.id === projectId);
+  report(
+    "GET /client-portal/projects → inclui o projeto do cliente, com link de apresentação gerado sob demanda",
+    portalProjectsRes.status === 200 && !!portalProject?.presentationToken,
+    portalProjectsBody
+  );
+
   const driveLinkRes = await api(`/v1/projects/${projectId}/office-links`, {
     method: "POST",
     body: JSON.stringify({
