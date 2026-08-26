@@ -597,12 +597,40 @@ da correção resolve os dois:
     testado de ponta a ponta no navegador com sessão real — nota criada,
     renderizada com autor/timestamp corretos, removida.
 
-Ainda faltam as outras duas peças do Fase 1 do plano de correção
-(notificações por e-mail via Resend, login de cliente por magic link) —
-dependem de uma chave de API da Resend que só a Giulia pode gerar (não é
-algo que se cria em nome de terceiro). Capacidade/FF&E das outras duas
-views do dashboard e o resto do plano de 3 fases ficam registrados no
-artifact da auditoria, não duplicados aqui.
+- **Notificações por e-mail via Resend — implementado e verificado com
+  envio real**. Chave de API gerada pela Giulia (não algo que se cria em
+  nome de terceiro) — já com um domínio verificado no painel
+  (`updates.studioaraci.com.br`, sending habilitado), confirmado direto
+  na API da Resend antes de usar, não suposto.
+  - Primeiro gatilho real: `PublicPresentationService.updateSpecification`
+    (achado da auditoria — nada avisava a equipe quando um cliente de
+    fato aprovava algo pelo link de apresentação) notifica todo admin da
+    conta por e-mail só na transição pra aprovado (`clientApproved`
+    false→true), não a cada re-salvamento. Nunca deixa uma falha de
+    e-mail derrubar a aprovação em si, que já foi persistida antes —
+    loga e segue.
+  - **Cuidado real, não só técnico**: o domínio é de verdade e os admins
+    são pessoas de verdade (Giulia + a conta de dev) — antes de qualquer
+    envio, perguntado e confirmado explicitamente com a Giulia, mesmo
+    padrão de pausa usada antes da emissão real de NFS-e em Produção.
+    Envio de teste real disparado só depois dessa confirmação, aceito
+    pela Resend (retornou um id de mensagem real).
+  - **Decisão deliberada sobre o smoke test**: o fluxo de aprovação via
+    link já testado no smoke suite reaproveita a mesma especificação já
+    aprovada antes pelo checkout do carrinho FF&E — a re-aprovação não
+    cruza a transição false→true, então não dispara e-mail. Nenhum novo
+    caso de teste foi escrito pra exercitar a transição de verdade, de
+    propósito: isso mandaria um e-mail real pro admin em toda execução
+    do smoke test (já rodado dezenas de vezes nesta sessão), o que seria
+    spam real pra uma pessoa real. Cobertura desse gatilho específico
+    fica por verificação manual (feita acima), não automatizada — mesma
+    postura já usada pra fluxos que tocam sistemas externos reais demais
+    pra automatizar com segurança (OAuth do Google, emissão de NFS-e).
+
+Ainda falta a última peça do Fase 1 do plano de correção: login de
+cliente por magic link. Capacidade/FF&E das outras duas views do
+dashboard e o resto do plano de 3 fases ficam registrados no artifact da
+auditoria, não duplicados aqui.
 
 ## Fase 5 — Beta & go-live
 

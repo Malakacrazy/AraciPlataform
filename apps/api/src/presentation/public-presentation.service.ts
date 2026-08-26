@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotFoundError } from '../common/api-error';
+import { NotificationsService } from '../notifications/notifications.service';
 
 // Só clientApproved/clientComment — nunca productId/quantity/unitPrice/
 // markupPercent. O cliente aprova e comenta; preço e quantidade
@@ -23,7 +24,10 @@ export type PublicSpecUpdateInput = z.infer<typeof publicSpecUpdateSchema>;
 // escopo é um token de portador, não uma conta).
 @Injectable()
 export class PublicPresentationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   private async getLinkOrThrow(token: string) {
     const link = await this.prisma.db.presentationLink.findUnique({
@@ -78,10 +82,31 @@ export class PublicPresentationService {
     if (!spec) {
       throw new NotFoundError('Especificação');
     }
-    return this.prisma.db.productSpecification.update({
+
+    const updated = await this.prisma.db.productSpecification.update({
       where: { id: specId },
       data: input,
       include: { product: true },
     });
+
+    // Notifica só na transição pra aprovado -- reenviar o mesmo
+    // comentário numa especificação já aprovada não deveria mandar
+    // e-mail de novo. Achado da auditoria: antes disso, nada avisava a
+    // equipe quando um cliente de fato aprovava algo por aqui.
+    if (input.clientApproved === true && !spec.clientApproved) {
+      const project = await this.prisma.db.project.findUnique({
+        where: { id: link.projectId },
+        select: { accountId: true, name: true },
+      });
+      if (project) {
+        await this.notificationsService.notifySpecificationApproved(project.accountId, {
+          projectName: project.name,
+          productName: updated.product.name,
+          clientComment: updated.clientComment,
+        });
+      }
+    }
+
+    return updated;
   }
 }
