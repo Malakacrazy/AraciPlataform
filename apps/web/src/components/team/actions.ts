@@ -55,3 +55,16 @@ export async function revokeApiKey(userId: string): Promise<void> {
   }
   revalidatePath("/team");
 }
+
+// Sem userId de parâmetro -- diferente da chave de API acima, esta rota
+// nunca aceita :id nenhum (ver GoogleCredentialsController): é sempre a
+// credencial Google da PRÓPRIA sessão, não dá pra desconectar em nome de
+// outra pessoa.
+export async function disconnectGoogleSync(): Promise<void> {
+  const res = await apiFetch("office/google-credential", { method: "DELETE" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error?.message ?? "Não foi possível desconectar.");
+  }
+  revalidatePath("/team");
+}

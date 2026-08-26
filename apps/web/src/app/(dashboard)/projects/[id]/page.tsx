@@ -226,6 +226,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         entityId={project.id}
         links={officeLinks}
         userEmail={session.user.email}
+        contactEmail={project.client.email}
       />
 
       <ActivityTimeline

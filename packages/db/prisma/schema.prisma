@@ -130,6 +130,30 @@ model User {
   activities        Activity[]
   notifications     Notification[]
   assignedTasks     Task[]
+  googleCredential  GoogleCredential?
+}
+
+// Refresh token do Google por usuário -- fundação pra sincronização via
+// webhook (Calendar events.watch / Gmail users.watch), ainda não usada
+// por nenhum job real (não existe watch() nem endpoint de callback do
+// Google ainda, só esta persistência). Sempre criptografado em repouso
+// (AES-256-GCM, ver google-credential-crypto.ts) porque é um segredo de
+// longa duração que dá acesso à conta Google de verdade da pessoa,
+// diferente de qualquer outro token deste projeto (todos os outros —
+// sessão interna, link de apresentação, sessão de portal — são de vida
+// curta). Nasce só quando o usuário conecta explicitamente em /team
+// (nunca no login SSO normal, que continua sem escopo nenhum de
+// Drive/Calendar/Gmail, de propósito).
+model GoogleCredential {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id])
+  refreshTokenEnc  String
+  refreshTokenIv   String
+  refreshTokenTag  String
+  scope            String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
 // CRM: pessoa física/jurídica captada como lead ou já cliente

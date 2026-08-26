@@ -84,14 +84,26 @@ declare global {
 }
 
 export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
-export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly";
+// calendar.events (leitura E escrita), não mais só .readonly -- upgrade
+// deliberado pra cobrir tanto listar/vincular um evento existente quanto
+// criar um novo (ver createCalendarEvent) com um escopo só, em vez de
+// pedir consentimento duas vezes pra permissões que se sobrepõem.
+export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 // gmail.readonly é classificado pelo Google como escopo "restrito" (não
-// só "sensível", como calendar.events.readonly) -- exige verificação
-// CASA de segurança pra sair do modo de teste (até 100 usuários de
-// teste) e ficar disponível pra qualquer conta Google real. Não bloqueia
-// o desenvolvimento agora, mas é uma etapa extra antes de produção que
-// drive.file/calendar.events.readonly não têm.
+// só "sensível", como calendar.events) -- exige verificação CASA de
+// segurança pra sair do modo de teste (até 100 usuários de teste) e
+// ficar disponível pra qualquer conta Google real. Não bloqueia o
+// desenvolvimento agora, mas é uma etapa extra antes de produção que
+// drive.file/calendar.events não têm.
 export const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+// Escopo separado de GMAIL_SCOPE de propósito -- compor/enviar é uma
+// ação de maior confiança (manda e-mail de verdade em nome da pessoa)
+// que só listar/vincular uma mensagem já existente. Pedir os dois juntos
+// sempre que qualquer um dos dois botões é clicado violaria o "least-
+// privilege" que já é a filosofia declarada deste arquivo. gmail.send
+// (diferente de gmail.readonly) é classificado como escopo "sensível",
+// não "restrito" -- não exige a verificação CASA mais pesada.
+export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
 function loadScriptOnce(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -220,6 +232,57 @@ export async function listUpcomingCalendarEvents(accessToken: string): Promise<C
   }));
 }
 
+export interface NewCalendarEvent {
+  title: string;
+  description?: string;
+  // datetime-local do <input> (sem timezone) -- manda como está pro
+  // Calendar API junto do timeZone do navegador, em vez de converter pra
+  // UTC na mão (a própria API já resolve o timezone informado).
+  startIso: string;
+  endIso: string;
+}
+
+// Cria um evento de verdade (events.insert), sem convidados -- diferente
+// do picker acima, que só lista o que já existe. Não usa a Picker API
+// (não existe "Calendar Picker", ver nota do topo do arquivo): é uma
+// chamada direta à Calendar API, criando e devolvendo o evento no mesmo
+// formato de CalendarEventSummary pra virar um OfficeLink igual a
+// qualquer evento vinculado.
+// O valor de um <input type="datetime-local"> vem sem segundos
+// ("2026-08-26T20:59"), mas a Calendar API exige RFC3339 completo
+// (com segundos) em dateTime -- sem isso ela responde 400. Achado real
+// testando a criação de evento de verdade.
+function withSeconds(dateTimeLocal: string): string {
+  return dateTimeLocal.length === 16 ? `${dateTimeLocal}:00` : dateTimeLocal;
+}
+
+export async function createCalendarEvent(
+  accessToken: string,
+  input: NewCalendarEvent,
+): Promise<CalendarEventSummary> {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const res = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      summary: input.title,
+      description: input.description || undefined,
+      start: { dateTime: withSeconds(input.startIso), timeZone },
+      end: { dateTime: withSeconds(input.endIso), timeZone },
+    }),
+  });
+  if (!res.ok) {
+    throw new Error("Não foi possível criar o evento no Calendar.");
+  }
+  const event: GoogleCalendarEventItem = await res.json();
+  return {
+    externalId: event.id,
+    url: event.htmlLink,
+    title: event.summary?.trim() || "Evento sem título",
+    start: event.start?.dateTime ?? event.start?.date ?? "",
+  };
+}
+
 interface GoogleGmailMessageListItem {
   id: string;
   threadId: string;
@@ -285,4 +348,65 @@ export async function listRecentGmailMessages(accessToken: string): Promise<Gmai
       snippet: msg.snippet ?? "",
     };
   });
+}
+
+export interface NewGmailMessage {
+  to: string;
+  subject: string;
+  body: string;
+}
+
+// btoa só lida com Latin1 -- sem o encodeURIComponent/unescape, qualquer
+// acento (comum em assunto/corpo em português) quebraria o base64. O
+// Gmail exige base64URL (RFC 4648 §5: -_ em vez de +/, sem padding =),
+// não o base64 padrão que btoa devolve.
+function toBase64Url(input: string): string {
+  return btoa(unescape(encodeURIComponent(input)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+// Compor e mandar de verdade (users.messages.send), diferente de
+// listRecentGmailMessages acima, que só lista o que já existe na caixa.
+// Usa gmail.send (GMAIL_SEND_SCOPE), não gmail.readonly -- ver
+// comentário do escopo no topo do arquivo. Devolve no mesmo formato de
+// GmailMessageSummary pra virar um OfficeLink igual a uma mensagem
+// vinculada por lá.
+// Cabeçalhos de e-mail exigem US-ASCII (RFC 2822) -- diferente do corpo,
+// que já é lido com o charset do Content-Type. Sem isso, um Subject com
+// acento (comum em português) chega corrompido no destinatário mesmo com
+// o corpo certo. Achado real testando envio de verdade.
+function encodeMimeHeaderWord(value: string): string {
+  if (/^[\x00-\x7F]*$/.test(value)) {
+    return value;
+  }
+  return `=?UTF-8?B?${btoa(unescape(encodeURIComponent(value)))}?=`;
+}
+
+export async function sendGmailMessage(accessToken: string, input: NewGmailMessage): Promise<GmailMessageSummary> {
+  const raw = toBase64Url(
+    [
+      `To: ${input.to}`,
+      `Subject: ${encodeMimeHeaderWord(input.subject)}`,
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      input.body,
+    ].join("\r\n"),
+  );
+  const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ raw }),
+  });
+  if (!res.ok) {
+    throw new Error("Não foi possível enviar a mensagem pelo Gmail.");
+  }
+  const sent: { id: string; threadId: string } = await res.json();
+  return {
+    externalId: sent.id,
+    url: `https://mail.google.com/mail/u/0/#all/${sent.threadId}`,
+    title: input.subject.trim() || "Mensagem sem assunto",
+    snippet: input.body.slice(0, 140),
+  };
 }

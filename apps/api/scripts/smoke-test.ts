@@ -2168,6 +2168,62 @@ async function main() {
   const auditAsStaffBody = await auditAsStaffRes.json().catch(() => null);
   report("GET /audit-log como staff → 403 FORBIDDEN", auditAsStaffRes.status === 403, auditAsStaffBody);
 
+  // Fundação de sincronização Google (ver GoogleCredential no schema) --
+  // self-service, sem :id na rota (sempre a credencial da PRÓPRIA
+  // sessão), então testável de ponta a ponta sem precisar de nenhuma
+  // credencial real do Google: refreshToken/scope aqui são valores
+  // fictícios só pra exercitar guardar/consultar/desconectar. A troca
+  // code→token de verdade acontece em apps/web (fora do alcance deste
+  // smoke suite, que bate só em apps/api).
+  const googleStatusAntesRes = await api("/v1/office/google-credential");
+  report(
+    "GET /office/google-credential antes de conectar → connected: false",
+    googleStatusAntesRes.status === 200 && googleStatusAntesRes.body?.data?.connected === false,
+    googleStatusAntesRes.body
+  );
+
+  const fakeRefreshToken = `fake-refresh-token-smoketest-${Date.now()}`;
+  const fakeScope = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.readonly";
+  const saveGoogleCredentialRes = await api("/v1/office/google-credential", {
+    method: "POST",
+    body: JSON.stringify({ refreshToken: fakeRefreshToken, scope: fakeScope }),
+  });
+  report("POST /office/google-credential → 201", saveGoogleCredentialRes.status === 201, saveGoogleCredentialRes.body);
+
+  const googleStatusDepoisRes = await api("/v1/office/google-credential");
+  report(
+    "GET /office/google-credential depois de conectar → connected: true, com o scope certo",
+    googleStatusDepoisRes.status === 200 &&
+      googleStatusDepoisRes.body?.data?.connected === true &&
+      googleStatusDepoisRes.body?.data?.scope === fakeScope,
+    googleStatusDepoisRes.body
+  );
+
+  const storedCredential = await prisma.googleCredential.findUnique({ where: { userId: smokeUser!.id } });
+  report(
+    "Refresh token nunca é guardado em texto puro (refreshTokenEnc ≠ valor original)",
+    !!storedCredential && storedCredential.refreshTokenEnc !== fakeRefreshToken,
+    { refreshTokenEnc: storedCredential?.refreshTokenEnc }
+  );
+
+  // Revogação no Google é best-effort (ver GoogleCredentialsService) --
+  // um refresh token fictício faz a chamada de revogação real da Google
+  // falhar (token inválido), e mesmo assim isto tem que dar 204 e apagar
+  // o registro local.
+  const disconnectGoogleRes = await api("/v1/office/google-credential", { method: "DELETE" });
+  report(
+    "DELETE /office/google-credential (token fictício, revogação no Google falha) → 204 mesmo assim",
+    disconnectGoogleRes.status === 204,
+    disconnectGoogleRes.body
+  );
+
+  const googleStatusAposDesconectarRes = await api("/v1/office/google-credential");
+  report(
+    "GET /office/google-credential depois de desconectar → connected: false de novo",
+    googleStatusAposDesconectarRes.status === 200 && googleStatusAposDesconectarRes.body?.data?.connected === false,
+    googleStatusAposDesconectarRes.body
+  );
+
   console.log(`\n${passed} passaram, ${failed} falharam.\n`);
   process.exit(failed > 0 ? 1 : 0);
 }

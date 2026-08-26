@@ -97,6 +97,11 @@ async function main() {
     await tx.notification.deleteMany({
       where: { OR: [{ userId: { in: doomedUserIds } }, { projectId: { in: doomedProjectIds } }] },
     });
+    // Defensivo, igual ao Task antes dele ter uso real -- o teste de
+    // GoogleCredential já desconecta sozinho no fim (ver smoke-test.ts),
+    // mas se um run crashar entre POST e DELETE, GoogleCredential.userId
+    // é RESTRICT e travaria tx.user.deleteMany mais abaixo.
+    await tx.googleCredential.deleteMany({ where: { userId: { in: doomedUserIds } } });
     await tx.clientSession.deleteMany({ where: { clientId: { in: doomedClientIds } } });
     await tx.clientMagicLink.deleteMany({ where: { clientId: { in: doomedClientIds } } });
     await tx.activity.deleteMany({

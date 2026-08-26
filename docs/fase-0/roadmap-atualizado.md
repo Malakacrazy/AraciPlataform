@@ -1340,6 +1340,109 @@ digitados) fica de fora por enquanto, não foi pedido nesta rodada.
   (não voltou pra `emitida`). Fatura e notificações de verificação
   restauradas ao estado exato de antes depois.
 
+## Fase 2 (correção) — Office Links: compor/enviar, criar evento, fundação de sincronização
+
+Oitavo item da Fase 2, penúltimo da lista original de dez. Verbatim da
+auditoria: "Compose/send through Gmail, create Calendar events from the
+app, move from manual linking to webhook sync."
+
+- **Compor e enviar pelo Gmail, criar evento no Calendar**: os dois
+  encaixam na arquitetura já existente (token efêmero de navegador via
+  Google Identity Services, nunca guardado -- ver `google-client.ts`),
+  sem infraestrutura nova. `CALENDAR_SCOPE` virou `calendar.events`
+  (antes só `.readonly`) pra cobrir listar/vincular E criar com um único
+  escopo. Gmail ganhou um escopo separado, `GMAIL_SEND_SCOPE`
+  (`gmail.send`) -- deliberadamente não reaproveita `GMAIL_SCOPE`
+  (`gmail.readonly`, usado só pra listar/vincular): enviar de verdade é
+  uma ação de mais confiança que só ler a caixa de entrada, e pedir os
+  dois juntos toda vez violaria o "least-privilege" que já era a
+  filosofia declarada deste módulo.
+- **Decisão tomada explicitamente com a Giulia antes de codar, sobre a
+  metade "webhook" do item**: esta plataforma nunca guardou nenhuma
+  credencial Google (o login SSO nunca pede escopo de Drive/Calendar/
+  Gmail, e o picker incremental usa o fluxo implícito do Google Identity
+  Services, que por design nunca devolve refresh_token). Sincronização
+  via webhook de verdade (`Calendar events.watch`, `Gmail users.watch`)
+  exige refresh_token guardado por pessoa, e o `users.watch` do Gmail
+  especificamente exige um tópico Google Cloud Pub/Sub -- infraestrutura
+  fora deste repositório, que exigiria acesso ao console GCP da Giulia
+  pra terminar. Diante disso, esta correção construiu só a **fundação**:
+  um jeito de conectar e guardar a credencial com segurança, sem ainda
+  chamar `watch()` nem receber nenhum callback do Google. O `events.watch`/
+  `users.watch` de verdade, o endpoint de callback público, e o tópico
+  Pub/Sub ficam registrados como próximo passo, não como parte desta
+  correção.
+- **`GoogleCredential` (novo model)**: refresh token por usuário, sempre
+  criptografado em repouso (AES-256-GCM, `google-credential-crypto.ts`,
+  chave de 32 bytes gerada localmente com `crypto.randomBytes`, mesmo
+  padrão já usado pro segredo do webhook ZapSign) -- é o único segredo de
+  longa duração guardado por esta plataforma que dá acesso a uma conta
+  Google de verdade; todo outro token (sessão interna, link de
+  apresentação, sessão de portal) é de vida curta.
+- **Fluxo OAuth de autorização de código, separado do login SSO e do
+  picker incremental**: `apps/web/api/google/authorize` (redireciona pro
+  Google com `access_type=offline`+`prompt=consent`, únicos jeitos de
+  garantir que um `refresh_token` volte) e `.../google/callback` (troca o
+  code pelo token). A troca acontece em **apps/web**, não em apps/api --
+  apps/api nunca é exposto ao navegador (só apps/web chama, via proxy
+  interno), então não pode ser o destino de um redirect que o Google
+  manda direto pro navegador da pessoa; `GOOGLE_CLIENT_ID/SECRET` já
+  vivem em apps/web (mesmo par que o NextAuth usa pro login). Só o
+  `refresh_token` resultante segue adiante pro apps/api
+  (`POST /v1/office/google-credential`), que criptografa e persiste.
+- **Self-service, não admin-only**: é a credencial Google da PRÓPRIA
+  pessoa, não um dado do escritório -- `GoogleCredentialsController` não
+  tem `:id` em rota nenhuma, sempre opera sobre `userId` da sessão, mesmo
+  raciocínio de `POST /users/:id/api-key`. Painel novo em `/team`
+  (`GoogleSyncPanel`, ao lado do `ApiKeyPanel` já existente), mostrado só
+  na própria linha da pessoa logada, com "Conectar"/"Desconectar" --
+  desconectar tenta revogar no Google (best-effort, não trava a remoção
+  local se a Google não confirmar).
+- Verificado: build+typecheck limpos (api e web), Nest reinicia sem erro
+  depois da migração, 6 casos novos no smoke suite (conectar/consultar/
+  desconectar a credencial, e confirmação de que o refresh token nunca é
+  guardado em texto puro) -- todos com um refresh token fictício, já que
+  não existe (nem deveria existir) nenhuma chamada real ao Google só pra
+  rodar o smoke suite.
+- **Fluxo de conectar, testado de ponta a ponta de verdade**: depois da
+  Giulia registrar o redirect URI (`http://localhost:3000/api/google/
+  callback`) no client OAuth real do Google Cloud Console, o botão
+  "Conectar" em `/team` foi clicado de verdade -- passou pela tela de
+  consentimento real do Google pra `giuliaparente@studioaraci.com.br`
+  (pedindo exatamente os dois escopos certos), voltou em
+  `/team?googleSyncConnected=1` com o banner de sucesso, e uma
+  `GoogleCredential` de verdade ficou gravada no banco (confirmado lendo
+  a linha direto via Prisma, não só a UI) com o refresh token só em forma
+  cifrada.
+- **Compor/enviar e criar evento, também testados com uma ação real
+  (autorizado explicitamente pela Giulia)**: usando o contato fixture
+  Fernanda Ribeiro (`fernanda@example.com`, domínio reservado pra teste
+  -- RFC 2606, nunca entrega de verdade). Dois bugs reais apareceram só
+  nesse teste ao vivo, nenhum dos dois pego por typecheck/build:
+  - **Criar evento vinha com 400 da Calendar API**: o valor de um
+    `<input type="datetime-local">` não tem segundos
+    (`"2026-08-26T20:59"`), mas a Calendar API exige RFC3339 completo em
+    `dateTime`. Corrigido em `google-client.ts` (`withSeconds`, completa
+    `:00` quando faltam segundos).
+  - **Assunto do e-mail chegava corrompido no Gmail** (`"integração"` →
+    `"integraÃƒÂ§ÃƒÂ£o"`), mesmo com o corpo certo: cabeçalho de e-mail
+    exige US-ASCII (RFC 2822), diferente do corpo, que já é lido pelo
+    charset do `Content-Type`. Corrigido codificando o `Subject` como
+    RFC 2047 encoded-word (`encodeMimeHeaderWord`) quando tem caractere
+    fora de ASCII.
+  - Depois dos dois fixes: evento real criado no Calendar da Giulia (200
+    da API, confirmado) e e-mail real reenviado com o assunto chegando
+    correto no Gmail (conferido no próprio Gmail, não só na nossa UI).
+    Ambos os testes reais (e-mail com acentuação quebrada + evento antes
+    do fix) foram apagados da conta de verdade da Giulia depois
+    (Calendar e Gmail, via UI do próprio Google) e os `OfficeLink`
+    correspondentes removidos do banco -- só a fundação de credencial
+    (`GoogleCredential`) ficou conectada, por decisão da Giulia.
+  - `Vincular do Drive/Calendar/Gmail` (o fluxo antigo de só linkar
+    recurso existente) não foi re-testado ao vivo nesta rodada -- não foi
+    tocado por nenhuma das duas correções acima, e já tinha sido
+    verificado antes desta correção de Fase 2.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

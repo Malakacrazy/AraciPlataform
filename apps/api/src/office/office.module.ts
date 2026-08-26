@@ -7,6 +7,8 @@ import {
   OfficeLinksController,
 } from './office-links.controller';
 import { OfficeLinksService } from './office-links.service';
+import { GoogleCredentialsController } from './google-credentials.controller';
+import { GoogleCredentialsService } from './google-credentials.service';
 
 @Module({
   // ErpModule para ProjectsService, CrmModule para ClientsService — só
@@ -17,7 +19,8 @@ import { OfficeLinksService } from './office-links.service';
     ProjectOfficeLinksController,
     ClientOfficeLinksController,
     OfficeLinksController,
+    GoogleCredentialsController,
   ],
-  providers: [OfficeLinksService],
+  providers: [OfficeLinksService, GoogleCredentialsService],
 })
 export class OfficeModule {}

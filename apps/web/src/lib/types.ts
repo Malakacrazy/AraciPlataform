@@ -147,6 +147,12 @@ export interface Me {
   accessLevel: AccessLevel;
 }
 
+// Fundação pra sincronização via webhook (ver GoogleCredential no
+// schema) -- connected: false não traz scope/updatedAt nenhum.
+export type GoogleSyncStatus =
+  | { connected: false }
+  | { connected: true; scope: string; createdAt: string; updatedAt: string };
+
 export interface ProjectMember {
   id: string;
   userId: string;

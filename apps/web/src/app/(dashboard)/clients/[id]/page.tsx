@@ -97,6 +97,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
         entityId={client.id}
         links={officeLinks}
         userEmail={session.user.email}
+        contactEmail={client.email}
       />
 
       <ActivityTimeline

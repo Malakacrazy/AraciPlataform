@@ -3,9 +3,10 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet } from "@/lib/api";
-import type { User, TimeEntry, Project, Me } from "@/lib/types";
+import type { User, TimeEntry, Project, Me, GoogleSyncStatus } from "@/lib/types";
 import { updateUser } from "@/components/team/actions";
 import { ApiKeyPanel } from "@/components/team/api-key-panel";
+import { GoogleSyncPanel } from "@/components/team/google-sync-panel";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -38,17 +39,24 @@ function workloadByUser(entries: TimeEntry[], projectById: Map<string, Project>)
   return byUser;
 }
 
-export default async function TeamPage() {
+export default async function TeamPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ googleSyncConnected?: string; googleSyncError?: string }>;
+}) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     redirect("/api/auth/signin");
   }
 
-  const [me, users, entries, projects] = await Promise.all([
+  const { googleSyncConnected, googleSyncError } = await searchParams;
+
+  const [me, users, entries, projects, googleSync] = await Promise.all([
     apiGet<Me>("me"),
     apiGet<User[]>("users"),
     apiGet<TimeEntry[]>("time-entries"),
     apiGet<Project[]>("projects"),
+    apiGet<GoogleSyncStatus>("office/google-credential"),
   ]);
   const isAdmin = me.accessLevel === "admin";
   const projectById = new Map(projects.map((p) => [p.id, p]));
@@ -66,6 +74,17 @@ export default async function TeamPage() {
           Ver planejamento de alocação →
         </Link>
       </div>
+
+      {googleSyncConnected === "1" && (
+        <p className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
+          Conta Google conectada.
+        </p>
+      )}
+      {googleSyncError && (
+        <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          {googleSyncError}
+        </p>
+      )}
 
       <div className="flex flex-col gap-3">
         {users.map((user) => {
@@ -154,6 +173,14 @@ export default async function TeamPage() {
               </form>
 
               <ApiKeyPanel userId={user.id} hasKey={Boolean(user.apiKeyHash)} />
+
+              {user.id === me.userId && (
+                <GoogleSyncPanel
+                  connected={googleSync.connected}
+                  scope={googleSync.connected ? googleSync.scope : undefined}
+                  updatedAt={googleSync.connected ? googleSync.updatedAt : undefined}
+                />
+              )}
             </section>
           );
         })}
