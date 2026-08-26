@@ -948,10 +948,120 @@ async function main() {
 
   const product1Res = await api("/v1/products", {
     method: "POST",
-    body: JSON.stringify({ name: "Sofá Modular Nuvem", supplier: "Móveis Bertolucci", price: 8200 }),
+    body: JSON.stringify({
+      name: "Sofá Modular Nuvem",
+      supplier: "Móveis Bertolucci",
+      price: 8200,
+      category: "mobiliario",
+    }),
   });
   report("POST /products → 201", product1Res.status === 201, product1Res.body);
   const product1Id = product1Res.body?.data?.id;
+
+  // Variantes: mesmo Product, variantOfId aponta pro "pai" -- ver
+  // ProductsService.validateVariantOf. Testa a cadeia de regras antes do
+  // caminho feliz: variantLabel obrigatório, pai inexistente, depois
+  // sucesso, depois os dois jeitos de tentar aninhar dois níveis.
+  const variantSemLabelRes = await api("/v1/products", {
+    method: "POST",
+    body: JSON.stringify({ name: "Sofá Modular Nuvem", variantOfId: product1Id }),
+  });
+  report(
+    "POST /products com variantOfId sem variantLabel → 422 INVALID_VARIANT",
+    variantSemLabelRes.status === 422 && variantSemLabelRes.body?.error?.code === "INVALID_VARIANT",
+    variantSemLabelRes.body
+  );
+
+  const variantPaiInexistenteRes = await api("/v1/products", {
+    method: "POST",
+    body: JSON.stringify({ name: "Sofá Modular Nuvem", variantOfId: "id-que-nao-existe", variantLabel: "Nogueira" }),
+  });
+  report(
+    "POST /products com variantOfId inexistente → 404",
+    variantPaiInexistenteRes.status === 404,
+    variantPaiInexistenteRes.body
+  );
+
+  const variantRes = await api("/v1/products", {
+    method: "POST",
+    body: JSON.stringify({
+      name: "Sofá Modular Nuvem",
+      price: 8600,
+      category: "mobiliario",
+      variantOfId: product1Id,
+      variantLabel: "Nogueira",
+    }),
+  });
+  report("POST /products (variante) → 201", variantRes.status === 201, variantRes.body);
+  const variantId = variantRes.body?.data?.id;
+
+  const subVarianteRes = await api("/v1/products", {
+    method: "POST",
+    body: JSON.stringify({ name: "x", variantOfId: variantId, variantLabel: "y" }),
+  });
+  report(
+    "Variante de uma variante (2 níveis) → 422 INVALID_VARIANT",
+    subVarianteRes.status === 422 && subVarianteRes.body?.error?.code === "INVALID_VARIANT",
+    subVarianteRes.body
+  );
+
+  const paiVirarVarianteRes = await api(`/v1/products/${product1Id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ variantOfId: variantId, variantLabel: "z" }),
+  });
+  report(
+    "Produto que já é pai de variante tentando virar variante → 422 INVALID_VARIANT",
+    paiVirarVarianteRes.status === 422 && paiVirarVarianteRes.body?.error?.code === "INVALID_VARIANT",
+    paiVirarVarianteRes.body
+  );
+
+  const autoReferenciaRes = await api(`/v1/products/${variantId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ variantOfId: variantId, variantLabel: "z" }),
+  });
+  report(
+    "Produto virando variante de si mesmo → 422 INVALID_VARIANT",
+    autoReferenciaRes.status === 422 && autoReferenciaRes.body?.error?.code === "INVALID_VARIANT",
+    autoReferenciaRes.body
+  );
+
+  const productPaiRes = await api(`/v1/products/${product1Id}`);
+  report(
+    "GET /products/:id do pai inclui a variante em .variants",
+    productPaiRes.body?.data?.variants?.some((v: any) => v.id === variantId && v.variantLabel === "Nogueira"),
+    productPaiRes.body
+  );
+
+  const productVarianteRes = await api(`/v1/products/${variantId}`);
+  report(
+    "GET /products/:id da variante inclui .variantOf apontando pro pai",
+    productVarianteRes.body?.data?.variantOf?.id === product1Id,
+    productVarianteRes.body
+  );
+
+  const productImageRes = await api(`/v1/products/${product1Id}/images`, {
+    method: "POST",
+    body: JSON.stringify({ url: "https://example.com/sofa-nuvem-2.jpg" }),
+  });
+  report("POST /products/:id/images → 201", productImageRes.status === 201, productImageRes.body);
+  const productImageId = productImageRes.body?.data?.id;
+
+  const productComImagemRes = await api(`/v1/products/${product1Id}`);
+  report(
+    "GET /products/:id traz a galeria em .images",
+    productComImagemRes.body?.data?.images?.some((img: any) => img.id === productImageId),
+    productComImagemRes.body
+  );
+
+  const removeImageRes = await api(`/v1/product-images/${productImageId}`, { method: "DELETE" });
+  report("DELETE /product-images/:id → 204", removeImageRes.status === 204, removeImageRes.body);
+
+  const productSemImagemRes = await api(`/v1/products/${product1Id}`);
+  report(
+    "Após remover, a imagem não aparece mais em .images",
+    !productSemImagemRes.body?.data?.images?.some((img: any) => img.id === productImageId),
+    productSemImagemRes.body
+  );
 
   const product2Res = await api("/v1/products", {
     method: "POST",
@@ -1011,6 +1121,11 @@ async function main() {
   });
   report("POST /areas/:id/specifications → 201", spec1Res.status === 201, spec1Res.body);
   const spec1Id = spec1Res.body?.data?.id;
+  report(
+    "Especificação traz product.category — é o que o rollup por categoria da tela de FF&E do projeto usa",
+    spec1Res.body?.data?.product?.category === "mobiliario",
+    spec1Res.body
+  );
 
   const spec2Res = await api(`/v1/areas/${areaId}/specifications`, {
     method: "POST",

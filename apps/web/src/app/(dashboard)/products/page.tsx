@@ -1,9 +1,51 @@
+import { Fragment } from "react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet } from "@/lib/api";
 import type { Product } from "@/lib/types";
 import { createProduct, deleteProduct } from "@/components/products/actions";
+
+function ProductRow({ p, isVariant }: { p: Product; isVariant?: boolean }) {
+  return (
+    <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
+      <td className="px-5 py-3 text-zinc-900 dark:text-zinc-50">
+        <span className={isVariant ? "pl-5" : ""}>
+          {isVariant ? "↳ " : ""}
+          <Link href={`/products/${p.id}/tear-sheet`} className="hover:underline">
+            {p.name}
+          </Link>
+          {isVariant && p.variantLabel && (
+            <span className="ml-1 text-zinc-500 dark:text-zinc-400">— {p.variantLabel}</span>
+          )}
+        </span>
+        {p.isGeneric && (
+          <span className="ml-2 rounded-full border border-zinc-300 px-1.5 py-0.5 text-[10px] uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+            genérico
+          </span>
+        )}
+      </td>
+      <td className="px-5 py-3 text-zinc-500 dark:text-zinc-400">{p.category ?? "—"}</td>
+      <td className="px-5 py-3 text-zinc-500 dark:text-zinc-400">{p.supplier ?? "—"}</td>
+      <td className="px-5 py-3 font-mono text-zinc-500 dark:text-zinc-400">
+        {p.price ? `R$ ${Number(p.price).toLocaleString("pt-BR")}` : "—"}
+      </td>
+      <td className="px-5 py-3 text-zinc-500 dark:text-zinc-400">{p.dimensions ?? "—"}</td>
+      <td className="px-5 py-3 text-zinc-500 dark:text-zinc-400">{p.finish ?? "—"}</td>
+      <td className="px-5 py-3 text-zinc-500 dark:text-zinc-400">
+        {p.leadTimeDays ? `${p.leadTimeDays} dias` : "—"}
+      </td>
+      <td className="px-5 py-3 text-right">
+        <form action={deleteProduct.bind(null, p.id)} className="inline">
+          <button type="submit" className="text-xs text-zinc-500 hover:text-red-600 dark:text-zinc-400">
+            Remover
+          </button>
+        </form>
+      </td>
+    </tr>
+  );
+}
 
 export default async function ProductsPage() {
   const session = await getServerSession(authOptions);
@@ -12,6 +54,13 @@ export default async function ProductsPage() {
   }
 
   const products = await apiGet<Product[]>("products");
+  const topLevel = products.filter((p) => !p.variantOfId);
+  const variantsByParent = new Map<string, Product[]>();
+  for (const p of products) {
+    if (p.variantOfId) {
+      variantsByParent.set(p.variantOfId, [...(variantsByParent.get(p.variantOfId) ?? []), p]);
+    }
+  }
 
   return (
     <main className="mx-auto flex max-w-4xl flex-col gap-6 px-6 py-12">
@@ -30,6 +79,7 @@ export default async function ProductsPage() {
             <thead>
               <tr className="border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
                 <th className="px-5 py-3 font-medium">Produto</th>
+                <th className="px-5 py-3 font-medium">Categoria</th>
                 <th className="px-5 py-3 font-medium">Fornecedor</th>
                 <th className="px-5 py-3 font-medium">Preço</th>
                 <th className="px-5 py-3 font-medium">Dimensões</th>
@@ -39,33 +89,13 @@ export default async function ProductsPage() {
               </tr>
             </thead>
             <tbody>
-              {products.map((p) => (
-                <tr key={p.id} className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
-                  <td className="px-5 py-3 text-zinc-900 dark:text-zinc-50">
-                    {p.name}
-                    {p.isGeneric && (
-                      <span className="ml-2 rounded-full border border-zinc-300 px-1.5 py-0.5 text-[10px] uppercase text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-                        genérico
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-5 py-3 text-zinc-500 dark:text-zinc-400">{p.supplier ?? "—"}</td>
-                  <td className="px-5 py-3 font-mono text-zinc-500 dark:text-zinc-400">
-                    {p.price ? `R$ ${Number(p.price).toLocaleString("pt-BR")}` : "—"}
-                  </td>
-                  <td className="px-5 py-3 text-zinc-500 dark:text-zinc-400">{p.dimensions ?? "—"}</td>
-                  <td className="px-5 py-3 text-zinc-500 dark:text-zinc-400">{p.finish ?? "—"}</td>
-                  <td className="px-5 py-3 text-zinc-500 dark:text-zinc-400">
-                    {p.leadTimeDays ? `${p.leadTimeDays} dias` : "—"}
-                  </td>
-                  <td className="px-5 py-3 text-right">
-                    <form action={deleteProduct.bind(null, p.id)} className="inline">
-                      <button type="submit" className="text-xs text-zinc-500 hover:text-red-600 dark:text-zinc-400">
-                        Remover
-                      </button>
-                    </form>
-                  </td>
-                </tr>
+              {topLevel.map((p) => (
+                <Fragment key={p.id}>
+                  <ProductRow p={p} />
+                  {(variantsByParent.get(p.id) ?? []).map((v) => (
+                    <ProductRow key={v.id} p={v} isVariant />
+                  ))}
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -128,9 +158,41 @@ export default async function ProductsPage() {
               className="rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
             />
           </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-500 dark:text-zinc-400">Categoria</span>
+            <input
+              name="category"
+              placeholder="ex.: mobiliário, iluminação, tecidos"
+              className="rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+            />
+          </label>
           <label className="flex items-center gap-2 text-sm">
             <input name="isGeneric" type="checkbox" />
             <span className="text-zinc-500 dark:text-zinc-400">Genérico (SKU ainda não definido)</span>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-500 dark:text-zinc-400">Variante de</span>
+            <select
+              name="variantOfId"
+              defaultValue=""
+              className="rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+            >
+              <option value="">— nenhum (produto novo) —</option>
+              {topLevel.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-500 dark:text-zinc-400">Rótulo da variante</span>
+            <input
+              name="variantLabel"
+              placeholder="ex.: Nogueira, 180cm, Veludo azul"
+              title="Obrigatório quando 'Variante de' está selecionado"
+              className="rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+            />
           </label>
           <button
             type="submit"

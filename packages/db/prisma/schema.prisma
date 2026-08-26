@@ -497,8 +497,40 @@ model Product {
   isGeneric    Boolean  @default(false) // placeholder quando o SKU ainda não foi escolhido
   createdAt    DateTime @default(now())
 
+  // Categoria livre (mesmo padrão de RoleRate.role/Expense.category) --
+  // usada pro rollup de orçamento por categoria dentro de um projeto (ver
+  // FF&E da tela do projeto). Não trava em enum porque o roster real de
+  // categorias do estúdio pode mudar.
+  category String?
+
+  // Variante = outro Product apontando pro produto "pai" via variantOfId
+  // (ex.: mesmo sofá, acabamentos diferentes) -- não um model separado,
+  // pra não duplicar a lógica de especificação/moodboard/Captura que já
+  // trata "um Product" como a unidade especificável; uma variante É um
+  // Product. Só um nível: uma variante não pode ter sua própria variante
+  // -- FK sozinha não expressa isso, checado em ProductsService.
+  variantOfId  String?
+  variantOf    Product?  @relation("ProductVariants", fields: [variantOfId], references: [id])
+  variantLabel String? // "Nogueira", "180cm", "Veludo azul" -- só faz sentido quando variantOfId está setado
+  variants     Product[] @relation("ProductVariants")
+
+  images ProductImage[]
+
   specifications ProductSpecification[]
   moodboardItems MoodboardItem[]
+}
+
+// Galeria de fotos extras do produto -- imageUrl continua sendo a capa
+// (é o campo que o Captura já manda; não renomeado pra não quebrar a
+// extensão, que fica fora deste repo). Fotos adicionais só entram por
+// aqui, cadastradas manualmente pela própria plataforma.
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
 }
 
 // FF&E: linha do carrinho de compras — produto especificado em uma área,

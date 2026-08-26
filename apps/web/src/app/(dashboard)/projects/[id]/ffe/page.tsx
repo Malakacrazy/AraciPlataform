@@ -42,6 +42,27 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
   );
   const allSpecs = specsByArea.flat();
 
+  // Mesma fórmula de linha do checkout real (ver
+  // SpecificationsService.approveCartToInvoiceDraft) -- só reaplicada
+  // aqui pra somar por categoria em vez de por especificação. "Sem
+  // categoria" agrupa specs cujo produto ainda não tem Product.category
+  // preenchido (campo opcional, ver schema.prisma).
+  const porCategoria = new Map<string, { aprovado: number; pendente: number }>();
+  for (const spec of allSpecs) {
+    if (spec.unitPrice === null || spec.unitPrice === undefined) continue;
+    const categoria = spec.product.category ?? "Sem categoria";
+    const entry = porCategoria.get(categoria) ?? { aprovado: 0, pendente: 0 };
+    const valor = spec.quantity * Number(spec.unitPrice) * (1 + Number(spec.markupPercent ?? 0));
+    if (spec.clientApproved) entry.aprovado += valor;
+    else entry.pendente += valor;
+    porCategoria.set(categoria, entry);
+  }
+  const categorias = [...porCategoria.entries()].sort((a, b) => b[1].aprovado + b[1].pendente - (a[1].aprovado + a[1].pendente));
+
+  function productOptionLabel(p: Product) {
+    return p.variantOf ? `${p.variantOf.name} — ${p.variantLabel}` : p.name;
+  }
+
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-12">
       <div>
@@ -53,6 +74,34 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
           Especificação por ambiente e carrinho de aprovação do cliente.
         </p>
       </div>
+
+      {categorias.length > 0 && (
+        <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+          <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Orçamento por categoria</h2>
+          <table className="mt-3 w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+                <th className="py-2 pr-3 font-medium">Categoria</th>
+                <th className="py-2 pr-3 font-medium">Aprovado</th>
+                <th className="py-2 font-medium">Pendente</th>
+              </tr>
+            </thead>
+            <tbody>
+              {categorias.map(([categoria, valores]) => (
+                <tr key={categoria} className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
+                  <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-50">{categoria}</td>
+                  <td className="py-2 pr-3 font-mono text-zinc-500 dark:text-zinc-400">
+                    R$ {valores.aprovado.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="py-2 font-mono text-zinc-500 dark:text-zinc-400">
+                    R$ {valores.pendente.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       {areas.map((area, i) => (
         <section key={area.id} className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
@@ -137,7 +186,7 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
                   </option>
                   {products.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name}
+                      {productOptionLabel(p)}
                     </option>
                   ))}
                 </select>
@@ -260,7 +309,7 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
                   </option>
                   {products.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name}
+                      {productOptionLabel(p)}
                     </option>
                   ))}
                 </select>

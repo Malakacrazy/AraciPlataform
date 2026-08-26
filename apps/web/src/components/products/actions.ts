@@ -27,6 +27,12 @@ export async function createProduct(formData: FormData) {
       finish: emptyToUndefined(formData.get("finish")),
       leadTimeDays: leadTimeRaw ? Number(leadTimeRaw) : undefined,
       isGeneric,
+      category: emptyToUndefined(formData.get("category")),
+      // variantOfId vazio ("— nenhum —") vira undefined -- produto nasce
+      // top-level; a API exige variantLabel junto quando variantOfId vem
+      // preenchido (ver ProductsService.createProduct).
+      variantOfId: emptyToUndefined(formData.get("variantOfId")),
+      variantLabel: emptyToUndefined(formData.get("variantLabel")),
     }),
   });
   if (!res.ok) {
@@ -43,4 +49,29 @@ export async function deleteProduct(id: string) {
     throw new Error(body?.error?.message ?? "Não foi possível remover o produto.");
   }
   revalidatePath("/products");
+}
+
+export async function addProductImage(productId: string, formData: FormData) {
+  const url = String(formData.get("url") ?? "").trim();
+  if (!url) {
+    throw new Error("URL da imagem é obrigatória.");
+  }
+  const res = await apiFetch(`products/${productId}/images`, {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error?.message ?? "Não foi possível adicionar a imagem.");
+  }
+  revalidatePath(`/products/${productId}/tear-sheet`);
+}
+
+export async function removeProductImage(productId: string, imageId: string) {
+  const res = await apiFetch(`product-images/${imageId}`, { method: "DELETE" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error?.message ?? "Não foi possível remover a imagem.");
+  }
+  revalidatePath(`/products/${productId}/tear-sheet`);
 }

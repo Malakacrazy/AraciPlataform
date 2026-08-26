@@ -175,6 +175,23 @@ export interface Allocation {
   createdAt: string;
 }
 
+// Galeria de fotos extras -- imageUrl continua sendo a capa (campo que o
+// Captura já manda). images só vem preenchido em GET /products e
+// GET /products/:id, não nos includes leves usados por especificação/
+// moodboard (essas telas não precisam da galeria, só da capa).
+export interface ProductImage {
+  id: string;
+  url: string;
+  order: number;
+}
+
+export interface ProductVariantSummary {
+  id: string;
+  name: string;
+  variantLabel?: string | null;
+  price?: string | null;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -186,6 +203,15 @@ export interface Product {
   imageUrl?: string | null;
   sourceUrl?: string | null;
   isGeneric: boolean;
+  category?: string | null;
+  // Variante = outro Product apontando pra este via variantOfId -- ver
+  // schema.prisma. variantOf/variants só vêm preenchidos em GET /products
+  // e GET /products/:id.
+  variantOfId?: string | null;
+  variantLabel?: string | null;
+  variantOf?: { id: string; name: string } | null;
+  variants?: ProductVariantSummary[];
+  images?: ProductImage[];
 }
 
 export interface Area {

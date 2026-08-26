@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ErpModule } from '../erp/erp.module';
-import { ProductsController } from './products.controller';
+import { ProductsController, ProductImagesController } from './products.controller';
 import { ProductsService } from './products.service';
 import { ProjectAreasController, AreasController } from './areas.controller';
 import { AreasService } from './areas.service';
@@ -21,6 +21,7 @@ import { MoodboardsService } from './moodboards.service';
   imports: [ErpModule], // AreasService/SpecificationsService/MoodboardsService precisam de ProjectsService
   controllers: [
     ProductsController,
+    ProductImagesController,
     ProjectAreasController,
     AreasController,
     AreaSpecificationsController,

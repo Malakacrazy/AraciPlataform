@@ -1123,6 +1123,63 @@ o que o Timesheet dizia ter sido trabalhado.
   verificação (fatura, linha, apontamento, e o gate que aprovei só pra
   testar) removido depois, restaurando o projeto ao estado exato de antes.
 
+## Fase 2 (correção) — FF&E: variantes, galeria de fotos e orçamento por categoria
+
+Quinto item da Fase 2. Verbatim da auditoria: "Multi-image products with
+variants; budget-by-category rollup within a project" -- o catálogo tinha
+uma foto por produto, nenhum jeito de representar "mesmo sofá, acabamento
+diferente" a não ser cadastrando produtos soltos sem ligação nenhuma
+entre si, e o orçamento de FF&E de um projeto só somava um total único,
+sem quebra por tipo de item (mobiliário × iluminação × tecidos).
+
+- **Variante = outro `Product` apontando pro "pai" via `variantOfId`**
+  (`variantOf`/`variantLabel`/`variants`), não um model separado. Decisão
+  tomada explicitamente com a Giulia antes de codar: a alternativa
+  (`Product` virar só "família", com um `ProductVariant` novo carregando
+  preço/dimensão/acabamento) seria mais correta no papel, mas obrigaria
+  trocar a FK de `ProductSpecification`, `MoodboardItem` e do endpoint que
+  o Captura usa pra tudo que já existe. Como uma variante É plenamente
+  especificável (tem seu próprio preço/dimensão/prazo), tratá-la como só
+  mais um `Product` significa que especificação, moodboard, Captura e o
+  "mais especificados" do BI continuam funcionando sem nenhuma mudança --
+  só ganham mais linhas no catálogo.
+- **Só um nível de variante**, checado em `ProductsService` (FK sozinha
+  não expressa isso): variante de variante, ou um produto que já é pai
+  virando variante de outro, os dois batem em `422 INVALID_VARIANT`.
+  `variantLabel` é obrigatório junto de `variantOfId` -- sem rótulo, duas
+  variantes do mesmo pai ficariam indistinguíveis na tela.
+- **`ProductImage` (novo model)**: galeria de fotos extras, `POST
+  /products/:id/images` + `DELETE /product-images/:id` (mesmo padrão de
+  `MoodboardItem`/`MoodboardItemsController`). `imageUrl` continua sendo a
+  capa -- é o campo que a extensão Captura já manda, e ela fica fora
+  deste repo pra atualizar em conjunto, então não podia ser renomeado nem
+  virar obrigatoriamente múltiplo.
+- **`Product.category`** (string livre, mesmo padrão de
+  `RoleRate.role`/`Expense.category`) alimenta um rollup por categoria na
+  tela de FF&E do projeto (aprovado × pendente por categoria) -- calculado
+  no próprio componente da página a partir das especificações que a tela
+  já buscava, sem endpoint novo.
+- **`RoleRatesService` mudou de módulo na correção anterior desta fase
+  (Timesheet → Invoice)** -- não relacionado a este item, só registrando
+  que o padrão de mover um service pra resolver direção de import já tem
+  precedente nesta sessão.
+- **Achado real de arquitetura de módulo, resolvido nesta correção
+  também**: nenhum -- diferente do item anterior, este não exigiu mexer em
+  nenhum outro módulo, `Product`/`ProductImage` já pertenciam a
+  `FfeModule` e continuam lá.
+- Verificado: build+typecheck limpos (api e web), Nest reinicia sem erro
+  depois da migração, 18 casos novos no smoke suite (variantLabel
+  obrigatório, pai inexistente, sucesso, os dois jeitos de tentar aninhar
+  dois níveis, `.variants`/`.variantOf` no GET, galeria adiciona/remove,
+  `product.category` chega na especificação), e testado de ponta a ponta
+  no navegador no catálogo real: criei uma variante de "Mesa de Jantar
+  Carvalho" pela tela (apareceu indentada com "↳" sob o produto pai),
+  adicionei e removi uma foto extra na ficha técnica da variante, e no
+  FF&E do projeto real especifiquei o produto com categoria "mobiliario"
+  e confirmei uma linha nova no rollup (R$ 12.400,00 pendente) separada
+  do "Sem categoria" já existente. Resíduo da verificação removido
+  depois.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados
