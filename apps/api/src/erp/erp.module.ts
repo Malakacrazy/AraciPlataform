@@ -26,6 +26,8 @@ import { FiscalController } from './fiscal/fiscal.controller';
 import { FiscalService } from './fiscal/fiscal.service';
 import { NfseController } from './fiscal/nfse.controller';
 import { NfseService } from './fiscal/nfse.service';
+import { RoleRatesController } from './role-rates.controller';
+import { RoleRatesService } from './role-rates.service';
 
 @Module({
   controllers: [
@@ -44,6 +46,7 @@ import { NfseService } from './fiscal/nfse.service';
     AccountController,
     FiscalController,
     NfseController,
+    RoleRatesController,
   ],
   providers: [
     ProjectsService,
@@ -58,10 +61,14 @@ import { NfseService } from './fiscal/nfse.service';
     AccountService,
     FiscalService,
     NfseService,
+    RoleRatesService,
   ],
   // ProjectsService/UsersService são usados por CrmModule (conversão de
-  // oportunidade ganha em projeto) e por FfeModule (checkout do carrinho)
-  // — precisam ser exportados para outros módulos injetarem via DI.
-  exports: [ProjectsService, UsersService],
+  // oportunidade ganha em projeto) e por FfeModule (checkout do carrinho).
+  // RoleRatesService mudou de módulo (era CrmModule) porque InvoicesService
+  // agora precisa dela pra faturar hora_tecnica por hora apontada — CrmModule
+  // já importa ErpModule, então movida pra cá evita depender na direção
+  // contrária (ProposalsService injeta RoleRatesService de volta).
+  exports: [ProjectsService, UsersService, RoleRatesService],
 })
 export class ErpModule {}

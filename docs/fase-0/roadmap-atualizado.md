@@ -1043,6 +1043,86 @@ começar). Dead code desde o dia zero.
   direta no Postgres, não só pela tela; refeito por coordenada e seguiu
   normalmente.
 
+## Fase 2 (correção) — Timesheet → Invoice (faturar por hora apontada)
+
+Quarto item da Fase 2. Verbatim da auditoria: "Approved hours flow into
+an invoice line for hora_técnica projects instead of a hand-typed
+amount" -- pra um estúdio que fatura por hora técnica, a hora apontada e
+aprovada no Timesheet nunca chegava na fatura: o valor de "Faturar"
+continuava sendo um número digitado à mão na tela, sem nenhum vínculo com
+o que o Timesheet dizia ter sido trabalhado.
+
+- **`InvoiceLine` (novo model)**: uma linha por papel com horas apontadas
+  no estágio, com `hours`/`hourlyRate`/`amount` -- mesma ideia de
+  `ProposalStage` (uma linha por estágio dentro de uma Proposal), só que
+  aqui o agrupamento é por papel porque é isso que `RoleRate` precifica.
+  Fatura com valor digitado à mão (outros feeModel, ou o carrinho de
+  FF&E) continua sem nenhuma linha -- `Invoice.lines` fica `[]`.
+- **`InvoicesService.createInvoiceForPhase` bifurca por `Project.feeModel`**:
+  pra `hora_tecnica`, `amount` no corpo da requisição vira erro
+  (`422 AMOUNT_NOT_ALLOWED`) -- o valor é sempre calculado a partir de
+  `TimeEntry` aprovada e faturável (`billable: true`, `approvedAt` setado)
+  daquele estágio, agrupada por `User.role` e precificada pela `RoleRate`
+  atual de cada papel (mesmo motor de tarifa/papel que `Proposal` usa em
+  `pricing.ts`, com hora de verdade em vez de hora estimada). Papel com
+  hora apontada mas sem `RoleRate` cadastrada falha alto
+  (`422 ROLE_RATE_MISSING`) em vez de inventar uma tarifa ou faturar de
+  graça. Estágio sem nenhuma hora aprovada ainda: `422 NO_APPROVED_HOURS`.
+  Para os demais feeModel, o fluxo de valor digitado continua idêntico ao
+  que já existia.
+- **Uma fatura por estágio virou regra da API, não só da tela**: antes
+  disso, nada no backend impedia criar uma segunda fatura pro mesmo
+  estágio -- só a tela escondia o botão "Faturar" depois da primeira.
+  Faturamento automático por hora precisa desse invariante de verdade
+  (senão a mesma `TimeEntry` aprovada poderia ser contada em duas
+  faturas), então virou `422 PHASE_ALREADY_INVOICED` no
+  `InvoicesService`, valendo pra todo feeModel, não só hora_técnica.
+- **`RoleRatesService` mudou de módulo** (`CrmModule` → `ErpModule`):
+  `InvoicesService` (ERP) precisa dela pra calcular a fatura por hora, mas
+  o limite de módulos do projeto (`especificacao-tecnica.md`, "Limites dos
+  módulos") proíbe um módulo consultar a tabela de outro módulo direto via
+  Prisma -- só através de um Service exportado do módulo dono. Como
+  `CrmModule` já importa `ErpModule` (não o contrário), mover
+  `RoleRatesService`/`RoleRatesController` pra `ErpModule` resolve sem
+  precisar de import circular (`forwardRef`, nunca usado neste código
+  antes) -- `ProposalsService` (CRM) passou a injetar `RoleRatesService`
+  de volta, no lugar de consultar `RoleRate` direto como fazia antes. A
+  rota HTTP (`v1/role-rates`) não muda, só o módulo Nest que a declara.
+- **Achado real de infraestrutura de teste**: `InvoiceLine → Invoice` usa
+  `RESTRICT` (sem cascade declarado, mesma convenção de `ProposalStage →
+  Proposal`) -- sem apagar as linhas primeiro, `cleanup-smoke-residue.ts`
+  falharia com `P2003` ao tentar apagar qualquer fatura hora_técnica
+  calculada automaticamente. Corrigido apagando `InvoiceLine` antes de
+  `Invoice` no script.
+- **Achado real, não corrigido (decisão de escopo)**: `RoleRate` é dado de
+  referência da conta inteira (tarifa por papel), não por projeto -- o
+  smoke suite descobriu, ao testar `ROLE_RATE_MISSING`, que ele mesmo
+  contamina esse dado entre execuções (o papel de precificação do usuário
+  de teste é sempre `'admin'`, o mesmo `role` que os dois usuários admin
+  reais desta conta têm de verdade — `auth.service.ts` marca o primeiro
+  usuário de cada conta como `role: 'admin'`). Diferente do resíduo de
+  Expense (Fase 2, item anterior), isso não é seguro de limpar
+  automaticamente: apagar a `RoleRate` de `'admin'` no cleanup apagaria
+  uma tarifa que pode se tornar dado real de faturamento pra um admin de
+  verdade. O smoke suite passou a resetar essa `RoleRate` explicitamente
+  antes de provar o caminho de erro (pré-condição do teste, não limpeza de
+  resíduo) -- mas a tarifa de R$80/h que ele cadastra depois disso
+  permanece na conta real entre execuções, mesmo padrão já valendo pra
+  "Arquiteto Líder (RT)" desde a Fase 2 anterior (Financeiro). Fica
+  registrado como comportamento conhecido, não como bug corrigido.
+- Verificado: build+typecheck limpos (api e web), Nest reinicia sem erro
+  de DI depois da mudança de módulo do RoleRatesService, 9 casos novos no
+  smoke suite (sem hora nenhuma, hora não aprovada ainda não conta, amount
+  rejeitado pra hora_técnica, papel sem tarifa falha alto, sucesso com
+  valor e InvoiceLine corretos, não fatura o mesmo estágio duas vezes), e
+  testado de ponta a ponta no navegador no projeto real: aprovei o gate de
+  Criação de Conceito, apontei e aprovei 5h faturáveis pelo Timesheet,
+  cliquei "Faturar horas apontadas" (sem nenhum campo de valor na tela,
+  diferente do "Faturar" de sempre) e confirmei a fatura de R$ 400,00 com
+  a linha "admin — 5h × R$ 80,00" no Financeiro do projeto. Resíduo da
+  verificação (fatura, linha, apontamento, e o gate que aprovei só pra
+  testar) removido depois, restaurando o projeto ao estado exato de antes.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

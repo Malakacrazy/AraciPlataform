@@ -25,10 +25,12 @@ export function CronogramaViews({
   projectId,
   phases,
   invoicedPhaseIds,
+  feeModel,
 }: {
   projectId: string;
   phases: ProjectPhase[];
   invoicedPhaseIds: string[];
+  feeModel: string;
 }) {
   const [view, setView] = useState<ViewMode>("lista");
   const invoiced = new Set(invoicedPhaseIds);
@@ -58,7 +60,7 @@ export function CronogramaViews({
 
       <div className="mt-4">
         {view === "lista" && (
-          <ListaView projectId={projectId} contracted={contracted} invoiced={invoiced} />
+          <ListaView projectId={projectId} contracted={contracted} invoiced={invoiced} feeModel={feeModel} />
         )}
         {view === "kanban" && <KanbanView contracted={contracted} />}
         {view === "gantt" && <GanttView contracted={contracted} />}
@@ -72,10 +74,12 @@ function ListaView({
   projectId,
   contracted,
   invoiced,
+  feeModel,
 }: {
   projectId: string;
   contracted: ProjectPhase[];
   invoiced: Set<string>;
+  feeModel: string;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -120,15 +124,17 @@ function ListaView({
             )}
             {phase.approvedAt && !invoiced.has(phase.id) && (
               <form action={createInvoice.bind(null, projectId, phase.id)} className="mt-2 flex items-center gap-2">
-                <input
-                  name="amount"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  required
-                  placeholder="valor R$"
-                  className="w-28 rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-                />
+                {feeModel !== "hora_tecnica" && (
+                  <input
+                    name="amount"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    required
+                    placeholder="valor R$"
+                    className="w-28 rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                  />
+                )}
                 <input
                   name="dueDate"
                   type="date"
@@ -136,7 +142,7 @@ function ListaView({
                   className="rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
                 />
                 <button type="submit" className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
-                  Faturar
+                  {feeModel === "hora_tecnica" ? "Faturar horas apontadas" : "Faturar"}
                 </button>
               </form>
             )}

@@ -450,6 +450,25 @@ model Invoice {
   cstIbs     String? // Código de Situação Tributária do IBS
   cstCbs     String? // Código de Situação Tributária da CBS
   cClassTrib String? // Código de Classificação Tributária
+
+  lines InvoiceLine[]
+}
+
+// Só existe para faturas de projeto hora_tecnica calculadas a partir de
+// TimeEntry aprovada (ver InvoicesService.createHourlyInvoice) — uma
+// linha por papel com horas apontadas naquele estágio, mesma ideia de
+// ProposalStage (uma linha por estágio), mas aqui o agrupamento é por
+// papel porque é isso que RoleRate precifica. Fatura com valor
+// digitado à mão (outros feeModel, ou o carrinho de FF&E) não cria
+// nenhuma linha.
+model InvoiceLine {
+  id         String  @id @default(cuid())
+  invoiceId  String
+  invoice    Invoice @relation(fields: [invoiceId], references: [id])
+  role       String
+  hours      Decimal
+  hourlyRate Decimal
+  amount     Decimal
 }
 
 // FF&E: ambiente/área do projeto ao qual produtos são especificados

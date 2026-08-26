@@ -9,27 +9,25 @@ import { ProposalsController } from './proposals.controller';
 import { ProposalsService } from './proposals.service';
 import { ProposalSigningService } from './proposal-signing.service';
 import { ZapSignWebhookController } from './zapsign-webhook.controller';
-import { RoleRatesController } from './role-rates.controller';
-import { RoleRatesService } from './role-rates.service';
 
 @Module({
   // ErpModule para ProjectsService (OpportunitiesService, conversão
-  // automática); NotificationsModule para avisar a equipe quando o
-  // cliente assina uma proposta via ZapSign.
+  // automática) e RoleRatesService (ProposalsService — RoleRatesService
+  // mudou pra ErpModule quando InvoicesService passou a precisar dela;
+  // ver comentário em erp.module.ts); NotificationsModule para avisar a
+  // equipe quando o cliente assina uma proposta via ZapSign.
   imports: [ErpModule, NotificationsModule],
   controllers: [
     ClientsController,
     OpportunitiesController,
     ProposalsController,
     ZapSignWebhookController,
-    RoleRatesController,
   ],
   providers: [
     ClientsService,
     OpportunitiesService,
     ProposalsService,
     ProposalSigningService,
-    RoleRatesService,
   ],
   exports: [ClientsService, OpportunitiesService],
 })

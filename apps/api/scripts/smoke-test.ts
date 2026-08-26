@@ -407,16 +407,120 @@ async function main() {
     invoiceOnUnapproved.body
   );
 
-  const invoiceRes = await api(`/v1/projects/${projectId}/phases/${firstPhase.id}/invoice`, {
+  // O projeto deste run é hora_tecnica (feeModel na criação da Opportunity,
+  // linha ~97) -- fatura de estágio pra esse feeModel é calculada a partir
+  // de TimeEntry aprovada, não de um valor digitado (ver
+  // InvoicesService.createHourlyInvoice). Testa a cadeia de regras nessa
+  // ordem: sem hora nenhuma → sem hora aprovada → amount não permitido →
+  // papel sem tarifa → sucesso → não pode faturar de novo.
+  const invoiceSemHorasRes = await api(`/v1/projects/${projectId}/phases/${firstPhase.id}/invoice`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  report(
+    "Faturar hora_tecnica sem nenhuma hora apontada → 422 NO_APPROVED_HOURS",
+    invoiceSemHorasRes.status === 422 && invoiceSemHorasRes.body?.error?.code === "NO_APPROVED_HOURS",
+    invoiceSemHorasRes.body
+  );
+
+  const horasFaturaveisRes = await api("/v1/time-entries", {
+    method: "POST",
+    body: JSON.stringify({
+      projectId,
+      phaseId: firstPhase.id,
+      date: new Date().toISOString(),
+      hours: 5,
+      activityType: "projeto",
+    }),
+  });
+  report("POST /time-entries (horas a faturar) → 201", horasFaturaveisRes.status === 201, horasFaturaveisRes.body);
+  const horasFaturaveisId = horasFaturaveisRes.body?.data?.id;
+
+  const invoiceComHoraNaoAprovadaRes = await api(`/v1/projects/${projectId}/phases/${firstPhase.id}/invoice`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  report(
+    "Faturar com hora lançada mas ainda não aprovada → 422 NO_APPROVED_HOURS",
+    invoiceComHoraNaoAprovadaRes.status === 422 && invoiceComHoraNaoAprovadaRes.body?.error?.code === "NO_APPROVED_HOURS",
+    invoiceComHoraNaoAprovadaRes.body
+  );
+
+  const aprovarHorasFaturaveisRes = await api(`/v1/time-entries/${horasFaturaveisId}/approve`, { method: "POST" });
+  report(
+    "POST /time-entries/:id/approve (horas a faturar) → 200",
+    aprovarHorasFaturaveisRes.status === 200 && !!aprovarHorasFaturaveisRes.body?.data?.approvedAt,
+    aprovarHorasFaturaveisRes.body
+  );
+
+  const invoiceComAmountRes = await api(`/v1/projects/${projectId}/phases/${firstPhase.id}/invoice`, {
     method: "POST",
     body: JSON.stringify({ amount: 902.98 }),
   });
   report(
-    "Faturar um estágio com gate aprovado → 201",
-    invoiceRes.status === 201 && invoiceRes.body?.data?.status === "pendente",
+    "Faturar hora_tecnica enviando amount → 422 AMOUNT_NOT_ALLOWED",
+    invoiceComAmountRes.status === 422 && invoiceComAmountRes.body?.error?.code === "AMOUNT_NOT_ALLOWED",
+    invoiceComAmountRes.body
+  );
+
+  // O usuário deste smoke test nasce com role 'admin' (ver auth.service.ts).
+  // RoleRate é dado de referência da conta inteira e sobrevive de propósito
+  // entre execuções do smoke suite (mesma convenção já valendo pra
+  // "Arquiteto Líder (RT)" acima) -- então uma execução anterior pode já
+  // ter deixado uma tarifa cadastrada pro papel 'admin'. Reseta na unha
+  // antes de provar o caminho de erro; a tarifa de verdade é recriada duas
+  // linhas abaixo mesmo, então isso não é "limpeza de resíduo", é garantir
+  // a pré-condição do teste independente do histórico do banco.
+  const smokeUser = await prisma.user.findUnique({ where: { email: EMAIL } });
+  await prisma.roleRate.deleteMany({ where: { accountId: smokeUser!.accountId, role: "admin" } });
+
+  const invoiceSemTarifaRes = await api(`/v1/projects/${projectId}/phases/${firstPhase.id}/invoice`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  report(
+    "Faturar hora aprovada de papel sem RoleRate cadastrada → 422 ROLE_RATE_MISSING",
+    invoiceSemTarifaRes.status === 422 && invoiceSemTarifaRes.body?.error?.code === "ROLE_RATE_MISSING",
+    invoiceSemTarifaRes.body
+  );
+
+  const roleRateAdminRes = await api("/v1/role-rates", {
+    method: "POST",
+    body: JSON.stringify({ role: "admin", hourlyRate: 80 }),
+  });
+  report("POST /role-rates (papel 'admin') → 201", roleRateAdminRes.status === 201, roleRateAdminRes.body);
+
+  const invoiceRes = await api(`/v1/projects/${projectId}/phases/${firstPhase.id}/invoice`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  report(
+    "Faturar hora_tecnica com hora aprovada e tarifa cadastrada → 201, valor = horas × tarifa",
+    invoiceRes.status === 201 &&
+      invoiceRes.body?.data?.status === "pendente" &&
+      Number(invoiceRes.body?.data?.amount) === 400,
+    invoiceRes.body
+  );
+  report(
+    "Fatura por hora traz uma InvoiceLine por papel, com hours/hourlyRate/amount corretos",
+    invoiceRes.body?.data?.lines?.length === 1 &&
+      invoiceRes.body.data.lines[0].role === "admin" &&
+      Number(invoiceRes.body.data.lines[0].hours) === 5 &&
+      Number(invoiceRes.body.data.lines[0].hourlyRate) === 80 &&
+      Number(invoiceRes.body.data.lines[0].amount) === 400,
     invoiceRes.body
   );
   const invoiceId = invoiceRes.body?.data?.id;
+
+  const invoiceDuplicadaRes = await api(`/v1/projects/${projectId}/phases/${firstPhase.id}/invoice`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  report(
+    "Faturar o mesmo estágio de novo → 422 PHASE_ALREADY_INVOICED",
+    invoiceDuplicadaRes.status === 422 && invoiceDuplicadaRes.body?.error?.code === "PHASE_ALREADY_INVOICED",
+    invoiceDuplicadaRes.body
+  );
 
   const invoicesListRes = await api(`/v1/invoices?projectId=${projectId}`);
   report(

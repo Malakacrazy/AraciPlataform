@@ -63,6 +63,11 @@ async function main() {
     await tx.area.deleteMany({ where: { projectId: { in: doomedProjectIds } } });
     await tx.moodboard.deleteMany({ where: { projectId: { in: doomedProjectIds } } });
     await tx.presentationLink.deleteMany({ where: { projectId: { in: doomedProjectIds } } });
+    // InvoiceLine → Invoice é RESTRICT (mesma convenção de ProposalStage →
+    // Proposal, sem cascade declarado) -- sem apagar as linhas primeiro,
+    // tx.invoice.deleteMany falha com P2003 pra toda fatura hora_tecnica
+    // calculada automaticamente (ver InvoicesService.createHourlyInvoice).
+    await tx.invoiceLine.deleteMany({ where: { invoice: { projectId: { in: doomedProjectIds } } } });
     await tx.invoice.deleteMany({ where: { projectId: { in: doomedProjectIds } } });
     await tx.expense.deleteMany({
       where: { OR: [{ projectId: { in: doomedProjectIds } }, { description: { in: SMOKE_TEST_EXPENSE_DESCRIPTIONS } }] },

@@ -77,7 +77,12 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         </Link>
       </div>
 
-      <CronogramaViews projectId={id} phases={project.phases} invoicedPhaseIds={invoicedPhaseIds} />
+      <CronogramaViews
+        projectId={id}
+        phases={project.phases}
+        invoicedPhaseIds={invoicedPhaseIds}
+        feeModel={project.feeModel}
+      />
 
       <TaskList projectId={id} phases={project.phases} tasks={tasks} users={users} />
 
@@ -132,6 +137,21 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                       </button>
                     </form>
                   ))}
+                {inv.lines.length > 0 && (
+                  <ul className="w-full border-t border-zinc-100 pt-1.5 text-xs text-zinc-500 dark:border-zinc-900 dark:text-zinc-400">
+                    {inv.lines.map((line) => (
+                      <li key={line.id} className="flex justify-between">
+                        <span>
+                          {line.role} — {Number(line.hours).toLocaleString("pt-BR")}h × R${" "}
+                          {Number(line.hourlyRate).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                        </span>
+                        <span className="font-mono">
+                          R$ {Number(line.amount).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </li>
             ))}
           </ul>

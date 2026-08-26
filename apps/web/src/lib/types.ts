@@ -91,6 +91,18 @@ export interface Proposal {
   stages: ProposalStage[];
 }
 
+// Só existe quando a fatura foi calculada automaticamente por horas
+// apontadas (projeto hora_tecnica) -- ver InvoicesService.createHourlyInvoice.
+// Fatura com valor digitado à mão (outros feeModel, ou o carrinho de
+// FF&E) vem com lines: [].
+export interface InvoiceLine {
+  id: string;
+  role: string;
+  hours: string;
+  hourlyRate: string;
+  amount: string;
+}
+
 export interface Invoice {
   id: string;
   projectId: string;
@@ -103,6 +115,7 @@ export interface Invoice {
   paidAt?: string | null;
   asaasPaymentId?: string | null;
   asaasInvoiceUrl?: string | null;
+  lines: InvoiceLine[];
 }
 
 export type AccessLevel = "admin" | "staff";

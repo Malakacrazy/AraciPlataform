@@ -4,6 +4,7 @@ import { ProjectStageName } from '@araci/db';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApiError, NotFoundError } from '../common/api-error';
 import { OpportunitiesService } from './opportunities.service';
+import { RoleRatesService } from '../erp/role-rates.service';
 import { calcularProposta } from './pricing';
 
 const complexityScoresSchema = z.object({
@@ -47,6 +48,7 @@ export class ProposalsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly opportunitiesService: OpportunitiesService,
+    private readonly roleRatesService: RoleRatesService,
   ) {}
 
   listProposals(accountId: string, opportunityId?: string) {
@@ -80,9 +82,7 @@ export class ProposalsService {
       input.opportunityId,
     ); // 404 se a oportunidade não é desta conta
 
-    const roleRates = await this.prisma.db.roleRate.findMany({
-      where: { accountId },
-    });
+    const roleRates = await this.roleRatesService.listRoleRates(accountId);
     if (roleRates.length === 0) {
       throw new ApiError(
         'NO_ROLE_RATES',

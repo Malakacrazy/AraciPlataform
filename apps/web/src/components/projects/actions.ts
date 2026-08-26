@@ -25,18 +25,19 @@ export async function approveGate(projectId: string, phaseId: string, formData: 
   );
 }
 
+// amount fica de fora do body quando vazio (não manda `amount: undefined`
+// -- JSON.stringify já omite) -- projeto hora_tecnica não tem esse campo
+// na tela (ver cronograma-views.tsx) e a API rejeita se vier preenchido
+// pra esse feeModel, calculando o valor a partir de horas aprovadas.
 export async function createInvoice(projectId: string, phaseId: string, formData: FormData) {
   const amount = String(formData.get("amount") ?? "").trim();
   const dueDate = String(formData.get("dueDate") ?? "").trim();
-  if (!amount) {
-    throw new Error("Informe o valor da fatura.");
-  }
   await call(
     `projects/${projectId}/phases/${phaseId}/invoice`,
     {
       method: "POST",
       body: JSON.stringify({
-        amount: Number(amount),
+        amount: amount ? Number(amount) : undefined,
         // dueDate é opcional na API, mas obrigatória pra cobrar via Asaas
         // (ver billing/billing.service.ts) -- sem isso aqui, toda fatura
         // criada pela tela nasceria impossível de cobrar.
