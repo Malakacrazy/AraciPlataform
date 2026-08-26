@@ -573,6 +573,112 @@ async function main() {
   const user2 = usersListRes.body?.data?.find((u: any) => u.email === email2);
   report("GET /users lista os dois usuários da conta (bootstrap funcionou para os dois)", !!user2, usersListRes.body);
 
+  // --- Tarefas (Task model existia sem controller/service/tela --------
+  // achado da auditoria: "dead code") -------------------------------
+  const taskBadAssigneeRes = await api(`/v1/projects/${projectId}/phases/${firstPhase.id}/tasks`, {
+    method: "POST",
+    body: JSON.stringify({ title: "x", assigneeId: "nonexistent-id" }),
+  });
+  report(
+    "POST .../tasks com assigneeId inexistente → 404",
+    taskBadAssigneeRes.status === 404,
+    taskBadAssigneeRes.body
+  );
+
+  const task1Res = await api(`/v1/projects/${projectId}/phases/${firstPhase.id}/tasks`, {
+    method: "POST",
+    body: JSON.stringify({ title: "Aprovar paleta de cores", assigneeId: user2.id }),
+  });
+  report(
+    "POST .../phases/:phaseId/tasks → 201, nasce 'a_fazer' com assignee de verdade",
+    task1Res.status === 201 && task1Res.body?.data?.status === "a_fazer" && task1Res.body?.data?.assignee?.id === user2.id,
+    task1Res.body
+  );
+  const task1Id = task1Res.body?.data?.id;
+
+  const taskBadDependsOnRes = await api(`/v1/projects/${projectId}/phases/${secondPhase.id}/tasks`, {
+    method: "POST",
+    body: JSON.stringify({ title: "x", dependsOnIds: ["nonexistent-id"] }),
+  });
+  report(
+    "POST .../tasks com dependsOnIds apontando pra tarefa inexistente → 404",
+    taskBadDependsOnRes.status === 404,
+    taskBadDependsOnRes.body
+  );
+
+  const task2Res = await api(`/v1/projects/${projectId}/phases/${secondPhase.id}/tasks`, {
+    method: "POST",
+    body: JSON.stringify({ title: "Encomendar tecido", dependsOnIds: [task1Id] }),
+  });
+  report(
+    "POST .../tasks com dependsOnIds válido (fase diferente da tarefa-alvo) → 201",
+    task2Res.status === 201 && task2Res.body?.data?.dependsOn?.[0]?.id === task1Id,
+    task2Res.body
+  );
+  const task2Id = task2Res.body?.data?.id;
+
+  const cycleRes = await api(`/v1/tasks/${task1Id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ dependsOnIds: [task2Id] }),
+  });
+  report(
+    "Fazer task1 depender de task2 (que já depende de task1) → 422 TASK_DEPENDENCY_CYCLE",
+    cycleRes.status === 422 && cycleRes.body?.error?.code === "TASK_DEPENDENCY_CYCLE",
+    cycleRes.body
+  );
+
+  const blockedRes = await api(`/v1/tasks/${task2Id}/status`, {
+    method: "POST",
+    body: JSON.stringify({ status: "concluida" }),
+  });
+  report(
+    "Concluir task2 antes de task1 (dependência) → 422 TASK_BLOCKED",
+    blockedRes.status === 422 && blockedRes.body?.error?.code === "TASK_BLOCKED",
+    blockedRes.body
+  );
+
+  const completeTask1Res = await api(`/v1/tasks/${task1Id}/status`, {
+    method: "POST",
+    body: JSON.stringify({ status: "concluida" }),
+  });
+  report(
+    "Concluir task1 (sem dependências pendentes) → 200, completedAt setado",
+    completeTask1Res.status === 200 &&
+      completeTask1Res.body?.data?.status === "concluida" &&
+      !!completeTask1Res.body?.data?.completedAt,
+    completeTask1Res.body
+  );
+
+  const unblockedRes = await api(`/v1/tasks/${task2Id}/status`, {
+    method: "POST",
+    body: JSON.stringify({ status: "concluida" }),
+  });
+  report(
+    "Com task1 concluída, concluir task2 agora funciona → 200",
+    unblockedRes.status === 200 && unblockedRes.body?.data?.status === "concluida",
+    unblockedRes.body
+  );
+
+  const listTasksRes = await api(`/v1/projects/${projectId}/tasks`);
+  report(
+    "GET /projects/:id/tasks → inclui as duas tarefas, ordenadas por fase",
+    listTasksRes.status === 200 &&
+      listTasksRes.body?.data?.length === 2 &&
+      listTasksRes.body.data[0].id === task1Id &&
+      listTasksRes.body.data[1].id === task2Id,
+    listTasksRes.body
+  );
+
+  const deleteTaskRes = await api(`/v1/tasks/${task2Id}`, { method: "DELETE" });
+  report("DELETE /tasks/:id → 204", deleteTaskRes.status === 204, deleteTaskRes.body);
+
+  const listAfterDeleteTaskRes = await api(`/v1/projects/${projectId}/tasks`);
+  report(
+    "Após remover task2, só task1 aparece na listagem",
+    listAfterDeleteTaskRes.body?.data?.length === 1 && listAfterDeleteTaskRes.body?.data?.[0]?.id === task1Id,
+    listAfterDeleteTaskRes.body
+  );
+
   const userPatchRes = await api(`/v1/users/${user2.id}`, {
     method: "PATCH",
     body: JSON.stringify({ role: "Arquiteto Pleno", specialty: "FF&E", costPerHour: 45 }),

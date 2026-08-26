@@ -3,11 +3,12 @@ import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet, ApiError } from "@/lib/api";
-import type { Project, OfficeLink, Invoice, ProjectMember, User, Activity } from "@/lib/types";
+import type { Project, OfficeLink, Invoice, ProjectMember, User, Activity, Task } from "@/lib/types";
 import { OfficeLinksSection } from "@/components/office-links/office-links-section";
 import { CronogramaViews } from "@/components/projects/cronograma-views";
 import { markInvoiceIssued, chargeInvoice, addMember, removeMember } from "@/components/projects/actions";
 import { ActivityTimeline } from "@/components/activities/activity-timeline";
+import { TaskList } from "@/components/tasks/task-list";
 
 const INVOICE_STATUS_LABELS: Record<string, string> = {
   pendente: "Pendente",
@@ -27,12 +28,14 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   let officeLinks: OfficeLink[];
   let members: ProjectMember[];
   let users: User[];
+  let tasks: Task[];
   try {
-    [project, officeLinks, members, users] = await Promise.all([
+    [project, officeLinks, members, users, tasks] = await Promise.all([
       apiGet<Project>(`projects/${id}`),
       apiGet<OfficeLink[]>(`projects/${id}/office-links`),
       apiGet<ProjectMember[]>(`projects/${id}/members`),
       apiGet<User[]>("users"),
+      apiGet<Task[]>(`projects/${id}/tasks`),
     ]);
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) {
@@ -75,6 +78,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
       </div>
 
       <CronogramaViews projectId={id} phases={project.phases} invoicedPhaseIds={invoicedPhaseIds} />
+
+      <TaskList projectId={id} phases={project.phases} tasks={tasks} users={users} />
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
         <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Financeiro</h2>

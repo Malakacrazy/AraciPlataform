@@ -984,6 +984,65 @@ receita.
   902,98 recebido − R$ 500 de despesa paga = R$ 402,98, batendo com o
   que a tela mostrou).
 
+## Fase 2 (correção) — Lista de tarefas do projeto
+
+Terceiro item da Fase 2. Verbatim da auditoria: "Wire the existing Task
+model into a real task list with assignment and dependencies" -- o model
+`Task` existia desde a migração inicial (`20260808012136_init`), com
+`assigneeId` como coluna solta sem FK, e zero controller, zero service,
+zero tela em qualquer lugar da plataforma (confirmado por grep antes de
+começar). Dead code desde o dia zero.
+
+- **`Task` (model reescrito)**: `assigneeId` virou relação de verdade
+  (`assignee User? @relation(...)`, `ON DELETE SET NULL`) -- antes disso
+  era só uma string sem nenhuma garantia de integridade. Campos novos:
+  `order` (ordenação dentro da fase, calculado no create via `count`, sem
+  endpoint de reordenar/drag-drop -- não pedido), `completedAt`
+  (efeito colateral de uma transição de status, nunca input direto, mesmo
+  padrão de `Invoice.paidAt`/`ProjectPhase.approvedAt`), `createdAt`, e
+  uma relação m:n auto-referente implícita `dependsOn`/`blocks` (uma
+  tarefa pode depender de outras, de qualquer fase do mesmo projeto, não
+  só da fase anterior).
+- **Migração gerada, não escrita à mão** -- diferente de toda migração
+  anterior desta sessão, usei `prisma migrate dev --create-only` aqui
+  porque a convenção de nomes/colunas que o Prisma usa pra uma m:n
+  implícita auto-referente (tabela `_TaskDependency`, colunas `"A"`/`"B"`,
+  PK composta, índice em `B`, `ON DELETE CASCADE` nas duas FKs) é fácil de
+  errar de cabeça e difícil de notar errada só lendo o schema depois. O
+  diff gerado também trouxe uma divergência real mas não relacionada (um
+  `AuditLog_accountId_fkey` escrito à mão nesta sessão como `RESTRICT`,
+  enquanto o schema já implicava `SET NULL` pra aquela relação opcional)
+  -- removida do arquivo de migração antes de aplicar, pra não misturar
+  uma correção não pedida dentro da migração de Task.
+- **Regras de negócio aplicadas no servidor, não só na tela**:
+  - Detecção de ciclo (BFS por `dependsOn` a partir de cada candidato) --
+    tentar criar uma dependência que fecharia um ciclo (a tarefa nunca
+    poderia ser concluída) devolve `422 TASK_DEPENDENCY_CYCLE`.
+  - Bloqueio por dependência -- uma tarefa só pode virar `concluida` se
+    todo `dependsOn` dela já estiver `concluida`; `422 TASK_BLOCKED` caso
+    contrário. Checado só em `POST /tasks/:id/status` (rota dedicada,
+    separada do PATCH estrutural), mesmo padrão já usado em
+    `ProjectPhase.../approve`.
+- **Web**: nova seção "Tarefas" na página do projeto, agrupada por fase
+  (mesma organização que o Cronograma já usa) -- criar tarefa por fase
+  (título, responsável, prazo, multi-select de dependências cobrindo
+  *todo* o projeto, não só a fase atual, já que uma tarefa de fase
+  posterior pode depender de algo de uma fase anterior), Iniciar/Concluir
+  (desabilitado com tooltip quando bloqueada) e Remover.
+- Verificado: build+typecheck limpos (api e web), 11 casos novos no
+  smoke suite (404 de assignee/dependência inexistente, ciclo, bloqueio,
+  conclusão bem-sucedida após desbloqueio, ordenação do
+  `GET /projects/:id/tasks`, delete), e testado de ponta a ponta no
+  navegador no projeto real: criei uma tarefa em Captação/Alinhamento,
+  criei uma segunda em Briefing dependendo da primeira, confirmei o texto
+  "bloqueada por" e o botão Concluir desabilitado, iniciei e concluí a
+  primeira, confirmei que a segunda desbloqueou, concluí a segunda,
+  testei Remover. Um clique via `ref` da árvore de acessibilidade não
+  registrou silenciosamente no meio do fluxo (falha conhecida desta
+  sessão) -- percebido só porque cada passo foi confirmado por query
+  direta no Postgres, não só pela tela; refeito por coordenada e seguiu
+  normalmente.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

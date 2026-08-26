@@ -369,6 +369,26 @@ export interface Activity {
   author: ActivityAuthor;
 }
 
+export type TaskStatus = "a_fazer" | "em_andamento" | "concluida";
+
+export interface TaskDependency {
+  id: string;
+  title: string;
+  status: TaskStatus;
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  order: number;
+  dueDate?: string | null;
+  completedAt?: string | null;
+  assignee?: { id: string; name: string; email: string } | null;
+  phase: { id: string; stage: PepStage; order: number };
+  dependsOn: TaskDependency[];
+}
+
 export interface Notification {
   id: string;
   type: string;

@@ -129,6 +129,7 @@ model User {
   allocations       Allocation[]
   activities        Activity[]
   notifications     Notification[]
+  assignedTasks     Task[]
 }
 
 // CRM: pessoa física/jurídica captada como lead ou já cliente
@@ -355,14 +356,34 @@ model ProjectPhase {
   invoices    Invoice[]
 }
 
+// Existia no schema desde o início (init migration) sem controller, sem
+// service, sem tela nenhuma -- achado da auditoria ("Task model is dead
+// code"). assigneeId já existia mas era uma coluna solta, sem
+// constraint de FK nenhuma (corrigido aqui, virou relação de verdade).
 model Task {
   id         String       @id @default(cuid())
   phaseId    String
   phase      ProjectPhase @relation(fields: [phaseId], references: [id])
   title      String
   assigneeId String?
-  status     String
+  assignee   User?        @relation(fields: [assigneeId], references: [id])
+  status     String // a_fazer | em_andamento | concluida
+  order      Int          @default(0)
   dueDate    DateTime?
+  // Preenchido só como efeito de status virar "concluida" (mesmo padrão
+  // de Invoice.paidAt/ProjectPhase.approvedAt) -- nunca aceito como input
+  // direto.
+  completedAt DateTime?
+  createdAt   DateTime     @default(now())
+
+  // Dependência entre tarefas -- auto-relação m:n implícita. dependsOn =
+  // "isso só pode ser concluído depois de"; blocks é o lado reverso
+  // (quem depende de mim). Validado na service layer: sem ciclos (DFS ao
+  // adicionar uma aresta) e, ao marcar "concluida", todo dependsOn
+  // precisa já estar concluído -- sem isso, dependência seria só um
+  // rótulo decorativo, não uma regra de verdade.
+  dependsOn Task[] @relation("TaskDependency")
+  blocks    Task[] @relation("TaskDependency")
 }
 
 model ProjectMember {

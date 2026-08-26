@@ -102,3 +102,36 @@ export async function updatePhaseDates(projectId: string, phaseId: string, formD
     projectId,
   );
 }
+
+export async function createTask(projectId: string, phaseId: string, formData: FormData) {
+  const title = String(formData.get("title") ?? "").trim();
+  const assigneeId = String(formData.get("assigneeId") ?? "").trim();
+  const dueDate = String(formData.get("dueDate") ?? "").trim();
+  const dependsOnIds = formData.getAll("dependsOnIds").map(String).filter(Boolean);
+  if (!title) {
+    throw new Error("Título da tarefa é obrigatório.");
+  }
+  await call(
+    `projects/${projectId}/phases/${phaseId}/tasks`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        title,
+        assigneeId: assigneeId || undefined,
+        dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
+        dependsOnIds: dependsOnIds.length > 0 ? dependsOnIds : undefined,
+      }),
+    },
+    projectId,
+  );
+}
+
+// Ação dedicada, não um PATCH genérico -- a API aplica a regra de
+// dependência (não conclui com dependsOn pendente) só nesta rota.
+export async function updateTaskStatus(projectId: string, taskId: string, status: string) {
+  await call(`tasks/${taskId}/status`, { method: "POST", body: JSON.stringify({ status }) }, projectId);
+}
+
+export async function deleteTask(projectId: string, taskId: string) {
+  await call(`tasks/${taskId}`, { method: "DELETE" }, projectId);
+}
