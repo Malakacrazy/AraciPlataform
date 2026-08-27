@@ -28,6 +28,8 @@ import { NfseController } from './fiscal/nfse.controller';
 import { NfseService } from './fiscal/nfse.service';
 import { RoleRatesController } from './role-rates.controller';
 import { RoleRatesService } from './role-rates.service';
+import { StudioFixedCostsController } from './studio-fixed-costs.controller';
+import { StudioFixedCostsService } from './studio-fixed-costs.service';
 
 @Module({
   controllers: [
@@ -47,6 +49,7 @@ import { RoleRatesService } from './role-rates.service';
     FiscalController,
     NfseController,
     RoleRatesController,
+    StudioFixedCostsController,
   ],
   providers: [
     ProjectsService,
@@ -62,6 +65,7 @@ import { RoleRatesService } from './role-rates.service';
     FiscalService,
     NfseService,
     RoleRatesService,
+    StudioFixedCostsService,
   ],
   // ProjectsService/UsersService são usados por CrmModule (conversão de
   // oportunidade ganha em projeto) e por FfeModule (checkout do carrinho).

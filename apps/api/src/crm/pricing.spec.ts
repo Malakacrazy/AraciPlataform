@@ -33,7 +33,7 @@ describe('calcularTarifaHora', () => {
       {
         role: 'Arquiteto Líder (RT)',
         grossSalary: 6500,
-        payrollBurden: 0,
+        payrollBurdenPercent: 0,
         billableHoursPerMonth: 168,
       },
       overhead,
@@ -41,6 +41,33 @@ describe('calcularTarifaHora', () => {
     );
     // custoDireto=38.6905, custoTotal=46.3069, ×1.3/0.94 ≈ 64.04
     expect(tarifa).toBeCloseTo(64.04, 2);
+  });
+
+  it('encargos é percentual sobre o salário bruto, não um valor absoluto somado (convenção CLT de mercado)', () => {
+    // Achado real: a primeira versão desta função tratava payrollBurden
+    // como R$ absoluto (grossSalary + payrollBurden), mas a planilha
+    // formata Encargos como percentual ("0.0%", não "-" como as colunas
+    // de moeda) -- encargos trabalhistas no Brasil são sempre expressos
+    // como % do salário (INSS/FGTS/13º/férias), nunca um valor fixo em
+    // R$. Com 42% de encargos sobre 6500: custoTotalMes = 6500×1.42 =
+    // 9230, não 6500+42.
+    const overhead = calcularOverheadPorHora({
+      totalMonthlyFixedCosts: 1279.56,
+      billableHoursPerMonth: 168,
+    });
+    const tarifa = calcularTarifaHora(
+      {
+        role: 'Arquiteto Líder (RT)',
+        grossSalary: 6500,
+        payrollBurdenPercent: 0.42,
+        billableHoursPerMonth: 168,
+      },
+      overhead,
+      { marginTarget: 0.3, taxBurden: 0.06 },
+    );
+    // custoTotalMes=9230, custoDireto=54.9405, custoTotal=62.5569,
+    // ×1.3/0.94 ≈ 86.51
+    expect(tarifa).toBeCloseTo(86.51, 2);
   });
 
   it('a role with no salary configured still carries the studio overhead', () => {
@@ -55,7 +82,7 @@ describe('calcularTarifaHora', () => {
       {
         role: 'Estagiário',
         grossSalary: 0,
-        payrollBurden: 0,
+        payrollBurdenPercent: 0,
         billableHoursPerMonth: 120,
       },
       overhead,
@@ -108,7 +135,7 @@ describe('calcularProposta', () => {
     {
       role: LEAD_ROLE,
       grossSalary: 6500,
-      payrollBurden: 0,
+      payrollBurdenPercent: 0,
       billableHoursPerMonth: 168,
     },
     overhead,

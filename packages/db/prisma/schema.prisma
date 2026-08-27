@@ -60,33 +60,77 @@ model Account {
   fatorRPercent  Decimal? // last computed folha/receita 12m ratio, for the Fator R simulator
   createdAt      DateTime @default(now())
 
-  users         User[]
-  clients       Client[]
-  projects      Project[]
-  products      Product[]
-  roleRates     RoleRate[]
-  officeLinks   OfficeLink[]
-  activities    Activity[]
-  notifications Notification[]
-  auditLogs     AuditLog[]
-  expenses      Expense[]
+  // Abas 01/02 da planilha de precificação (docs/fase-0/Base_Precificacao
+  // (fazer cópia).xlsx) -- inputs compartilhados pela fórmula de
+  // tarifa/hora (crm/pricing.ts: calcularOverheadPorHora/
+  // calcularTarifaHora), um valor só por conta (não por papel): margem-
+  // alvo e carga tributária se aplicam igual a todo RoleRate calculado; a
+  // capacidade produtiva (dias úteis × horas/dia × pessoas ativas) define
+  // as horas faturáveis do ESTÚDIO, usadas pra ratear StudioFixedCost em
+  // overhead/hora. Defaults reproduzem o baseline da planilha (30%
+  // margem, 21 dias, 8h/dia, 1 pessoa) até calibração real.
+  pricingMarginPercent        Decimal @default(0.30)
+  pricingTaxBurdenPercent     Decimal @default(0)
+  pricingBusinessDaysPerMonth Int     @default(21)
+  pricingBillableHoursPerDay  Decimal @default(8)
+  pricingActiveStaffCount     Decimal @default(1)
+
+  users             User[]
+  clients           Client[]
+  projects          Project[]
+  products          Product[]
+  roleRates         RoleRate[]
+  officeLinks       OfficeLink[]
+  activities        Activity[]
+  notifications     Notification[]
+  auditLogs         AuditLog[]
+  expenses          Expense[]
+  studioFixedCosts  StudioFixedCost[]
+}
+
+// Aba 01 ("Custos Fixos do Estúdio") -- item por item (aluguel, software,
+// contador...), não só um total, porque é assim que o estúdio de fato
+// mantém isso ao longo do tempo (ajustar o aluguel quando reajusta,
+// adicionar uma licença nova), igual ao padrão já usado em Expense pra
+// despesa pontual -- aqui é despesa RECORRENTE mensal, sem status pago/
+// pendente (não é um lançamento de caixa, é um pressuposto de cálculo).
+// A soma de monthlyAmount vira StudioFixedCosts.totalMonthlyFixedCosts em
+// calcularOverheadPorHora (crm/pricing.ts).
+model StudioFixedCost {
+  id            String   @id @default(cuid())
+  accountId     String
+  account       Account  @relation(fields: [accountId], references: [id])
+  description   String
+  monthlyAmount Decimal
+  createdAt     DateTime @default(now())
 }
 
 // Hourly rate per role, already net of overhead/margin/tax (the output of
-// the pricing spreadsheet's "tarifa/hora" calculation, aba 02). The
-// formula that produces this value is code (modules/crm/pricing.ts), not
-// stored — only the final rate is persisted. `role` stays a free string
-// (not an enum) since the team's real roster will vary; the canonical
-// naming reconciled between PEP_Interior.md and the pricing sheet lives
-// in apps/web/src/lib/roles.ts (CANONICAL_ROLES) — see
-// decisoes-pos-descoberta.md, item 2, for the reasoning.
+// the pricing spreadsheet's "tarifa/hora" calculation, aba 02). `role`
+// stays a free string (not an enum) since the team's real roster will
+// vary; the canonical naming reconciled between PEP_Interior.md and the
+// pricing sheet lives in apps/web/src/lib/roles.ts (CANONICAL_ROLES) —
+// see decisoes-pos-descoberta.md, item 2, for the reasoning.
+//
+// grossSalary/payrollBurdenPercent/billableHoursPerMonth são opcionais e
+// nulos juntos -- as duas formas de preencher hourlyRate continuam
+// válidas: (a) digitar a tarifa final direto (ex.: freelancer com valor
+// já fechado, sem salário/encargos que façam sentido calcular), ou (b)
+// preencher os três campos de compensação, e o backend CALCULA
+// hourlyRate via crm/pricing.ts (calcularTarifaHora) em vez de aceitar o
+// valor digitado -- ver RoleRatesService.upsertRoleRate. Guardados (não
+// só usados uma vez e descartados) pra reabrir o formulário já
+// preenchido e recalcular quando custo fixo/margem/salário mudar.
 model RoleRate {
-  id         String   @id @default(cuid())
-  accountId  String
-  account    Account  @relation(fields: [accountId], references: [id])
-  role       String
-  hourlyRate Decimal
-  updatedAt  DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  accountId             String
+  account               Account  @relation(fields: [accountId], references: [id])
+  role                  String
+  hourlyRate            Decimal
+  grossSalary           Decimal?
+  payrollBurdenPercent  Decimal?
+  billableHoursPerMonth Decimal?
+  updatedAt             DateTime @updatedAt
 
   @@unique([accountId, role])
 }

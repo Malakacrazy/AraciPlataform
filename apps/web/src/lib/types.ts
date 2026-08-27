@@ -39,6 +39,15 @@ export interface RoleRate {
   id: string;
   role: string;
   hourlyRate: string;
+  grossSalary?: string | null;
+  payrollBurdenPercent?: string | null;
+  billableHoursPerMonth?: string | null;
+}
+
+export interface StudioFixedCost {
+  id: string;
+  description: string;
+  monthlyAmount: string;
 }
 
 export interface Opportunity {
@@ -296,6 +305,11 @@ export interface Account {
   taxRegime: TaxRegime;
   taxRegimeAnexo?: string | null; // "III" | "V" — só relevante quando taxRegime = "ME"
   fatorRPercent?: string | null;
+  pricingMarginPercent: string;
+  pricingTaxBurdenPercent: string;
+  pricingBusinessDaysPerMonth: number;
+  pricingBillableHoursPerDay: string;
+  pricingActiveStaffCount: string;
 }
 
 export interface FatorRResult {

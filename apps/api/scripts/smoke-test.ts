@@ -3,6 +3,7 @@
 import "dotenv/config";
 import { SignJWT } from "jose";
 import { prisma } from "@araci/db";
+import { calcularOverheadPorHora, calcularTarifaHora } from "../src/crm/pricing";
 
 // Exercises the real CRM/ERP/FF&E API over HTTP against a running NestJS
 // instance + local Postgres — see docs/fase-0/ and the root README for
@@ -87,6 +88,102 @@ async function main() {
     body: JSON.stringify({ role: "Arquiteto Líder (RT)", hourlyRate: 64.04 }),
   });
   report("POST /role-rates → 201", roleRateRes.status === 201, roleRateRes.body);
+
+  // Custos fixos do estúdio + tarifa calculada a partir de salário/
+  // encargos (achado real: o usuário só conseguia digitar a tarifa/hora
+  // já pronta, não os custos/salários que a geram — ver
+  // docs/fase-0/roadmap-atualizado.md, item "Custos fixos do estúdio").
+  // Account é a conta única compartilhada por todo este ambiente de dev
+  // (não uma fixture descartável por run), então o teste NUNCA sobrescreve
+  // Account.pricing* — só lê a config atual e reproduz a mesma fórmula
+  // (crm/pricing.ts) com esses valores reais, em vez de assumir um
+  // cenário fixo que quebraria se alguém tivesse calibrado a config de
+  // verdade entre execuções.
+  const fixedCostRes = await api("/v1/studio-fixed-costs", {
+    method: "POST",
+    body: JSON.stringify({ description: "Custo fixo de teste (smoke-test)", monthlyAmount: 500 }),
+  });
+  report("POST /studio-fixed-costs → 201", fixedCostRes.status === 201, fixedCostRes.body);
+  const fixedCostId = fixedCostRes.body?.data?.id;
+
+  const listFixedCostsRes = await api("/v1/studio-fixed-costs");
+  report(
+    "GET /studio-fixed-costs inclui o custo fixo criado neste run",
+    listFixedCostsRes.body?.data?.some((c: any) => c.id === fixedCostId),
+    listFixedCostsRes.body
+  );
+
+  const accountForPricingRes = await api("/v1/account");
+  const accountForPricing = accountForPricingRes.body?.data;
+  const totalFixedCosts = (listFixedCostsRes.body?.data ?? []).reduce(
+    (sum: number, c: any) => sum + Number(c.monthlyAmount),
+    0
+  );
+  const studioBillableHoursPerMonth =
+    accountForPricing.pricingBusinessDaysPerMonth *
+    Number(accountForPricing.pricingBillableHoursPerDay) *
+    Number(accountForPricing.pricingActiveStaffCount);
+  const overheadPorHora = calcularOverheadPorHora({
+    totalMonthlyFixedCosts: totalFixedCosts,
+    billableHoursPerMonth: studioBillableHoursPerMonth,
+  });
+  const expectedTarifa = calcularTarifaHora(
+    { role: "", grossSalary: 5000, payrollBurdenPercent: 0.5, billableHoursPerMonth: 160 },
+    overheadPorHora,
+    {
+      marginTarget: Number(accountForPricing.pricingMarginPercent),
+      taxBurden: Number(accountForPricing.pricingTaxBurdenPercent),
+    }
+  );
+
+  const calculatedRoleRateRes = await api("/v1/role-rates", {
+    method: "POST",
+    body: JSON.stringify({
+      role: "Papel de teste (smoke-test)",
+      grossSalary: 5000,
+      payrollBurdenPercent: 0.5,
+      billableHoursPerMonth: 160,
+    }),
+  });
+  report(
+    "POST /role-rates com salário+encargos+horas → 201, hourlyRate calculado bate com a fórmula",
+    calculatedRoleRateRes.status === 201 &&
+      Math.abs(Number(calculatedRoleRateRes.body?.data?.hourlyRate) - expectedTarifa) < 0.01,
+    { got: calculatedRoleRateRes.body?.data, expected: expectedTarifa }
+  );
+  report(
+    "grossSalary/payrollBurdenPercent persistidos junto com o hourlyRate calculado",
+    Number(calculatedRoleRateRes.body?.data?.grossSalary) === 5000 &&
+      Number(calculatedRoleRateRes.body?.data?.payrollBurdenPercent) === 0.5,
+    calculatedRoleRateRes.body
+  );
+
+  // Reenviar o MESMO papel agora com hourlyRate direto -- confirma que o
+  // modo "digitar direto" limpa os campos de compensação antigos
+  // (RoleRatesService.upsertRoleRate), senão a UI mostraria "calculada"
+  // pra uma tarifa que na verdade foi sobrescrita à mão.
+  const overrideRoleRateRes = await api("/v1/role-rates", {
+    method: "POST",
+    body: JSON.stringify({ role: "Papel de teste (smoke-test)", hourlyRate: 42 }),
+  });
+  report(
+    "Reenviar o mesmo papel com hourlyRate direto limpa os campos de compensação antigos",
+    Number(overrideRoleRateRes.body?.data?.hourlyRate) === 42 && overrideRoleRateRes.body?.data?.grossSalary === null,
+    overrideRoleRateRes.body
+  );
+
+  const badRoleRateRes = await api("/v1/role-rates", {
+    method: "POST",
+    body: JSON.stringify({ role: "Papel incompleto (smoke-test)", grossSalary: 5000 }),
+  });
+  report(
+    "POST /role-rates só com grossSalary (sem encargos/horas, sem hourlyRate) → 400 VALIDATION_ERROR",
+    badRoleRateRes.status === 400,
+    badRoleRateRes.body
+  );
+
+  const deleteFixedCostRes = await api(`/v1/studio-fixed-costs/${fixedCostId}`, { method: "DELETE" });
+  report("DELETE /studio-fixed-costs/:id → 204", deleteFixedCostRes.status === 204, deleteFixedCostRes.body);
 
   const oppRes = await api("/v1/opportunities", {
     method: "POST",

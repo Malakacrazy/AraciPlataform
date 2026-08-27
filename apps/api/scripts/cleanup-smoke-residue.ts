@@ -102,6 +102,12 @@ async function main() {
     // mas se um run crashar entre POST e DELETE, GoogleCredential.userId
     // é RESTRICT e travaria tx.user.deleteMany mais abaixo.
     await tx.googleCredential.deleteMany({ where: { userId: { in: doomedUserIds } } });
+    // Mesmo espírito: o teste de tarifa calculada já remove o custo fixo
+    // de teste no fim de cada run, mas se crashar no meio ficaria
+    // acumulando (StudioFixedCost não é upsert por descrição como
+    // RoleRate) e inflando o overhead/hora calculado nas próximas
+    // execuções.
+    await tx.studioFixedCost.deleteMany({ where: { description: "Custo fixo de teste (smoke-test)" } });
     await tx.clientSession.deleteMany({ where: { clientId: { in: doomedClientIds } } });
     await tx.clientMagicLink.deleteMany({ where: { clientId: { in: doomedClientIds } } });
     await tx.activity.deleteMany({

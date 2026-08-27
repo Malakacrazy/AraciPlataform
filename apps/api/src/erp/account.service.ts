@@ -11,6 +11,14 @@ export const accountUpdateSchema = z.object({
   name: z.string().min(1).optional(),
   cnpj: z.string().min(1).optional(),
   taxRegime: z.enum(['MEI', 'ME']).optional(),
+  // Abas 01/02 da planilha de precificação -- inputs compartilhados da
+  // fórmula de tarifa/hora (ver RoleRatesService.upsertRoleRate e
+  // crm/pricing.ts). Percentuais como fração (0.3 = 30%), não 0-100.
+  pricingMarginPercent: z.number().min(0).max(5).optional(),
+  pricingTaxBurdenPercent: z.number().min(0).max(0.99).optional(),
+  pricingBusinessDaysPerMonth: z.number().int().min(1).max(31).optional(),
+  pricingBillableHoursPerDay: z.number().positive().max(24).optional(),
+  pricingActiveStaffCount: z.number().positive().optional(),
 });
 
 export type AccountUpdateInput = z.infer<typeof accountUpdateSchema>;

@@ -20,7 +20,12 @@ export function calcularOverheadPorHora(fixedCosts: StudioFixedCosts): number {
 export interface RoleCompensation {
   role: string;
   grossSalary: number; // Salário Bruto
-  payrollBurden: number; // Encargos
+  // Encargos trabalhistas como % do salário bruto (ex.: 0.42 = 42%), não
+  // um valor absoluto em R$ -- convenção padrão de mercado no Brasil
+  // (INSS/FGTS/13º/férias sempre expressos como % sobre o salário), e a
+  // própria planilha formata essa coluna como percentual ("0.0%"), não
+  // como moeda (que usa "-" pra zero, ver aba 01).
+  payrollBurdenPercent: number;
   billableHoursPerMonth: number; // horas faturáveis/mês desse papel
 }
 
@@ -36,7 +41,7 @@ export function calcularTarifaHora(
   overheadPorHora: number,
   formula: RateFormulaInputs,
 ): number {
-  const custoTotalMes = role.grossSalary + role.payrollBurden;
+  const custoTotalMes = role.grossSalary * (1 + role.payrollBurdenPercent);
   const custoDiretoHora = custoTotalMes / role.billableHoursPerMonth;
   const custoTotalHora = custoDiretoHora + overheadPorHora;
   return (

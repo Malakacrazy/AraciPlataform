@@ -37,13 +37,27 @@ assumia), isso é dito explicitamente.
 - Validar a especificação técnica e o protótipo com a Giulia formalmente
   — é o entregável "plano de projeto validado" que a Fase 0 do plano
   original pedia, e ainda não aconteceu.
-- Montar a equipe (ou decidir modelo: CLT/PJ, software house, freelancers
-  — o plano original já apontava esse trade-off, segue em aberto).
 - Calibrar os números da planilha de precificação (custos fixos reais do
   estúdio, horas base reais por papel/estágio) — hoje são placeholders.
-- Obter o certificado A1 do estúdio antes da Fase 2 (emissão de NFS-e via
-  `nfewizard-io`, já decidido — ver `decisoes-pos-descoberta.md` #4).
-  Boleto/Pix segue em aberto separadamente.
+  A ferramenta pra isso já existe (`/role-rates`, ver correção "Custos
+  fixos e salários" abaixo); falta só a Giulia digitar os valores reais.
+
+**Resolvido:**
+- ~~Montar a equipe (ou decidir modelo: CLT/PJ, software house,
+  freelancers)~~ — decidido: modelo misto, usa os três (CLT, PJ e
+  agência), não um único.
+- ~~Obter o certificado A1 do estúdio~~ — certificado real obtido e
+  configurado (`NFSE_CERTIFICATE_PATH`/`_PASSWORD`/`_CPFCNPJ`/`_UF` no
+  `.env` de dev), verificado direto do arquivo `.pfx`
+  (`readCertificateInfo`, sem depender do que o `.env` afirma): CNPJ
+  53554180000110, titular Giulia Pessanha Parente, válido 24/08/2026 a
+  24/08/2027, batendo com `NFSE_CERTIFICATE_CPFCNPJ`. NFS-e de teste
+  contra a Homologação da SEFIN já emitida com sucesso com este
+  certificado (`POST /v1/fiscal/nfse/emitir-teste`, 24/08/2026) --
+  confirmado direto no retorno salvo em `os.tmpdir()/araci-nfse/retorno/`
+  (`sucesso: true`, `statusHttp: 200`, `cStat: "107"` = autorizada,
+  `nNFSe: "94"`), não só no que a API respondeu na hora. Boleto/Pix (Asaas) segue resolvido
+  separadamente desde a Fase 2 original.
 
 ## Fase 1 — MVP: ERP + CRM
 
@@ -1501,6 +1515,79 @@ Décimo e último item da lista original de dez. Verbatim da auditoria:
   é uma restrição do ambiente de teste automatizado, não do código
   publicado: um clique de uma pessoa de verdade no próprio Chrome deve
   salvar o arquivo normalmente.
+
+## Correção — Custos fixos e salários no motor de precificação
+
+Não é um dos dez itens da auditoria original — é uma reclamação direta da
+Giulia: "não dá pra calcular as tarifas sem poder colocar os custos e
+salários de todo mundo", depois de enviar a planilha real de
+precificação (`Base_Precificacao (fazer cópia).xlsx`) e a tela de
+`/role-rates` só aceitar a tarifa/hora já pronta, digitada à mão.
+
+- **Achado ao investigar**: a fórmula inteira da planilha (abas 01-06 —
+  overhead, tarifa/hora, complexidade, configurador) já estava portada
+  em código (`crm/pricing.ts`), testada (`pricing.spec.ts`) e, pras abas
+  03-06 (horas base × estágio, complexidade, desconto de pacote), já
+  ligada de ponta a ponta no construtor de proposta real
+  (`ProposalBuilder` → `calcularProposta`). Só as abas 01+02 (custos
+  fixos do estúdio, salário/encargos por papel → tarifa/hora) nunca
+  tiveram UI nem persistência — `calcularTarifaHora`/
+  `calcularOverheadPorHora` existiam mas não eram chamadas por nada,
+  `RoleRate` só guardava a tarifa final. Daí a reclamação: a única forma
+  de usar a tarifa era já ter feito essa conta em outro lugar.
+- **Bug real encontrado no meio da investigação**: `calcularTarifaHora`
+  tratava `payrollBurden` (Encargos) como valor absoluto somado ao
+  salário (`grossSalary + payrollBurden`), mas a planilha formata essa
+  coluna como percentual ("0.0%", não "-" como as colunas de moeda
+  zeradas) — encargos trabalhistas no Brasil (INSS/FGTS/13º/férias) são
+  sempre expressos como % do salário bruto, nunca um valor fixo em R$.
+  Corrigido pra `grossSalary × (1 + payrollBurdenPercent)`, com um caso
+  de teste novo que só passa com a fórmula certa (os testes antigos
+  usavam encargos=0%, onde as duas fórmulas dão o mesmo resultado —
+  por isso o bug nunca tinha aparecido).
+- **`StudioFixedCost` (novo model)**: itens de custo fixo mensal
+  (aluguel, software, contador...) por conta, mesmo espírito de
+  `Expense` mas recorrente e sem status pago/pendente (é premissa de
+  cálculo, não lançamento de caixa). A soma vira
+  `totalMonthlyFixedCosts` em `calcularOverheadPorHora`.
+- **`Account` ganhou os inputs compartilhados da fórmula** (um valor só
+  por conta, não por papel): `pricingMarginPercent`,
+  `pricingTaxBurdenPercent`, `pricingBusinessDaysPerMonth`,
+  `pricingBillableHoursPerDay`, `pricingActiveStaffCount` — os três
+  últimos multiplicados dão as horas faturáveis do ESTÚDIO (pra ratear o
+  custo fixo), diferente das horas faturáveis por PAPEL (aba 02),
+  conceitos que a planilha já mantém separados.
+- **`RoleRate` ganhou três campos opcionais** (`grossSalary`,
+  `payrollBurdenPercent`, `billableHoursPerMonth`), nulos juntos. Duas
+  formas continuam válidas de definir uma tarifa: digitar `hourlyRate`
+  direto (ex.: freelancer com valor já fechado) ou preencher os três
+  campos de compensação, e o backend CALCULA `hourlyRate` (reaplicando
+  `crm/pricing.ts`, não reimplementado) em vez de aceitar o valor
+  enviado. Reenviar o mesmo papel no modo direto limpa os campos de
+  compensação antigos, senão a UI mostraria "calculada" pra uma tarifa
+  na verdade sobrescrita à mão.
+- **UI em `/role-rates` reconstruída**: seção de custos fixos (lista +
+  total), seção de capacidade/margem/impostos com prévia ao vivo de
+  horas faturáveis do estúdio e overhead/hora, formulário de tarifa com
+  alternância entre "calcular a partir de salário" (com prévia ao vivo
+  da tarifa resultante, mesma fórmula duplicada em JS puro no cliente —
+  apps/web não importa de apps/api, ADR 0002) e "digitar direto", e a
+  tabela de tarifas agora mostra a origem de cada uma ("Calculada
+  (salário R$X, encargos Y%)" vs. "Digitada direto").
+- Verificado: build+typecheck limpos (api e web), suite de pricing.ts
+  com 12 casos (11 antigos + o novo de encargos percentual), smoke suite
+  com 6 casos novos (custo fixo CRUD, tarifa calculada batendo com a
+  fórmula usando a config REAL da conta — sem sobrescrever
+  `Account.pricing*`, que é configuração compartilhada por todo o
+  ambiente, não uma fixture descartável por run — reenvio no modo direto
+  limpando os campos antigos, e rejeição de payload incompleto) — 240/241
+  no total, a mesma falha pré-existente de `ASAAS_API_KEY` de sempre.
+  Testado no navegador com dado real: custo fixo de R$1.500 rateado por
+  168h dá overhead R$8,93/hora (conferido), tarifa calculada pra um
+  papel de teste com salário R$4.500 e encargos 30% bateu exatamente com
+  a prévia ao vivo (R$56,875) e com o valor salvo. Dados de teste
+  removidos depois — a conta usada é o ambiente de dev real da Giulia,
+  não um sandbox.
 
 ## Fase 5 — Beta & go-live
 

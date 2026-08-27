@@ -261,9 +261,11 @@ Carga tributária da fórmula de tarifa/hora (aba 02): **6%**.
 
 - Calibração real dos custos fixos do estúdio e das horas base por
   estágio (hoje são placeholders na planilha).
-- Obter o certificado A1 do estúdio (emissão + custódia) antes de
-  implementar a integração fiscal na Fase 2 — bloqueia o início real
-  daquela fase, não a Fase 0/1.
+- ~~Obter o certificado A1 do estúdio (emissão + custódia)~~ — resolvido:
+  certificado real em `StudioAraci.pfx` (fora do git, `*.pfx` no
+  `.gitignore`), configurado via `.env` e verificado (CNPJ
+  53554180000110, válido até 24/08/2027). Ver
+  `roadmap-atualizado.md` Fase 0.
 - Decidir, na Fase 3, como a captura da extensão Captura chega até a
   plataforma (extensão passa a chamar a API própria vs. a plataforma
   reimplementa a extração vs. os dois convivem por um tempo).
