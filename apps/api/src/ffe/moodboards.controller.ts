@@ -5,14 +5,17 @@ import {
   Get,
   HttpCode,
   Param,
+  Patch,
   Post,
 } from '@nestjs/common';
 import {
   MoodboardsService,
   moodboardInputSchema,
   moodboardItemInputSchema,
+  moodboardItemLayoutSchema,
   type MoodboardInput,
   type MoodboardItemInput,
+  type MoodboardItemLayoutInput,
 } from './moodboards.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
@@ -54,6 +57,18 @@ export class ProjectMoodboardsController {
 export class MoodboardsController {
   constructor(private readonly moodboardsService: MoodboardsService) {}
 
+  // Existia só o list por projeto -- adicionado pra view de impressão/
+  // exportação de uma prancha só (`/projects/:id/moodboards/:moodboardId/print`),
+  // que não precisa das outras pranchas do projeto.
+  @Get(':id')
+  async get(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
+    const data = await this.moodboardsService.getMoodboard(accountId, id);
+    return { data };
+  }
+
   @Delete(':id')
   @HttpCode(204)
   async remove(
@@ -79,6 +94,18 @@ export class MoodboardsController {
 @Controller('v1/moodboard-items')
 export class MoodboardItemsController {
   constructor(private readonly moodboardsService: MoodboardsService) {}
+
+  // Mover/redimensionar/trazer-pra-frente no canvas -- não reenvia
+  // kind/productId/label, só o que o arrastar/redimensionar de fato muda.
+  @Patch(':id')
+  async updateLayout(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(moodboardItemLayoutSchema)) input: MoodboardItemLayoutInput,
+  ) {
+    const data = await this.moodboardsService.updateItemLayout(accountId, id, input);
+    return { data };
+  }
 
   @Delete(':id')
   @HttpCode(204)

@@ -6,8 +6,9 @@ import { apiGet, ApiError } from "@/lib/api";
 import type { Project, Area, Product, ProductSpecification, Moodboard, PresentationLink } from "@/lib/types";
 import { FfeCart } from "@/components/ffe/ffe-cart";
 import { createArea, deleteArea, createSpecification, deleteSpecification } from "@/components/ffe/actions";
-import { createMoodboard, deleteMoodboard, addMoodboardItem, removeMoodboardItem } from "@/components/moodboards/actions";
+import { createMoodboard, deleteMoodboard } from "@/components/moodboards/actions";
 import { PresentationLinkPanel } from "@/components/moodboards/presentation-link-panel";
+import { MoodboardCanvas } from "@/components/moodboards/moodboard-canvas";
 
 export default async function ProjectFfePage({ params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
@@ -274,51 +275,9 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
             </form>
           </div>
 
-          {board.items.length === 0 ? (
-            <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Nenhum produto nesta prancha ainda.</p>
-          ) : (
-            <ul className="mt-3 flex flex-wrap gap-3">
-              {board.items.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800"
-                >
-                  <span className="text-zinc-900 dark:text-zinc-50">{item.product.name}</span>
-                  <form action={removeMoodboardItem.bind(null, id, item.id)}>
-                    <button type="submit" className="text-xs text-zinc-500 hover:text-red-600 dark:text-zinc-400">
-                      ×
-                    </button>
-                  </form>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {products.length > 0 && (
-            <form action={addMoodboardItem.bind(null, id, board.id)} className="mt-3 flex items-end gap-2">
-              <label className="flex flex-col gap-1 text-xs text-zinc-500 dark:text-zinc-400">
-                Produto
-                <select
-                  name="productId"
-                  required
-                  defaultValue=""
-                  className="rounded border border-zinc-300 bg-transparent px-2 py-1 text-sm text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-                >
-                  <option value="" disabled>
-                    Selecione…
-                  </option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {productOptionLabel(p)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button type="submit" className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
-                + Adicionar
-              </button>
-            </form>
-          )}
+          <div className="mt-3">
+            <MoodboardCanvas projectId={id} moodboard={board} products={products} />
+          </div>
         </section>
       ))}
 

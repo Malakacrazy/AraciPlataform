@@ -253,11 +253,20 @@ export interface ProductSpecification {
   clientComment?: string | null;
 }
 
+export type MoodboardItemKind = "product" | "swatch";
+
 export interface MoodboardItem {
   id: string;
-  productId: string;
-  product: Product;
+  kind: MoodboardItemKind;
+  productId: string | null;
+  product: Product | null;
+  label?: string | null;
+  colorHex?: string | null;
+  swatchImageUrl?: string | null;
   order: number;
+  x: number;
+  y: number;
+  width: number;
 }
 
 export interface Moodboard {

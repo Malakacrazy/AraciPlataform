@@ -1589,6 +1589,80 @@ precificação (`Base_Precificacao (fazer cópia).xlsx`) e a tela de
   removidos depois — a conta usada é o ambiente de dev real da Giulia,
   não um sandbox.
 
+## Fase 2 (correção) — Moodboards: canvas livre, amostras, exportação
+
+Décimo e último item do "Roadmap to 10" da auditoria (fase 2, "per-module
+depth"). Verbatim: "A real freeform canvas — position, scale, layering —
+plus material/fabric swatches and a branded export."
+
+- **Achado ao investigar**: `MoodboardItem` só tinha `productId` + `order`
+  — a UI era uma lista de nomes de produto (nem imagem mostrava, na tela
+  interna). O link de apresentação pública já renderizava as fotos, mas
+  como grid CSS recalculado, não a posição real de nada — não havia
+  "layout" nenhum guardado em lugar algum pra recalcular.
+- **`MoodboardItem` ganhou canvas livre + amostras**: `x`/`y`/`width`
+  (canvas de tamanho lógico fixo, `MOODBOARD_CANVAS_WIDTH/HEIGHT`, pra
+  designer/cliente/exportação desenharem sempre o mesmo layout em
+  qualquer tela) — `order` dobra como z-index de empilhamento, não
+  precisou de coluna nova. `productId` virou opcional; `kind` ("product"
+  | "swatch") decide se o item é um Product real ou uma amostra de
+  material/tecido só com `label` + `colorHex`/`swatchImageUrl`, sem
+  produto nenhum no catálogo.
+- **Canvas interativo sem lib nova** (`MoodboardCanvas`, client
+  component): arrastar (pointer events nativos, sem drag-and-drop de
+  terceiros) move o item; um handle no canto redimensiona; qualquer
+  gesto traz o item pra frente (`bringToFront`, incrementa `order` além
+  do maior atual). Estado otimista no cliente, só persiste
+  (`PATCH /moodboard-items/:id`) no fim do gesto, não a cada pixel.
+- **Achado real testando ao vivo**: `setPointerCapture` pode lançar
+  `NotFoundError` (sessão de pointer sem captura ativa reconhecível) —
+  descoberto só ao testar com eventos sintéticos, mas o mesmo risco
+  existe pra qualquer usuário real numa borda rara do navegador. Como a
+  chamada vinha ANTES de `dragState.current = {...}` no código original,
+  um throw ali quebraria o arrastar inteiro silenciosamente. Corrigido
+  invertendo a ordem (estado primeiro) e envolvendo o capture em
+  try/catch -- capture é otimização (manter recebendo eventos se o
+  cursor sair do elemento no meio do gesto), não pré-requisito.
+- **Exportação/impressão em vez de rasterizar canvas**: fotos de produto
+  vêm de ~18 sites de fornecedor reais capturados pelo Captura, quase
+  certamente sem CORS liberado -- desenhar isso num `<canvas>` e chamar
+  `toDataURL()` "contaminaria" o canvas (`SecurityError`) pra praticamente
+  toda imagem real. Em vez de construir um proxy de imagem (infra nova,
+  superfície de SSRF a mitigar), a exportação é uma **view de impressão
+  dedicada e com marca** (`/projects/:id/moodboards/:moodboardId/print`,
+  fora do grupo `(dashboard)` -- sem nav do app, igual a `/present/[token]`)
+  que reaproveita o mesmo layout e deixa o próprio navegador desenhar as
+  `<img>` (que carregam e imprimem normalmente sem CORS nenhum, restrição
+  que só existe pra extração de pixel via Canvas) -- "Imprimir/Salvar como
+  PDF" nativo do navegador, com `print:hidden` escondendo os controles no
+  PDF final.
+- **Link de apresentação pública atualizado pro mesmo layout**: trocado o
+  grid CSS recalculado por posicionamento absoluto real (`x`/`y`/`width`),
+  reaproveitando o mesmo componente visual (`MoodboardItemVisual`) do
+  canvas interno e da view de impressão -- designer, exportação e cliente
+  agora desenham exatamente o mesmo layout, não três interpretações
+  diferentes do mesmo dado.
+- **Bug real achado e corrigido no meio da implementação**: Server
+  Component não pode passar função como prop pra Client Component (RSC
+  exige props serializáveis) -- `productOptionLabel` (definida em
+  `ffe/page.tsx`) quebrava a página inteira com 500 ao passar pro novo
+  `MoodboardCanvas`. `tsc --noEmit` não pega isso (é uma restrição de
+  runtime do React Server Components, não de tipo) -- só apareceu
+  rodando de verdade no navegador. Corrigido duplicando a função de uma
+  linha dentro do client component em vez de recebê-la como prop.
+- Verificado: build+typecheck limpos (api e web), 6 casos novos no smoke
+  suite (item "product" com x/y/width numéricos, amostra sem produto,
+  cascata de posição entre itens novos, validação rejeitando amostra sem
+  cor/foto, endpoint novo `GET /moodboards/:id`, `PATCH` de
+  layout movendo/redimensionando/trazendo pra frente) — 246/247 no
+  total, a mesma falha pré-existente de sempre. Testado no navegador com
+  dado real (projeto Apto Vila Madalena): produto real + amostra
+  "Linho cru" adicionados ao canvas, arrastar e redimensionar
+  confirmados persistindo via API (não só otimista no cliente), view de
+  impressão renderizando com a marca Studio Araci e o layout exato, e o
+  mesmo layout replicado no link de apresentação pública. Dados de teste
+  removidos depois.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

@@ -1416,19 +1416,79 @@ async function main() {
     body: JSON.stringify({ productId: product1Id }),
   });
   report(
-    "POST /moodboards/:id/items → 201, inclui o produto",
-    moodboardItemRes.status === 201 && moodboardItemRes.body?.data?.product?.id === product1Id,
+    "POST /moodboards/:id/items → 201, inclui o produto, kind='product', com x/y/width numéricos",
+    moodboardItemRes.status === 201 &&
+      moodboardItemRes.body?.data?.product?.id === product1Id &&
+      moodboardItemRes.body?.data?.kind === "product" &&
+      typeof moodboardItemRes.body?.data?.x === "number" &&
+      typeof moodboardItemRes.body?.data?.width === "number",
     moodboardItemRes.body
   );
   const moodboardItemId = moodboardItemRes.body?.data?.id;
 
+  // Correção "Moodboards" (auditoria, Fase 2): canvas livre (posição real,
+  // não card em grid) + amostra de material/tecido sem Product nenhum.
+  const swatchRes = await api(`/v1/moodboards/${moodboardId}/items`, {
+    method: "POST",
+    body: JSON.stringify({ kind: "swatch", label: "Linho cru", colorHex: "#D8CDBA" }),
+  });
+  report(
+    "POST /moodboards/:id/items (amostra, sem productId) → 201, product null, label/colorHex certos",
+    swatchRes.status === 201 &&
+      swatchRes.body?.data?.product === null &&
+      swatchRes.body?.data?.label === "Linho cru" &&
+      swatchRes.body?.data?.colorHex === "#D8CDBA",
+    swatchRes.body
+  );
+  const swatchItemId = swatchRes.body?.data?.id;
+  report(
+    "Segundo item nasce deslocado do primeiro (cascata), não empilhado exatamente em cima",
+    swatchRes.body?.data?.x !== moodboardItemRes.body?.data?.x ||
+      swatchRes.body?.data?.y !== moodboardItemRes.body?.data?.y,
+    { primeiro: { x: moodboardItemRes.body?.data?.x, y: moodboardItemRes.body?.data?.y }, segundo: { x: swatchRes.body?.data?.x, y: swatchRes.body?.data?.y } }
+  );
+
+  const swatchSemCorRes = await api(`/v1/moodboards/${moodboardId}/items`, {
+    method: "POST",
+    body: JSON.stringify({ kind: "swatch", label: "Sem cor nem foto" }),
+  });
+  report(
+    "POST /moodboards/:id/items (amostra sem colorHex nem swatchImageUrl) → 400 VALIDATION_ERROR",
+    swatchSemCorRes.status === 400,
+    swatchSemCorRes.body
+  );
+
+  const getMoodboardRes = await api(`/v1/moodboards/${moodboardId}`);
+  report(
+    "GET /moodboards/:id (prancha única, endpoint novo) → 200, traz os 2 itens",
+    getMoodboardRes.status === 200 && getMoodboardRes.body?.data?.items?.length === 2,
+    getMoodboardRes.body
+  );
+
+  const updateLayoutRes = await api(`/v1/moodboard-items/${moodboardItemId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ x: 500, y: 300, width: 240, bringToFront: true }),
+  });
+  report(
+    "PATCH /moodboard-items/:id → 200, move/redimensiona e traz pra frente (order > o outro item)",
+    updateLayoutRes.status === 200 &&
+      Number(updateLayoutRes.body?.data?.x) === 500 &&
+      Number(updateLayoutRes.body?.data?.y) === 300 &&
+      Number(updateLayoutRes.body?.data?.width) === 240 &&
+      updateLayoutRes.body?.data?.order > swatchRes.body?.data?.order,
+    updateLayoutRes.body
+  );
+
   const moodboardListRes = await api(`/v1/projects/${projectId}/moodboards`);
   const listedMoodboard = moodboardListRes.body?.data?.find((m: any) => m.id === moodboardId);
   report(
-    "GET /projects/:id/moodboards inclui a prancha com o item",
-    listedMoodboard?.items?.length === 1 && listedMoodboard.items[0].id === moodboardItemId,
+    "GET /projects/:id/moodboards inclui a prancha com os 2 itens",
+    listedMoodboard?.items?.length === 2,
     moodboardListRes.body
   );
+
+  const deleteSwatchItemRes = await api(`/v1/moodboard-items/${swatchItemId}`, { method: "DELETE" });
+  report("DELETE /moodboard-items/:id (amostra) → 204", deleteSwatchItemRes.status === 204, deleteSwatchItemRes.body);
 
   const deleteMoodboardItemRes = await api(`/v1/moodboard-items/${moodboardItemId}`, { method: "DELETE" });
   report("DELETE /moodboard-items/:id → 204", deleteMoodboardItemRes.status === 204, deleteMoodboardItemRes.body);

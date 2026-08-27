@@ -645,13 +645,34 @@ model Moodboard {
   items MoodboardItem[]
 }
 
+// productId opcional -- correção "Moodboards" (auditoria, Fase 2): um item
+// pode ser um Product real (kind="product") ou uma amostra de material/
+// tecido sem produto nenhum no catálogo (kind="swatch", ver label/
+// colorHex/swatchImageUrl abaixo). Os dois conjuntos de campo nunca
+// coexistem de verdade -- validado no service (MoodboardsService), não no
+// schema, porque Prisma não tem constraint condicional entre colunas.
 model MoodboardItem {
   id          String    @id @default(cuid())
   moodboardId String
   moodboard   Moodboard @relation(fields: [moodboardId], references: [id], onDelete: Cascade)
-  productId   String
-  product     Product   @relation(fields: [productId], references: [id])
+  productId   String?
+  product     Product?  @relation(fields: [productId], references: [id])
   order       Int       @default(0)
+
+  // Canvas livre -- x/y/width em pontos lógicos de um canvas de tamanho
+  // fixo (ver MOODBOARD_CANVAS_WIDTH/HEIGHT no frontend), não pixel de
+  // tela: designer e cliente (link de apresentação) desenham o mesmo
+  // layout em qualquer resolução. `order` dobra como z-index de
+  // empilhamento (trazer pra frente = maior order) -- não precisa de
+  // coluna própria pra isso.
+  x     Float @default(24)
+  y     Float @default(24)
+  width Float @default(180)
+
+  kind           String  @default("product") // "product" | "swatch"
+  label          String? // só kind="swatch" -- nome da amostra (ex.: "Linho cru")
+  colorHex       String? // só kind="swatch", opcional -- cor sólida
+  swatchImageUrl String? // só kind="swatch", opcional -- foto da amostra
 }
 
 // Link de apresentação: dá a um cliente (sem login, sem conta) acesso de

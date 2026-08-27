@@ -2,6 +2,12 @@ import { notFound } from "next/navigation";
 import { getPresentation, PublicApiError } from "@/lib/publicApi";
 import type { PresentationData } from "@/lib/types";
 import { setSpecificationApproval, submitSpecificationComment } from "@/components/presentation/actions";
+import {
+  MOODBOARD_CANVAS_HEIGHT,
+  MOODBOARD_CANVAS_WIDTH,
+  MoodboardItemVisual,
+  moodboardItemWrapperStyle,
+} from "@/components/moodboards/moodboard-canvas-shared";
 
 // Rota pública -- sem getServerSession/redirect. Quem abre este link não
 // tem conta: a única "autenticação" é possuir o token da URL (ver
@@ -38,22 +44,17 @@ export default async function PresentationPage({ params }: { params: Promise<{ t
               {board.items.length === 0 ? (
                 <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Nenhum produto ainda.</p>
               ) : (
-                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {board.items.map((item) => (
-                    <div key={item.id} className="flex flex-col gap-1">
-                      {item.product.imageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={item.product.imageUrl}
-                          alt={item.product.name}
-                          className="aspect-square w-full rounded-md border border-zinc-200 object-cover dark:border-zinc-800"
-                        />
-                      ) : (
-                        <div className="aspect-square w-full rounded-md border border-zinc-200 dark:border-zinc-800" />
-                      )}
-                      <span className="text-xs text-zinc-700 dark:text-zinc-300">{item.product.name}</span>
-                    </div>
-                  ))}
+                <div className="mt-3 max-w-full overflow-x-auto">
+                  <div
+                    className="relative"
+                    style={{ width: MOODBOARD_CANVAS_WIDTH, height: MOODBOARD_CANVAS_HEIGHT }}
+                  >
+                    {board.items.map((item) => (
+                      <div key={item.id} style={moodboardItemWrapperStyle(item)}>
+                        <MoodboardItemVisual item={item} />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
