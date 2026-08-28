@@ -33,6 +33,8 @@ import { RoleRatesController } from './role-rates.controller';
 import { RoleRatesService } from './role-rates.service';
 import { StudioFixedCostsController } from './studio-fixed-costs.controller';
 import { StudioFixedCostsService } from './studio-fixed-costs.service';
+import { ProjectCollaboratorsController } from './collaborators.controller';
+import { CollaboratorsService } from './collaborators.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
@@ -58,6 +60,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     NfseController,
     RoleRatesController,
     StudioFixedCostsController,
+    ProjectCollaboratorsController,
   ],
   providers: [
     ProjectsService,
@@ -76,6 +79,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     CertificateExpiryCron,
     RoleRatesService,
     StudioFixedCostsService,
+    CollaboratorsService,
   ],
   // ProjectsService/UsersService são usados por CrmModule (conversão de
   // oportunidade ganha em projeto) e por FfeModule (checkout do carrinho).

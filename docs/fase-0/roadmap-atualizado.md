@@ -2241,6 +2241,67 @@ foram resolvidas antes de qualquer código.
   documento + fase + visibilidade) grava e reflete na tela de ponta a
   ponta — limpo depois.
 
+## Correção — Colaboração com consultores externos
+
+Último item da segunda auditoria externa, e o que ela mesma chamou de
+"o item mais delicado do plano inteiro" — por um motivo estrutural, não
+de volume: não existia nenhuma primitiva de autorização por projeto, e
+`accessLevel` só tinha `admin`/`staff`. Um terceiro nível checado só em
+ALGUMAS rotas prometeria um escopo que não existe de verdade.
+
+Antes de qualquer código, duas decisões de produto genuínas foram
+perguntadas ao usuário (não inventadas): (1) o que um consultor externo
+pode FAZER — escolhido **só leitura**; (2) como ele entra na plataforma,
+já que não tem e-mail `@studioaraci.com.br` — escolhido **magic link por
+e-mail**. As duas respostas mudaram a arquitetura pra melhor: em vez de
+retrofitar checagem de participação em dezenas de rotas internas já
+existentes (o único jeito de fazer "enforcement em toda rota" funcionar
+com um `accessLevel` novo), a solução virou um **portal totalmente
+separado**, mesmo modelo já provado duas vezes neste projeto (portal do
+cliente, link de apresentação): o consultor nunca é um `User`, nunca fala
+com a API de staff, e só tem acesso a um punhado de rotas próprias,
+todas de leitura. Não tem como uma rota interna "esquecer" de proteger
+algo que o consultor simplesmente não consegue chamar.
+
+- **`ExternalCollaborator`** — identidade separada de `User`, mesma
+  separação que `Client` já tem hoje. **`CollaboratorProjectAccess`** é o
+  convite em si: sem uma linha aqui pra (consultor, projeto), o consultor
+  não vê aquele projeto, mesmo já autenticado — é o que torna "escopado
+  por projeto" verificável, não só prometido. `CollaboratorMagicLink`/
+  `CollaboratorSession` são cópias deliberadas (não generalizadas) de
+  `ClientMagicLink`/`ClientSession` — duplicação proposital pra não
+  arriscar o código de login do cliente, já testado e em produção.
+- **Convite (admin-only)**: `POST /projects/:id/collaborators` — cria o
+  `ExternalCollaborator` se não existir (por e-mail, reaproveitado entre
+  projetos) e o `CollaboratorProjectAccess`; idempotente (convidar de
+  novo pro mesmo projeto não duplica). `DELETE .../collaborators/:id`
+  revoga só aquele projeto, sem apagar a identidade do consultor (ele
+  pode continuar noutro). Seção "Consultores externos" nova na tela do
+  projeto, ao lado de Office/Equipe.
+- **Portal do consultor (`/colaborador`)** — login por magic link (15min,
+  uso único) igual ao do cliente; sessão de 7 dias em cookie httpOnly.
+  Lista só os projetos com convite ativo; a tela do projeto mostra
+  cronograma, gate de cada fase, tarefas e notas — **sem** budget de
+  fase, sem Invoice, sem Proposal, sem `costPerHour` de ninguém.
+- **403, não 401, pra "sem acesso a este projeto"** — distinção
+  deliberada: a sessão em si continua válida (`resolveSession` já
+  passou), só não abrange aquele projeto. 401 levaria de volta pro
+  login sem necessidade; 403 mostra "sem acesso" sem derrubar a sessão.
+- Verificado: build+typecheck limpos (api e web); smoke suite 314/315
+  (17 novas asserções: convite idempotente, `@AdminOnly` barrando staff,
+  magic link de uso único, sem-enumeração no request-link, escopo por
+  projeto nos dois sentidos — inclui só o convidado E nega acesso a quem
+  não foi —, projeção sem campo financeiro, e o 403 pós-revogação com
+  sessão ainda válida), mesma falha pré-existente de sempre
+  (`ASAAS_API_KEY`); `CollaboratorProjectAccess.projectId` sem
+  `onDelete: Cascade` (mesmo padrão de `Allocation`/`Absence`) — cleanup
+  do smoke test ajustado antes que travasse um run futuro. Fluxo completo
+  testado de ponta a ponta no navegador contra o projeto/consultor
+  descartável: convite pela tela do projeto, login real pelo magic link,
+  cronograma visível e financeiro ausente na tela do consultor, revogação
+  pela tela do projeto, e a mesma sessão do consultor perdendo acesso na
+  hora (403, sem crash, sem precisar logar de novo) — limpo depois.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

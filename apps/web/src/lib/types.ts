@@ -136,6 +136,60 @@ export interface PortalPendingProposal {
   proposal: PortalProposal;
 }
 
+// Lacuna da matriz ("colaboração com consultores externos") -- projeção
+// só-leitura do portal do consultor, deliberadamente sem nada financeiro
+// (sem budget de fase, sem Invoice, sem Proposal, sem costPerHour).
+export interface CollaboratorProject {
+  id: string;
+  name: string;
+  status: string;
+  clientName: string;
+}
+
+export interface CollaboratorTask {
+  id: string;
+  title: string;
+  status: string;
+  dueDate?: string | null;
+  completedAt?: string | null;
+  assignee?: { name: string } | null;
+}
+
+export interface CollaboratorPhase {
+  id: string;
+  stage: PepStage;
+  order: number;
+  contracted: boolean;
+  startDate?: string | null;
+  dueDate?: string | null;
+  approvedAt?: string | null;
+  tasks: CollaboratorTask[];
+}
+
+export interface CollaboratorActivity {
+  id: string;
+  body: string;
+  createdAt: string;
+  author: { name: string };
+}
+
+export interface CollaboratorProjectDetail {
+  id: string;
+  name: string;
+  status: string;
+  client: { name: string };
+  phases: CollaboratorPhase[];
+  activities: CollaboratorActivity[];
+}
+
+// Uma linha por convite (CollaboratorProjectAccess) na tela de admin do
+// projeto -- ver ProjectCollaboratorsController.
+export interface ProjectCollaborator {
+  id: string;
+  invitedAt: string;
+  collaborator: { id: string; name: string; email: string };
+}
+
 // Só existe quando a fatura foi calculada automaticamente por horas
 // apontadas (projeto hora_tecnica) -- ver InvoicesService.createHourlyInvoice.
 // Fatura com valor digitado à mão (outros feeModel, ou o carrinho de

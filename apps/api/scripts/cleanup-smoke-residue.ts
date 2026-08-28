@@ -152,6 +152,11 @@ async function main() {
     });
     await tx.proposalStage.deleteMany({ where: { proposal: { opportunityId: { in: doomedOppIds } } } });
     await tx.proposal.deleteMany({ where: { opportunityId: { in: doomedOppIds } } });
+    // CollaboratorProjectAccess.projectId não tem onDelete: Cascade (mesmo
+    // padrão de Allocation/Absence acima) -- lacuna da matriz ("consultores
+    // externos"), sem isto um run que crashar entre convidar e revogar
+    // travaria este delete com FK RESTRICT.
+    await tx.collaboratorProjectAccess.deleteMany({ where: { projectId: { in: doomedProjectIds } } });
     await tx.project.deleteMany({ where: { id: { in: doomedProjectIds } } });
     await tx.opportunity.deleteMany({ where: { id: { in: doomedOppIds } } });
     await tx.client.deleteMany({ where: { id: { in: doomedClientIds } } });

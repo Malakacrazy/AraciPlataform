@@ -3,12 +3,13 @@ import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet, ApiError } from "@/lib/api";
-import type { Project, OfficeLink, Invoice, ProjectMember, User, Activity, Task } from "@/lib/types";
+import type { Project, OfficeLink, Invoice, ProjectMember, User, Activity, Task, ProjectCollaborator } from "@/lib/types";
 import { OfficeLinksSection } from "@/components/office-links/office-links-section";
 import { CronogramaViews } from "@/components/projects/cronograma-views";
 import { markInvoiceIssued, emitirNfse, chargeInvoice, addMember, removeMember } from "@/components/projects/actions";
 import { ActivityTimeline } from "@/components/activities/activity-timeline";
 import { TaskList } from "@/components/tasks/task-list";
+import { CollaboratorSection } from "@/components/collaborators/collaborator-section";
 
 const INVOICE_STATUS_LABELS: Record<string, string> = {
   pendente: "Pendente",
@@ -57,6 +58,18 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   }
 
   const activities = await apiGet<Activity[]>(`projects/${id}/activities`);
+
+  let collaborators: ProjectCollaborator[] = [];
+  let canManageCollaborators = true;
+  try {
+    collaborators = await apiGet<ProjectCollaborator[]>(`projects/${id}/collaborators`);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 403) {
+      canManageCollaborators = false;
+    } else {
+      throw err;
+    }
+  }
 
   const memberUserIds = new Set(members.map((m) => m.userId));
   const availableUsers = users.filter((u) => !memberUserIds.has(u.id));
@@ -241,6 +254,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         contactEmail={project.client.email}
         phases={project.phases}
       />
+
+      {canManageCollaborators && <CollaboratorSection projectId={project.id} collaborators={collaborators} />}
 
       <ActivityTimeline
         entityType="PROJECT"

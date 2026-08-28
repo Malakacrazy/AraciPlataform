@@ -379,4 +379,15 @@ export class NotificationsService {
       html: `<p>Olá, ${escapeHtml(clientName)}.</p><p>Clique no link abaixo para acessar seus projetos. Válido por 15 minutos.</p><p><a href="${link}">${link}</a></p>`,
     });
   }
+
+  // Lacuna da matriz ("colaboração com consultores externos") -- mesmo
+  // e-mail de sendClientMagicLink, texto adaptado pra quem é um
+  // consultor convidado a um projeto, não um cliente do estúdio.
+  async sendCollaboratorMagicLink(to: string, collaboratorName: string, link: string) {
+    await sendEmail({
+      to: [to],
+      subject: 'Seu link de acesso — Studio Araci',
+      html: `<p>Olá, ${escapeHtml(collaboratorName)}.</p><p>Clique no link abaixo para acessar o(s) projeto(s) em que você foi convidado como consultor externo. Válido por 15 minutos.</p><p><a href="${link}">${link}</a></p>`,
+    });
+  }
 }

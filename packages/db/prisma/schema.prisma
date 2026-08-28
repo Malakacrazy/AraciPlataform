@@ -96,17 +96,18 @@ model Account {
   pricingBillableHoursPerDay  Decimal @default(8)
   pricingActiveStaffCount     Decimal @default(1)
 
-  users            User[]
-  clients          Client[]
-  projects         Project[]
-  products         Product[]
-  roleRates        RoleRate[]
-  officeLinks      OfficeLink[]
-  activities       Activity[]
-  notifications    Notification[]
-  auditLogs        AuditLog[]
-  expenses         Expense[]
-  studioFixedCosts StudioFixedCost[]
+  users                 User[]
+  clients               Client[]
+  projects              Project[]
+  products              Product[]
+  externalCollaborators ExternalCollaborator[]
+  roleRates             RoleRate[]
+  officeLinks           OfficeLink[]
+  activities            Activity[]
+  notifications         Notification[]
+  auditLogs             AuditLog[]
+  expenses              Expense[]
+  studioFixedCosts      StudioFixedCost[]
 }
 
 // Aba 01 ("Custos Fixos do Estúdio") -- item por item (aluguel, software,
@@ -259,8 +260,8 @@ model Client {
   // document já viram placeholder nesse momento; o registro em si
   // sobrevive (Invoice/Opportunity/Project ligados continuam existindo,
   // é o histórico fiscal que a anonimização precisa preservar).
-  consentedAt   DateTime?
-  anonymizedAt  DateTime?
+  consentedAt  DateTime?
+  anonymizedAt DateTime?
 
   opportunities Opportunity[]
   projects      Project[]
@@ -303,6 +304,77 @@ model ClientSession {
   token     String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
+}
+
+// Lacuna da matriz ("colaboração com consultores externos") -- a própria
+// auditoria chamou isso de "o item mais delicado do plano inteiro",
+// porque não existe hoje nenhuma primitiva de autorização por projeto: um
+// terceiro nível em User.accessLevel só seria seguro se TODA rota
+// existente passasse a checar participação, e uma rota esquecida
+// prometeria um escopo que não existe. Solução adotada em vez disso:
+// consultor externo nunca vira User -- é uma identidade totalmente
+// separada (mesma separação que Client já tem hoje), endereçável só por
+// um portal próprio, minúsculo e só-leitura (ver collaborator-portal/).
+// Sem superfície compartilhada com o resto da API, não tem como uma rota
+// interna "esquecer" de checar isso -- o consultor simplesmente não fala
+// com ela. Login por magic link (mesmo mecanismo do ClientMagicLink/
+// ClientSession acima) -- convite explícito de um admin, nunca
+// autoprovisionado por domínio de e-mail (diferente do fluxo de staff).
+model ExternalCollaborator {
+  id        String   @id @default(cuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id])
+  email     String   @unique
+  name      String
+  createdAt DateTime @default(now())
+
+  projectAccess CollaboratorProjectAccess[]
+  magicLinks    CollaboratorMagicLink[]
+  sessions      CollaboratorSession[]
+}
+
+// O convite em si -- criado por um admin (ver CollaboratorsService) ANTES
+// do consultor logar pela primeira vez. Sem uma linha aqui pra um
+// projeto, o consultor não vê aquele projeto no portal, mesmo já
+// autenticado (ver CollaboratorPortalService.listProjects/getProject) --
+// é o que torna "escopado por projeto" verificável e não só prometido.
+model CollaboratorProjectAccess {
+  id             String               @id @default(cuid())
+  collaboratorId String
+  collaborator   ExternalCollaborator @relation(fields: [collaboratorId], references: [id])
+  projectId      String
+  project        Project              @relation(fields: [projectId], references: [id])
+  invitedAt      DateTime             @default(now())
+
+  @@unique([collaboratorId, projectId])
+}
+
+// Mesmo modelo exato de ClientMagicLink, só que pra ExternalCollaborator
+// -- ver comentário lá (TTL de 15min, uso único, um pedido novo invalida
+// qualquer link anterior ainda não consumido). Duplicado em vez de
+// generalizado de propósito: são dois fluxos de autenticação distintos
+// (cliente vs. consultor), e misturar os dois numa tabela polimórfica
+// arriscaria o código de login do cliente, já testado e em produção, só
+// pra evitar repetir ~6 campos.
+model CollaboratorMagicLink {
+  id             String               @id @default(cuid())
+  collaboratorId String
+  collaborator   ExternalCollaborator @relation(fields: [collaboratorId], references: [id])
+  token          String               @unique
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime             @default(now())
+}
+
+// Mesmo modelo exato de ClientSession -- ver comentário lá e em
+// CollaboratorMagicLink acima pro porquê da duplicação deliberada.
+model CollaboratorSession {
+  id             String               @id @default(cuid())
+  collaboratorId String
+  collaborator   ExternalCollaborator @relation(fields: [collaboratorId], references: [id])
+  token          String               @unique
+  expiresAt      DateTime
+  createdAt      DateTime             @default(now())
 }
 
 // CRM: oportunidade no pipeline (kanban)
@@ -415,15 +487,16 @@ model Project {
   feeModel      String
   createdAt     DateTime     @default(now())
 
-  phases           ProjectPhase[]
-  members          ProjectMember[]
-  timeEntries      TimeEntry[]
-  invoices         Invoice[]
-  areas            Area[]
-  moodboards       Moodboard[]
-  presentationLink PresentationLink?
-  allocations      Allocation[]
-  expenses         Expense[]
+  phases             ProjectPhase[]
+  members            ProjectMember[]
+  timeEntries        TimeEntry[]
+  invoices           Invoice[]
+  areas              Area[]
+  moodboards         Moodboard[]
+  presentationLink   PresentationLink?
+  allocations        Allocation[]
+  expenses           Expense[]
+  collaboratorAccess CollaboratorProjectAccess[]
 
   @@index([accountId])
   @@index([clientId])
