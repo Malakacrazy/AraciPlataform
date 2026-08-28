@@ -6,7 +6,7 @@ import { apiGet, ApiError } from "@/lib/api";
 import type { Project, OfficeLink, Invoice, ProjectMember, User, Activity, Task } from "@/lib/types";
 import { OfficeLinksSection } from "@/components/office-links/office-links-section";
 import { CronogramaViews } from "@/components/projects/cronograma-views";
-import { markInvoiceIssued, chargeInvoice, addMember, removeMember } from "@/components/projects/actions";
+import { markInvoiceIssued, emitirNfse, chargeInvoice, addMember, removeMember } from "@/components/projects/actions";
 import { ActivityTimeline } from "@/components/activities/activity-timeline";
 import { TaskList } from "@/components/tasks/task-list";
 
@@ -107,11 +107,18 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                 <span className="text-xs text-zinc-500 dark:text-zinc-400">
                   {INVOICE_STATUS_LABELS[inv.status]}
                   {inv.nfseNumber
-                    ? ` · NFS-e ${inv.nfseNumber}`
+                    ? ` · NFS-e ${inv.nfseNumber}${inv.nfseChaveAcesso ? " (emitida automaticamente)" : ""}`
                     : inv.status === "paga"
                       ? " · aguardando emissão de NFS-e"
                       : ""}
                 </span>
+                {!inv.nfseChaveAcesso && (inv.status === "pendente" || inv.status === "paga") && (
+                  <form action={emitirNfse.bind(null, id, inv.id)}>
+                    <button type="submit" className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
+                      Emitir NFS-e
+                    </button>
+                  </form>
+                )}
                 {(inv.status === "pendente" || (inv.status === "paga" && !inv.nfseNumber)) && (
                   <form
                     action={markInvoiceIssued.bind(null, id, inv.id, inv.status)}
@@ -126,6 +133,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                       {inv.status === "paga" ? "Registrar NFS-e" : "Marcar emitida"}
                     </button>
                   </form>
+                )}
+                {inv.nfseRejectionReason && !inv.nfseChaveAcesso && (
+                  <p className="w-full text-xs text-red-600 dark:text-red-400">
+                    NFS-e rejeitada pela SEFIN: {inv.nfseRejectionReason}
+                  </p>
                 )}
                 {inv.status !== "paga" &&
                   (inv.asaasInvoiceUrl ? (

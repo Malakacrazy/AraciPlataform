@@ -160,6 +160,10 @@ export interface Invoice {
   paidAt?: string | null;
   asaasPaymentId?: string | null;
   asaasInvoiceUrl?: string | null;
+  nfseChaveAcesso?: string | null;
+  nfseIdDps?: string | null;
+  nfseAmbienteEmissao?: string | null;
+  nfseRejectionReason?: string | null;
   lines: InvoiceLine[];
 }
 
@@ -403,6 +407,7 @@ export interface Account {
   pricingBillableHoursPerDay: string;
   pricingActiveStaffCount: string;
   dataRetentionMonths?: number | null;
+  nfseAmbiente: "homologacao" | "producao";
 }
 
 export interface FatorRResult {

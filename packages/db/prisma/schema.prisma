@@ -69,6 +69,18 @@ model Account {
   // candidatos, quem clica em "Anonimizar" continua sendo uma pessoa.
   dataRetentionMonths Int?
 
+  // Lacuna da matriz (NFS-e dentro do fluxo real) -- "homologacao" por
+  // padrão, sempre. Trocar pra "producao" é decisão explícita de quem
+  // administra a conta (tela de Financeiro & Fiscal via PATCH /account),
+  // nunca uma variável de ambiente -- emitir de verdade é um documento
+  // fiscal real, e a própria lib usada (@nfewizard/nfse) ainda tem uma
+  // issue aberta e sem solução definitiva sobre qual perfil de
+  // assinatura XML a SEFIN Nacional aceita (ver
+  // docs/fase-0/decisoes-pos-descoberta.md #4). Ligar "producao" aqui é
+  // a permissão pra tentar, não uma prova de que a assinatura funciona
+  // lá -- ver NfseService.emitirParaFatura.
+  nfseAmbiente String @default("homologacao") // "homologacao" | "producao"
+
   // Abas 01/02 da planilha de precificação (docs/fase-0/Base_Precificacao
   // (fazer cópia).xlsx) -- inputs compartilhados pela fórmula de
   // tarifa/hora (crm/pricing.ts: calcularOverheadPorHora/
@@ -585,10 +597,35 @@ model Invoice {
   phase      ProjectPhase? @relation(fields: [phaseId], references: [id])
   amount     Decimal
   status     String // pendente | emitida | paga
-  nfseNumber String? // número da NFS-e emitida via parceiro fiscal
+  // Preenchido tanto pelo registro manual (PATCH direto, fluxo antigo de
+  // "emitida via parceiro fiscal") quanto pela emissão automática abaixo
+  // (NfseService.emitirParaFatura seta como a própria chaveAcesso) --
+  // continua sendo "o número que a usuária vê", venha de onde vier.
+  nfseNumber String?
   dueDate    DateTime?
   issuedAt   DateTime?
   paidAt     DateTime?
+
+  // Lacuna da matriz (NFS-e dentro do fluxo real, não só o teste mecânico
+  // em NfseController). chaveAcesso é o identificador único de verdade
+  // da NFS-e Nacional -- @unique também serve de guarda de idempotência
+  // (ver NfseService.emitirParaFatura: presença dela já significa
+  // "emitida", barra reemissão antes de qualquer chamada à SEFIN).
+  // nfseNumeroDps é derivado de forma estável a partir do próprio id da
+  // fatura (não de timestamp) -- uma tentativa que falhar por queda de
+  // rede e for reenviada cai no MESMO nDPS, pra SEFIN rejeitar como
+  // duplicata em vez de autorizar duas DPS pra mesma fatura.
+  // nfseAmbienteEmissao registra qual ambiente foi USADO nesta emissão
+  // (histórico -- pode divergir de Account.nfseAmbiente se mudou depois).
+  // nfseRejectionReason é o detalhe real da rejeição da SEFIN (achado da
+  // auditoria: hoje isso é capturado e descartado, vira 502 genérico) --
+  // persistido pra sobreviver a um refresh de página, limpo na próxima
+  // emissão bem-sucedida.
+  nfseChaveAcesso     String? @unique
+  nfseIdDps           String?
+  nfseNumeroDps       String?
+  nfseAmbienteEmissao String?
+  nfseRejectionReason String?
 
   // Cobrança (Boleto + Pix) via Asaas -- ver billing/. asaasPaymentId é o
   // id da cobrança na Asaas, usado pelo webhook pra achar de volta esta

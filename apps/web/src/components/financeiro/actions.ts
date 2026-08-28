@@ -41,6 +41,26 @@ export async function updateDataRetention(formData: FormData) {
   revalidatePath("/financeiro");
 }
 
+// Lacuna da matriz (NFS-e dentro do fluxo real) -- "producao" é decisão
+// explícita de quem administra a conta (ver Account.nfseAmbiente no
+// schema para o porquê), não uma env var.
+export async function updateNfseAmbiente(formData: FormData) {
+  const nfseAmbiente = String(formData.get("nfseAmbiente") ?? "");
+  if (nfseAmbiente !== "homologacao" && nfseAmbiente !== "producao") {
+    throw new Error("Ambiente inválido.");
+  }
+
+  const res = await apiFetch("account", {
+    method: "PATCH",
+    body: JSON.stringify({ nfseAmbiente }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error?.message ?? "Não foi possível atualizar o ambiente da NFS-e.");
+  }
+  revalidatePath("/financeiro");
+}
+
 // O resultado (fatorR + anexo recomendado) é persistido pelo backend na
 // própria Account -- não precisa devolver nada aqui, revalidar a página
 // já mostra o valor atualizado (mesmo padrão de upsertRoleRate).

@@ -15,6 +15,7 @@ import {
   type CreateInvoiceInput,
   type InvoiceStatusUpdate,
 } from './invoices.service';
+import { NfseService } from './fiscal/nfse.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -51,7 +52,10 @@ export class PhaseInvoiceController {
 @AdminOnly()
 @Controller('v1/invoices')
 export class InvoicesController {
-  constructor(private readonly invoicesService: InvoicesService) {}
+  constructor(
+    private readonly invoicesService: InvoicesService,
+    private readonly nfseService: NfseService,
+  ) {}
 
   @Get()
   async list(
@@ -83,6 +87,19 @@ export class InvoicesController {
       id,
       input,
     );
+    return { data };
+  }
+
+  // Lacuna da matriz (NFS-e dentro do fluxo real) -- ver
+  // NfseService.emitirParaFatura para a idempotência e o gate de
+  // ambiente por conta.
+  @Post(':id/nfse')
+  @HttpCode(200)
+  async emitirNfse(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
+    const data = await this.nfseService.emitirParaFatura(accountId, id);
     return { data };
   }
 }

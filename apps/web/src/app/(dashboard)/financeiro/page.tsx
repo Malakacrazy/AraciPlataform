@@ -6,6 +6,7 @@ import { apiGet, ApiError } from "@/lib/api";
 import type { Account, Expense, Project } from "@/lib/types";
 import {
   updateTaxRegime,
+  updateNfseAmbiente,
   updateDataRetention,
   simulateFatorR,
   createExpense,
@@ -217,6 +218,36 @@ export default async function FinanceiroPage({
             >
               <option value="MEI">MEI</option>
               <option value="ME">ME (Simples Nacional)</option>
+            </select>
+          </label>
+          <button
+            type="submit"
+            className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
+          >
+            Salvar
+          </button>
+        </form>
+      </section>
+
+      <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+        <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Ambiente da NFS-e</h2>
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          Homologação nunca gera um documento fiscal real — é o ambiente de testes da própria SEFIN Nacional.
+          Mudar para Produção é uma decisão sua, não um detalhe técnico: a biblioteca usada pra assinar a NFS-e
+          ainda tem uma pendência sem solução definitiva sobre qual assinatura a SEFIN aceita em Produção — ligar
+          aqui é a permissão pra tentar, não uma garantia de que vai funcionar.
+        </p>
+        <form action={updateNfseAmbiente} className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-500 dark:text-zinc-400">Ambiente atual</span>
+            <select
+              key={account.nfseAmbiente}
+              name="nfseAmbiente"
+              defaultValue={account.nfseAmbiente}
+              className="w-48 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+            >
+              <option value="homologacao">Homologação (testes)</option>
+              <option value="producao">Produção</option>
             </select>
           </label>
           <button

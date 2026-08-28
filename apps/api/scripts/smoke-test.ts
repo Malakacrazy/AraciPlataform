@@ -870,6 +870,28 @@ async function main() {
     chargeSemApiKeyRes.body
   );
 
+  // Lacuna da matriz (NFS-e dentro do fluxo real) -- guardas testadas
+  // aqui não chamam a SEFIN de verdade (a real Homologação é coberta por
+  // scripts/verify-nfse-invoice.ts, mesmo precedente de sendForSignature
+  // não ser exercitado aqui): as duas checagens abaixo curto-circuitam
+  // ANTES de chegar no certificado/webservice.
+  const nfseSemDocumentoRes = await api(`/v1/invoices/${invoiceId}/nfse`, { method: "POST" });
+  report(
+    "POST /invoices/:id/nfse com cliente sem CPF/CNPJ → 422 CLIENT_MISSING_DOCUMENT (clientId ainda sem document neste ponto do run)",
+    nfseSemDocumentoRes.status === 422 && nfseSemDocumentoRes.body?.error?.code === "CLIENT_MISSING_DOCUMENT",
+    nfseSemDocumentoRes.body
+  );
+
+  const fakeChaveAcesso = `fake-chave-smoke-test-${Date.now()}`;
+  await prisma.invoice.update({ where: { id: invoiceId }, data: { nfseChaveAcesso: fakeChaveAcesso } });
+  const nfseJaEmitidaRes = await api(`/v1/invoices/${invoiceId}/nfse`, { method: "POST" });
+  report(
+    "POST /invoices/:id/nfse numa fatura que já tem nfseChaveAcesso → 422 NFSE_ALREADY_ISSUED, sem chamar a SEFIN",
+    nfseJaEmitidaRes.status === 422 && nfseJaEmitidaRes.body?.error?.code === "NFSE_ALREADY_ISSUED",
+    nfseJaEmitidaRes.body
+  );
+  await prisma.invoice.update({ where: { id: invoiceId }, data: { nfseChaveAcesso: null } });
+
   const webhookTokenErrado = await fetch(`${BASE_URL}/v1/billing/asaas/webhook`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "asaas-access-token": "chave-errada" },
@@ -2299,6 +2321,35 @@ async function main() {
     "PATCH /account { dataRetentionMonths: null } → 200 (desliga de novo, valor real do estúdio)",
     clearRetentionRes.status === 200 && clearRetentionRes.body?.data?.dataRetentionMonths === null,
     clearRetentionRes.body
+  );
+
+  // --- Ambiente da NFS-e (config, não env var -- ver Account.nfseAmbiente) --
+  const accountAntesRes = await api("/v1/account");
+  const ambienteOriginal = accountAntesRes.body?.data?.nfseAmbiente;
+  report(
+    "GET /account → nfseAmbiente default é 'homologacao'",
+    ambienteOriginal === "homologacao",
+    ambienteOriginal
+  );
+
+  const setProducaoRes = await api("/v1/account", {
+    method: "PATCH",
+    body: JSON.stringify({ nfseAmbiente: "producao" }),
+  });
+  report(
+    "PATCH /account { nfseAmbiente: 'producao' } → 200",
+    setProducaoRes.status === 200 && setProducaoRes.body?.data?.nfseAmbiente === "producao",
+    setProducaoRes.body
+  );
+
+  const restoreHomologacaoRes = await api("/v1/account", {
+    method: "PATCH",
+    body: JSON.stringify({ nfseAmbiente: "homologacao" }),
+  });
+  report(
+    "PATCH /account { nfseAmbiente: 'homologacao' } → 200 (restaura o valor real do estúdio)",
+    restoreHomologacaoRes.status === 200 && restoreHomologacaoRes.body?.data?.nfseAmbiente === "homologacao",
+    restoreHomologacaoRes.body
   );
 
   // --- Despesas (lado de saída do caixa, achado da auditoria) ---------

@@ -2098,6 +2098,78 @@ avisar) do que não é (o prazo em si, e o gatilho da anonimização).
   confirmado no banco, depois desligado de novo — nunca deixado ligado
   sem decisão real por trás).
 
+## Correção — Fiscal: NFS-e dentro do fluxo real de faturamento
+
+Uma segunda revisão externa (mesmo método, mesma matriz, rodada em 27 ago
+2026) confirmou que os 4 críticos, os 5 altos, os 4 médios e 5 das 9
+lacunas originais já estavam corrigidos no código — conferido de novo
+contra `src/` antes de qualquer trabalho novo, não só aceito de olho
+fechado. Restavam dois grupos grandes nunca tocados: NFS-e dentro do
+fluxo real e gestão documental (Drive). Esta rodada fecha o primeiro.
+
+O que já existia (`NfseController`, `NfseService.emitirTeste`) provava
+que certificado, assinatura e webservice funcionam contra a Homologação
+da SEFIN Nacional — com dado 100% fictício, nunca ligado a uma `Invoice`
+de verdade. Faltava exatamente esse elo.
+
+- **`NfseService.emitirParaFatura`**: builder de DPS novo
+  (`nfse-invoice-dps.ts`) a partir de uma `Invoice` real — cliente, valor
+  e código de serviço de verdade, reaproveitando a mesma correção de fuso
+  e o mesmo `totTrib` zerado já verificados no DPS de teste. Código de
+  serviço nunca hardcoded: lido de `Account.taxRegime` a cada emissão —
+  `170201` (Datilografia) enquanto MEI, `070104` (Arquitetura) + `1520`
+  (municipal de SP) só depois de ME, confirmado com a Giulia em
+  `decisoes-pos-descoberta.md` #4 (Arquitetura não pode ser MEI).
+- **Idempotência de verdade, não só de nome**: `Invoice.nfseChaveAcesso`
+  (`@unique`) barra reemissão antes de qualquer chamada à SEFIN, e o nDPS
+  é derivado de forma estável do próprio id da fatura (não de timestamp,
+  como no DPS de teste) — uma tentativa que falhar por queda de rede e
+  for reenviada cai no mesmo nDPS, então o pior cenário de duplicar a
+  chamada é a SEFIN rejeitar como duplicata, nunca autorizar duas DPS
+  pra mesma fatura.
+- **Gate de ambiente por conta, não por env var**: `Account.nfseAmbiente`
+  (`"homologacao"` por padrão, sempre) — trocar pra `"producao"` é um
+  PATCH explícito de admin na tela de Financeiro & Fiscal, nunca uma
+  variável de ambiente mal configurada emitindo de verdade sem querer.
+  Copy da tela é honesta sobre o risco residual: a lib usada
+  (`@nfewizard/nfse`) ainda tem uma issue aberta e sem solução definitiva
+  sobre qual perfil de assinatura XML a SEFIN Nacional aceita em
+  Produção — ligar o toggle é a permissão pra tentar, não uma prova de
+  que vai funcionar.
+- **Rejeição da SEFIN visível pra usuária**: `Invoice.nfseRejectionReason`
+  persiste o detalhe real (`error.nfseErrorDetail`, mesmo parsing já
+  usado em `emitirTeste`) em vez de deixar virar só um 502 genérico —
+  sobrevive a um refresh de página, exibido como aviso vermelho na tela
+  do projeto.
+- **Certificado A1: alerta de vencimento**. `CertificateExpiryCron`
+  (semanal, mesmo padrão dos outros dois crons de fundo) avisa os admins
+  quando faltam ≤60 dias pro certificado vencer (o real vence em
+  24/08/2027) — achado da própria auditoria: renovação "vira uma tarefa
+  operacional recorrente do estúdio", sem aviso nenhum hoje seria só
+  descobrir numa emissão real falhando.
+- **Não corrigido nesta rodada, de propósito**: cancelamento/substituição
+  de NFS-e (item "grande" da lista de 9 — precisa de fluxo próprio,
+  `InfoSubstituicao`/`chNFSeRej`, fora do escopo de "ligar o que já
+  existe ao Invoice"); cálculo real de tributação federal/estadual/
+  municipal por nota (Reforma Tributária/IBS-CBS) — já documentado no
+  schema como "padrão ainda não estabilizado", não uma lacuna nova desta
+  emissão.
+- Verificado: build+typecheck limpos (api e web); script dedicado
+  (`verify-nfse-invoice.ts`) emitiu uma NFS-e de verdade contra a
+  Homologação real da SEFIN Nacional a partir de uma fatura de teste —
+  chave de acesso e idDps recebidos e persistidos —, confirmou
+  `CLIENT_MISSING_DOCUMENT` pra cliente sem CPF/CNPJ e
+  `NFSE_ALREADY_ISSUED` numa segunda tentativa pra mesma fatura;
+  `verify-certificate-expiry.ts` confirmou que o cron não faz nada contra
+  o certificado real (vencimento distante) e que a notificação fabricada
+  produz o título certo; smoke suite 293/294 (5 novas asserções: duas
+  guardas de NFS-e sem tocar a SEFIN, três de `PATCH /account {
+  nfseAmbiente }`), mesma falha pré-existente de sempre (`ASAAS_API_KEY`);
+  fluxo completo testado de ponta a ponta no navegador contra um
+  projeto/fatura descartável — clique em "Emitir NFS-e", chave de acesso
+  real da SEFIN aparecendo na tela, status virando "Emitida" — limpo
+  depois.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

@@ -28,12 +28,17 @@ import { FiscalController } from './fiscal/fiscal.controller';
 import { FiscalService } from './fiscal/fiscal.service';
 import { NfseController } from './fiscal/nfse.controller';
 import { NfseService } from './fiscal/nfse.service';
+import { CertificateExpiryCron } from './fiscal/certificate-expiry.cron';
 import { RoleRatesController } from './role-rates.controller';
 import { RoleRatesService } from './role-rates.service';
 import { StudioFixedCostsController } from './studio-fixed-costs.controller';
 import { StudioFixedCostsService } from './studio-fixed-costs.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
+  // NotificationsModule é só pro CertificateExpiryCron -- sem risco de
+  // ciclo, NotificationsModule não importa nada (ver seu próprio arquivo).
+  imports: [NotificationsModule],
   controllers: [
     ProjectsController,
     UsersController,
@@ -68,6 +73,7 @@ import { StudioFixedCostsService } from './studio-fixed-costs.service';
     AccountService,
     FiscalService,
     NfseService,
+    CertificateExpiryCron,
     RoleRatesService,
     StudioFixedCostsService,
   ],

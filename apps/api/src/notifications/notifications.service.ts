@@ -137,12 +137,11 @@ export class NotificationsService {
   }
 
   // Quarto gatilho -- achado da auditoria: "Emission is a manual trigger,
-  // not tied to invoice payment". Não emite a NFS-e sozinho (ver
-  // decisoes-pos-descoberta.md #4 e nfse-client.ts: emissão real em
-  // Produção é uma decisão de código deliberada, nunca automática) — só
-  // avisa que o pagamento confirmado deixou uma fatura sem NFS-e, pra um
-  // humano revisar e emitir pela tela (POST/PATCH .../invoices/:id já
-  // existente).
+  // not tied to invoice payment". Não emite a NFS-e sozinho -- mesmo que
+  // hoje já exista emissão real ligada à fatura (ver
+  // NfseService.emitirParaFatura), o pagamento confirmado nunca dispara
+  // isso sozinho; só avisa que falta emitir, pra um humano decidir e
+  // clicar em "Emitir NFS-e" na tela do projeto.
   async notifyNfseReady(
     accountId: string,
     params: { projectId: string; projectName: string; amount: string },
@@ -213,6 +212,44 @@ export class NotificationsService {
       });
     } catch (error) {
       this.logger.warn(`Falha ao notificar candidato à retenção de dados: ${(error as Error).message}`);
+    }
+  }
+
+  // Sexto gatilho -- item da lista de 9 lacunas fiscais da auditoria:
+  // renovação do certificado A1 "vira uma tarefa operacional recorrente
+  // do estúdio" (decisoes-pos-descoberta.md #4), sem aviso nenhum hoje.
+  // O certificado é único por ambiente, não por Account (mesmo
+  // comentário já em NfseController) -- CertificateExpiryCron chama isto
+  // uma vez por conta encontrada, não por certificado.
+  async notifyCertificateExpiring(accountId: string, params: { validTo: Date; daysRemaining: number }) {
+    try {
+      const admins = await this.prisma.db.user.findMany({
+        where: { accountId, accessLevel: 'admin' },
+        select: { id: true, email: true },
+      });
+      if (admins.length === 0) return;
+
+      const validToStr = params.validTo.toLocaleDateString('pt-BR');
+      const title =
+        params.daysRemaining >= 0
+          ? `Certificado A1 vence em ${params.daysRemaining} dia(s) (${validToStr})`
+          : `Certificado A1 venceu há ${Math.abs(params.daysRemaining)} dia(s) (${validToStr})`;
+      await this.prisma.db.notification.createMany({
+        data: admins.map((admin) => ({
+          accountId,
+          userId: admin.id,
+          type: 'certificate_expiring',
+          title,
+        })),
+      });
+
+      await sendEmail({
+        to: admins.map((a) => a.email),
+        subject: title,
+        html: `<p>O certificado digital A1 usado para emitir NFS-e vence em <strong>${validToStr}</strong>. Renove com antecedência -- sem um certificado válido, nenhuma NFS-e pode ser emitida.</p>`,
+      });
+    } catch (error) {
+      this.logger.warn(`Falha ao notificar vencimento do certificado A1: ${(error as Error).message}`);
     }
   }
 

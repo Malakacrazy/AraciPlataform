@@ -23,6 +23,10 @@ export const accountUpdateSchema = z.object({
   // DataRetentionCron pra esta conta. `.nullable()` (não só `.optional()`)
   // pra deixar voltar a desligar depois de já ter configurado um prazo.
   dataRetentionMonths: z.number().int().min(1, 'Prazo precisa ser de pelo menos 1 mês.').max(600).nullable().optional(),
+  // Lacuna da matriz (NFS-e dentro do fluxo real) -- ver comentário no
+  // schema.prisma (Account.nfseAmbiente) para o porquê de "producao" ser
+  // uma decisão explícita e não uma env var.
+  nfseAmbiente: z.enum(['homologacao', 'producao']).optional(),
 });
 
 export type AccountUpdateInput = z.infer<typeof accountUpdateSchema>;

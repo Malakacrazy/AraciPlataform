@@ -56,6 +56,16 @@ export async function chargeInvoice(projectId: string, invoiceId: string) {
   await call(`invoices/${invoiceId}/charge`, { method: "POST" }, projectId);
 }
 
+// Lacuna da matriz (NFS-e dentro do fluxo real) -- ver
+// NfseService.emitirParaFatura. Mesmo padrão de chargeInvoice logo acima:
+// deixa o erro (ex.: CLIENT_MISSING_DOCUMENT, NFSE_AUTORIZACAO_FAILED)
+// subir como está -- o detalhe da rejeição da SEFIN também fica
+// persistido em Invoice.nfseRejectionReason, então sobrevive a um
+// refresh mesmo que esta chamada específica só mostre a tela de erro.
+export async function emitirNfse(projectId: string, invoiceId: string) {
+  await call(`invoices/${invoiceId}/nfse`, { method: "POST" }, projectId);
+}
+
 // currentStatus vem da própria tela (não relido aqui) só pra decidir se
 // muda o status -- uma fatura que a Asaas já marcou 'paga' via webhook
 // (pagamento confirmado antes de alguém emitir a NFS-e) continua 'paga'
