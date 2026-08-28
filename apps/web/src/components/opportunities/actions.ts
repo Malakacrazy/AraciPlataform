@@ -67,3 +67,14 @@ export async function markLost(id: string, lostReason: string) {
   revalidatePath("/opportunities");
   revalidatePath("/clients", "layout");
 }
+
+// Achado da auditoria: ganho/perdido era irreversível por qualquer API.
+export async function reopen(id: string) {
+  const res = await apiFetch(`opportunities/${id}/reopen`, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error?.message ?? "Não foi possível reabrir a oportunidade.");
+  }
+  revalidatePath("/opportunities");
+  revalidatePath("/clients", "layout");
+}

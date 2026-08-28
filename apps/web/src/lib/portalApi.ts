@@ -7,6 +7,8 @@
 // token de sessão do cliente (cookie httpOnly setado em
 // /portal/verify), verificado do lado do apps/api, não decodificado
 // aqui.
+import type { PortalPendingProposal } from "./types";
+
 const API_URL = process.env.API_URL ?? "http://localhost:3001";
 
 export const SESSION_COOKIE = "client_session";
@@ -67,4 +69,40 @@ export async function listPortalProjects(sessionToken: string): Promise<{ client
     throw new PortalApiError(res.status, body?.error?.message ?? "Não foi possível carregar seus projetos.");
   }
   return body.data;
+}
+
+// Lacuna da matriz (portal pré-venda) -- Opportunity ainda sem Project,
+// com proposta enviada.
+export async function listPendingProposals(sessionToken: string): Promise<PortalPendingProposal[]> {
+  const res = await portalFetch("/pending-proposals", {
+    headers: { "X-Client-Session": sessionToken },
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new PortalApiError(res.status, body?.error?.message ?? "Não foi possível carregar suas propostas.");
+  }
+  return body.data;
+}
+
+export async function declineProposal(sessionToken: string, opportunityId: string): Promise<void> {
+  const res = await portalFetch(`/opportunities/${opportunityId}/decline`, {
+    method: "POST",
+    headers: { "X-Client-Session": sessionToken },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new PortalApiError(res.status, body?.error?.message ?? "Não foi possível registrar a recusa.");
+  }
+}
+
+export async function submitProspectComment(sessionToken: string, opportunityId: string, comment: string): Promise<void> {
+  const res = await portalFetch(`/opportunities/${opportunityId}/comment`, {
+    method: "POST",
+    headers: { "X-Client-Session": sessionToken },
+    body: JSON.stringify({ comment }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new PortalApiError(res.status, body?.error?.message ?? "Não foi possível enviar sua pergunta.");
+  }
 }

@@ -20,6 +20,8 @@ import { ProjectMembersController } from './project-members.controller';
 import { ProjectMembersService } from './project-members.service';
 import { AllocationsController } from './allocations.controller';
 import { AllocationsService } from './allocations.service';
+import { AbsencesController } from './absences.controller';
+import { AbsencesService } from './absences.service';
 import { AccountController } from './account.controller';
 import { AccountService } from './account.service';
 import { FiscalController } from './fiscal/fiscal.controller';
@@ -45,6 +47,7 @@ import { StudioFixedCostsService } from './studio-fixed-costs.service';
     TimeEntriesController,
     ProjectMembersController,
     AllocationsController,
+    AbsencesController,
     AccountController,
     FiscalController,
     NfseController,
@@ -61,6 +64,7 @@ import { StudioFixedCostsService } from './studio-fixed-costs.service';
     TimeEntriesService,
     ProjectMembersService,
     AllocationsService,
+    AbsencesService,
     AccountService,
     FiscalService,
     NfseService,

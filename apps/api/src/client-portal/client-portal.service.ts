@@ -5,12 +5,17 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UnauthorizedError } from '../common/api-error';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PresentationLinksService } from '../presentation/presentation-links.service';
+import { ClientsService } from '../crm/clients.service';
+import { OpportunitiesService } from '../crm/opportunities.service';
 
 export const requestLinkSchema = z.object({ email: z.email() });
 export type RequestLinkInput = z.infer<typeof requestLinkSchema>;
 
 export const consumeTokenSchema = z.object({ token: z.string().min(1) });
 export type ConsumeTokenInput = z.infer<typeof consumeTokenSchema>;
+
+export const prospectCommentSchema = z.object({ comment: z.string().min(1).max(2000) });
+export type ProspectCommentInput = z.infer<typeof prospectCommentSchema>;
 
 const MAGIC_LINK_TTL_MS = 15 * 60 * 1000; // 15 minutos
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
@@ -30,6 +35,8 @@ export class ClientPortalService {
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
     private readonly presentationLinksService: PresentationLinksService,
+    private readonly clientsService: ClientsService,
+    private readonly opportunitiesService: OpportunitiesService,
   ) {}
 
   // Sempre devolve sucesso genérico pra quem chamou, exista o e-mail ou
@@ -125,6 +132,24 @@ export class ClientPortalService {
     return session;
   }
 
+  // Lacuna da matriz (LGPD, "seção 'Meus dados' no portal do titular") --
+  // reaproveita ClientsService.exportClientData, só autorizado pela
+  // sessão do portal (posse do token) em vez de accountId/accessLevel de
+  // staff. accountId não vem da sessão (ela só guarda clientId) --
+  // resolvido aqui a partir do próprio Client antes de chamar o service
+  // que espera esse escopo.
+  async exportOwnData(sessionToken: string) {
+    const session = await this.resolveSession(sessionToken);
+    const client = await this.prisma.db.client.findUnique({
+      where: { id: session.clientId },
+      select: { accountId: true },
+    });
+    if (!client) {
+      throw new UnauthorizedError('Sessão inválida ou expirada — entre novamente.');
+    }
+    return this.clientsService.exportClientData(client.accountId, session.clientId);
+  }
+
   // Um link de apresentação por projeto é criado sob demanda na
   // primeira vez que o cliente entra no portal -- antes disso, ele só
   // existia se alguém da equipe tivesse gerado manualmente em
@@ -161,5 +186,87 @@ export class ClientPortalService {
     );
 
     return { clientName: client.name, projects };
+  }
+
+  // Lacuna da matriz (portal pré-venda) -- PresentationLink.projectId é
+  // obrigatório e único, então a entidade de pré-venda (Opportunity sem
+  // Project ainda) não é endereçável por aquele mecanismo. Estende o
+  // portal magic link em vez disso: o prospecto já tem e-mail conhecido,
+  // e o portal já sabe autenticá-lo sem senha (achado da auditoria: essa
+  // é a causa estrutural da lacuna, não falta de vontade).
+  async listPendingProposals(sessionToken: string) {
+    const session = await this.resolveSession(sessionToken);
+    const opportunities = await this.prisma.db.opportunity.findMany({
+      where: { clientId: session.clientId, project: null, wonAt: null, lostAt: null },
+      select: {
+        id: true,
+        title: true,
+        prospectComment: true,
+        proposals: {
+          // Só a versão mais recente interessa ao prospecto -- versões
+          // anteriores já viraram "expired" (ver ProposalsService.createProposal).
+          orderBy: { version: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            value: true,
+            status: true,
+            zapsignSignUrl: true,
+            sentAt: true,
+            // Sem baseCost/adjustedCost/complexityMultiplier/
+            // packageDiscountPercent de propósito -- mesmo precedente de
+            // C-03/C-04: é composição interna de preço, não o que o
+            // prospecto aprova.
+            stages: { select: { stage: true, contracted: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // "draft" nunca saiu da equipe -- não faz sentido pro prospecto ver
+    // uma proposta que ninguém decidiu enviar ainda.
+    return opportunities
+      .filter((o) => o.proposals[0] && o.proposals[0].status !== 'draft')
+      .map((o) => ({
+        id: o.id,
+        title: o.title,
+        prospectComment: o.prospectComment,
+        proposal: o.proposals[0],
+      }));
+  }
+
+  private async getOwnOpportunityAccountId(clientId: string, opportunityId: string) {
+    const opportunity = await this.prisma.db.opportunity.findFirst({
+      where: { id: opportunityId, clientId },
+      select: { client: { select: { accountId: true } } },
+    });
+    if (!opportunity) {
+      throw new UnauthorizedError('Oportunidade não encontrada.');
+    }
+    return opportunity.client.accountId;
+  }
+
+  // "Aceite" é handoff pra ZapSign (zapsignSignUrl já existe, gerado por
+  // sendForSignature) -- não duplica a assinatura que já funciona, só
+  // aponta pra ela. "Recusa" reaproveita markLost, que já impede reverter
+  // uma oportunidade ganha (mesma irreversibilidade de sempre).
+  async declineProposal(sessionToken: string, opportunityId: string) {
+    const session = await this.resolveSession(sessionToken);
+    const accountId = await this.getOwnOpportunityAccountId(session.clientId, opportunityId);
+    await this.opportunitiesService.markLost(accountId, opportunityId, 'Recusado pelo prospecto no portal');
+  }
+
+  // Lacuna da matriz (portal pré-venda, "perguntas do prospecto") --
+  // campo livre único (mesmo padrão de ProductSpecification.clientComment),
+  // não uma thread: Activity não serve aqui porque Activity.authorId
+  // exige um User de verdade, e o prospecto não é um.
+  async submitProspectComment(sessionToken: string, opportunityId: string, comment: string) {
+    const session = await this.resolveSession(sessionToken);
+    await this.getOwnOpportunityAccountId(session.clientId, opportunityId);
+    await this.prisma.db.opportunity.update({
+      where: { id: opportunityId },
+      data: { prospectComment: comment },
+    });
   }
 }

@@ -257,6 +257,29 @@ async function main() {
     proposal?.packageDiscountPercent
   );
   report("Proposta tem 5 ProposalStage", Array.isArray(proposal?.stages) && proposal.stages.length === 5, proposal?.stages?.length);
+
+  // Achado da auditoria: calcularProposta só sabe calcular hora_tecnica --
+  // antes desta guarda, uma oportunidade valor_m2 calculava horas×tarifa
+  // do mesmo jeito, em silêncio, apresentado como resultado real.
+  const valorM2OppRes = await api("/v1/opportunities", {
+    method: "POST",
+    body: JSON.stringify({ clientId, title: "Reforma cobrada por m² (teste)", stage: "novo_lead", feeModel: "valor_m2" }),
+  });
+  const valorM2OppId = valorM2OppRes.body?.data?.id;
+  const valorM2ProposalRes = await api("/v1/proposals", {
+    method: "POST",
+    body: JSON.stringify({
+      opportunityId: valorM2OppId,
+      roleHours: [{ role: "Arquiteto Líder (RT)", stage: "CAPTACAO_ALINHAMENTO", hours: 10 }],
+      complexityScores: { tipologia: 3, programaEscopo: 3, terreno: 3, regulatorio: 3, ambicaoDesign: 3 },
+      contractedStages: ["CAPTACAO_ALINHAMENTO"],
+    }),
+  });
+  report(
+    "POST /proposals numa oportunidade valor_m2 → 422 FEE_MODEL_NOT_SUPPORTED, não calcula por hora em silêncio",
+    valorM2ProposalRes.status === 422 && valorM2ProposalRes.body?.error?.code === "FEE_MODEL_NOT_SUPPORTED",
+    valorM2ProposalRes.body
+  );
   const value = Number(proposal?.value);
   report(`Valor final ≈ R$ 6484.20 (calculado: ${value})`, Math.abs(value - 6484.2) < 1);
 
@@ -451,6 +474,28 @@ async function main() {
     marcarPerdidaRes.body
   );
 
+  // Achado da auditoria: ganho/perdido era irreversível por qualquer API.
+  const reopenJaGanhaRes = await api(`/v1/opportunities/${opportunityId}/reopen`, { method: "POST" });
+  report(
+    "POST .../reopen numa oportunidade ganha → 422 OPPORTUNITY_ALREADY_WON",
+    reopenJaGanhaRes.status === 422 && reopenJaGanhaRes.body?.error?.code === "OPPORTUNITY_ALREADY_WON",
+    reopenJaGanhaRes.body
+  );
+
+  const reopenNaoPerdidaRes = await api(`/v1/opportunities/${valorM2OppId}/reopen`, { method: "POST" });
+  report(
+    "POST .../reopen numa oportunidade que nunca foi perdida → 422 OPPORTUNITY_NOT_LOST",
+    reopenNaoPerdidaRes.status === 422 && reopenNaoPerdidaRes.body?.error?.code === "OPPORTUNITY_NOT_LOST",
+    reopenNaoPerdidaRes.body
+  );
+
+  const reopenRes = await api(`/v1/opportunities/${segundaOppId}/reopen`, { method: "POST" });
+  report(
+    "POST .../reopen → 200, lostAt e lostReason voltam pra null",
+    reopenRes.status === 200 && reopenRes.body?.data?.lostAt === null && reopenRes.body?.data?.lostReason === null,
+    reopenRes.body
+  );
+
   const leadSemEmailRes = await fetch(`${BASE_URL}/v1/leads`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -470,6 +515,7 @@ async function main() {
       email: "visitante-lead@example.com",
       phone: "11999990000",
       message: "Gostaria de um orçamento para reforma de apartamento de 80m².",
+      consent: true,
     }),
   });
   report("POST /v1/leads (formulário público) → 201, sem exigir token", leadRes.status === 201, await leadRes.json().catch(() => null));
@@ -504,6 +550,7 @@ async function main() {
       name: "Visitante do Site",
       email: "VISITANTE-lead@example.com", // mesma pessoa, e-mail em outra caixa -- prova a normalização também
       message: "Segunda mensagem, mesmo contato.",
+      consent: true,
     }),
   });
   report(
@@ -1271,6 +1318,91 @@ async function main() {
     listAllocationsAfterDeleteRes.body
   );
 
+  // Lacuna da matriz ("calendário de férias/ausências") -- mesmo padrão
+  // de teste de Allocation acima.
+  const createAbsenceRes = await api("/v1/absences", {
+    method: "POST",
+    body: JSON.stringify({
+      userId: user2.id,
+      type: "ferias",
+      startDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
+      endDate: new Date(Date.now() + 20 * 24 * 60 * 60 * 1000).toISOString(),
+    }),
+  });
+  report(
+    "POST /absences → 201, inclui user",
+    createAbsenceRes.status === 201 && createAbsenceRes.body?.data?.user?.id === user2.id,
+    createAbsenceRes.body
+  );
+  const absenceId = createAbsenceRes.body?.data?.id;
+
+  const badAbsenceRangeRes = await api("/v1/absences", {
+    method: "POST",
+    body: JSON.stringify({
+      userId: user2.id,
+      startDate: new Date().toISOString(),
+      endDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    }),
+  });
+  report(
+    "POST /absences com data de término antes do início → 400 VALIDATION_ERROR",
+    badAbsenceRangeRes.status === 400 && badAbsenceRangeRes.body?.error?.code === "VALIDATION_ERROR",
+    badAbsenceRangeRes.body
+  );
+
+  const listAbsencesRes = await api(`/v1/absences?userId=${user2.id}`);
+  report(
+    "GET /absences?userId= inclui a ausência recém-criada, com type default 'ferias' preservado",
+    listAbsencesRes.status === 200 &&
+      listAbsencesRes.body?.data?.some((a: any) => a.id === absenceId && a.type === "ferias"),
+    listAbsencesRes.body
+  );
+
+  const deleteAbsenceRes = await api(`/v1/absences/${absenceId}`, { method: "DELETE" });
+  report("DELETE /absences/:id → 204", deleteAbsenceRes.status === 204, deleteAbsenceRes.body);
+
+  const listAbsencesAfterDeleteRes = await api(`/v1/absences?userId=${user2.id}`);
+  report(
+    "Após remover, GET /absences não inclui mais a ausência",
+    listAbsencesAfterDeleteRes.status === 200 &&
+      !listAbsencesAfterDeleteRes.body?.data?.some((a: any) => a.id === absenceId),
+    listAbsencesAfterDeleteRes.body
+  );
+
+  // Achado da auditoria: ausência precisa entrar na mesma máquina que
+  // alimenta /v1/bi/capacidade -- uma ausência ATIVA agora (não a de
+  // daqui a 10 dias criada acima) precisa aparecer como
+  // sobrecarregado=true se a pessoa ainda tem horas alocadas nesta
+  // semana, senão o dashboard de capacidade continua "ok" com alguém de
+  // férias alocado.
+  const activeAbsenceRes = await api("/v1/absences", {
+    method: "POST",
+    body: JSON.stringify({
+      userId: user2.id,
+      startDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      endDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    }),
+  });
+  const activeAllocationRes = await api("/v1/allocations", {
+    method: "POST",
+    body: JSON.stringify({
+      userId: user2.id,
+      projectId,
+      hoursPerWeek: 5,
+      startDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      endDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    }),
+  });
+  const capacidadeComFeriasRes = await api("/v1/bi/capacidade");
+  const user2Capacidade = capacidadeComFeriasRes.body?.data?.porPessoa?.find((p: any) => p.userId === user2.id);
+  report(
+    "GET /bi/capacidade → emFeriasAgora=true e sobrecarregado=true pra quem está de férias mas ainda alocado",
+    user2Capacidade?.emFeriasAgora === true && user2Capacidade?.sobrecarregado === true,
+    user2Capacidade
+  );
+  await api(`/v1/absences/${activeAbsenceRes.body?.data?.id}`, { method: "DELETE" });
+  await api(`/v1/allocations/${activeAllocationRes.body?.data?.id}`, { method: "DELETE" });
+
   const product1Res = await api("/v1/products", {
     method: "POST",
     body: JSON.stringify({
@@ -1768,6 +1900,132 @@ async function main() {
     portalProjectsRes.status === 200 && !!portalProject?.presentationToken,
     portalProjectsBody
   );
+
+  // --- Portal do cliente: pré-venda (lacuna da matriz) -----------------
+  // Opportunity sem Project ainda, com proposta enviada -- precisa ser
+  // uma nova (não reaproveitar `opportunityId`, que a esta altura já foi
+  // marcado ganho lá em cima e não passaria no filtro `wonAt: null` de
+  // listPendingProposals).
+  const presaleOppRes = await api("/v1/opportunities", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      title: "Sala comercial (pré-venda portal)",
+      stage: "proposta_enviada",
+      feeModel: "hora_tecnica",
+      estimatedValue: 12000,
+    }),
+  });
+  const presaleOppId = presaleOppRes.body?.data?.id;
+
+  const presaleProposalRes = await api("/v1/proposals", {
+    method: "POST",
+    body: JSON.stringify({
+      opportunityId: presaleOppId,
+      roleHours: [{ role: "Arquiteto Líder (RT)", stage: "CAPTACAO_ALINHAMENTO", hours: 10 }],
+      complexityScores: { tipologia: 3, programaEscopo: 3, terreno: 3, regulatorio: 3, ambicaoDesign: 3 },
+      contractedStages: ["CAPTACAO_ALINHAMENTO"],
+    }),
+  });
+  const presaleProposalId = presaleProposalRes.body?.data?.id;
+  // Mesmo atalho já usado acima pra proposalV2 -- não vale disparar a
+  // ZapSign de verdade só pra chegar em status "sent".
+  await prisma.proposal.update({
+    where: { id: presaleProposalId },
+    data: { status: "sent", sentAt: new Date(), zapsignSignUrl: "https://app.zapsign.com.br/verificar/fake-sandbox-presale" },
+  });
+
+  const pendingNoAuthRes = await fetch(`${BASE_URL}/v1/client-portal/pending-proposals`);
+  report("GET /client-portal/pending-proposals sem X-Client-Session → 401", pendingNoAuthRes.status === 401);
+
+  const pendingRes = await fetch(`${BASE_URL}/v1/client-portal/pending-proposals`, {
+    headers: { "X-Client-Session": clientSessionToken },
+  });
+  const pendingBody = await pendingRes.json().catch(() => null);
+  const presalePending = pendingBody?.data?.find((o: any) => o.id === presaleOppId);
+  report(
+    "GET /client-portal/pending-proposals → inclui a oportunidade com proposta 'sent', sem Project",
+    pendingRes.status === 200 && !!presalePending && presalePending.proposal.status === "sent",
+    pendingBody
+  );
+  report(
+    "Proposta na lista de pendentes não vaza baseCost/adjustedCost/complexityMultiplier/packageDiscountPercent",
+    presalePending?.proposal?.baseCost === undefined &&
+      presalePending?.proposal?.adjustedCost === undefined &&
+      presalePending?.proposal?.complexityMultiplier === undefined &&
+      presalePending?.proposal?.packageDiscountPercent === undefined,
+    presalePending?.proposal
+  );
+
+  const commentNoAuthRes = await api(`/v1/client-portal/opportunities/${presaleOppId}/comment`, {
+    method: "POST",
+    body: JSON.stringify({ comment: "Quanto tempo dura a etapa de captação?" }),
+  });
+  report(
+    "POST /client-portal/opportunities/:id/comment sem X-Client-Session → 401",
+    commentNoAuthRes.status === 401,
+    commentNoAuthRes.body
+  );
+
+  const commentWrongOppRes = await fetch(`${BASE_URL}/v1/client-portal/opportunities/nonexistent-opportunity-id/comment`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Client-Session": clientSessionToken },
+    body: JSON.stringify({ comment: "Não deveria funcionar" }),
+  });
+  report(
+    "POST .../comment numa Opportunity que não é do cliente da sessão (ou inexistente) → 401",
+    commentWrongOppRes.status === 401,
+    await commentWrongOppRes.json().catch(() => null)
+  );
+
+  const commentRes = await fetch(`${BASE_URL}/v1/client-portal/opportunities/${presaleOppId}/comment`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Client-Session": clientSessionToken },
+    body: JSON.stringify({ comment: "Quanto tempo dura a etapa de captação?" }),
+  });
+  report("POST /client-portal/opportunities/:id/comment → 200", commentRes.status === 200, await commentRes.json().catch(() => null));
+
+  const afterCommentOppRes = await api(`/v1/opportunities/${presaleOppId}`);
+  report(
+    "Comentário do prospecto aparece no lado staff (Opportunity.prospectComment)",
+    afterCommentOppRes.body?.data?.prospectComment === "Quanto tempo dura a etapa de captação?",
+    afterCommentOppRes.body
+  );
+
+  const declineNoAuthRes = await api(`/v1/client-portal/opportunities/${presaleOppId}/decline`, { method: "POST" });
+  report("POST /client-portal/opportunities/:id/decline sem X-Client-Session → 401", declineNoAuthRes.status === 401, declineNoAuthRes.body);
+
+  const declineRes = await fetch(`${BASE_URL}/v1/client-portal/opportunities/${presaleOppId}/decline`, {
+    method: "POST",
+    headers: { "X-Client-Session": clientSessionToken },
+  });
+  report("POST /client-portal/opportunities/:id/decline → 200", declineRes.status === 200, await declineRes.json().catch(() => null));
+
+  const afterDeclineOppRes = await api(`/v1/opportunities/${presaleOppId}`);
+  report(
+    "Recusar no portal → mesma trilha de mark-lost (lostAt/lostReason preenchidos)",
+    !!afterDeclineOppRes.body?.data?.lostAt &&
+      afterDeclineOppRes.body?.data?.lostReason === "Recusado pelo prospecto no portal",
+    afterDeclineOppRes.body
+  );
+
+  const pendingAfterDeclineRes = await fetch(`${BASE_URL}/v1/client-portal/pending-proposals`, {
+    headers: { "X-Client-Session": clientSessionToken },
+  });
+  const pendingAfterDeclineBody = await pendingAfterDeclineRes.json().catch(() => null);
+  report(
+    "Depois de recusada, some da lista de pendentes (lostAt agora preenchido)",
+    !pendingAfterDeclineBody?.data?.some((o: any) => o.id === presaleOppId),
+    pendingAfterDeclineBody
+  );
+
+  // Cleanup inline -- Proposal/ProposalStage têm FK RESTRICT em
+  // Opportunity (sem onDelete: Cascade, ver schema.prisma), então apagar
+  // a Opportunity direto pela API (que só limpa Activity, ver
+  // OpportunitiesService.deleteOpportunity) quebraria aqui.
+  await prisma.proposalStage.deleteMany({ where: { proposalId: presaleProposalId } });
+  await prisma.proposal.delete({ where: { id: presaleProposalId } });
+  await api(`/v1/opportunities/${presaleOppId}`, { method: "DELETE" });
 
   const driveLinkRes = await api(`/v1/projects/${projectId}/office-links`, {
     method: "POST",
@@ -2478,6 +2736,96 @@ async function main() {
   });
   const auditAsStaffBody = await auditAsStaffRes.json().catch(() => null);
   report("GET /audit-log como staff → 403 FORBIDDEN", auditAsStaffRes.status === 403, auditAsStaffBody);
+
+  // --- LGPD: consentimento, exportação e anonimização -------------------
+  const semConsentRes = await fetch(`${BASE_URL}/v1/leads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Visitante sem consentimento", email: `sem-consentimento-${Date.now()}@example.com` }),
+  });
+  report(
+    "POST /v1/leads sem consent → 400 VALIDATION_ERROR (achado LGPD: captação sem base legal declarada)",
+    semConsentRes.status === 400,
+    await semConsentRes.json().catch(() => null)
+  );
+
+  const lgpdLeadEmail = `lgpd-${Date.now()}@example.com`;
+  const comConsentRes = await fetch(`${BASE_URL}/v1/leads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Cliente LGPD (teste)", email: lgpdLeadEmail, consent: true }),
+  });
+  report("POST /v1/leads com consent:true → 201", comConsentRes.status === 201, await comConsentRes.json().catch(() => null));
+
+  const lgpdClientsRes = await api("/v1/clients");
+  const lgpdClient = lgpdClientsRes.body?.data?.find((c: any) => c.email === lgpdLeadEmail);
+  report(
+    "Client criado pelo formulário público tem consentedAt gravado",
+    !!lgpdClient?.consentedAt,
+    lgpdClient
+  );
+
+  // Gera uma entrada de AuditLog com PII real no diff (document é novo
+  // neste PATCH) antes de anonimizar -- é exatamente o que a anonimização
+  // precisa redigir, não só os campos atuais do Client.
+  await api(`/v1/clients/${lgpdClient?.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ phone: "11988887777", document: "12345678900" }),
+  });
+
+  const exportRes = await api(`/v1/clients/${lgpdClient?.id}/data-export`);
+  report(
+    "GET /clients/:id/data-export → 200, traz client/opportunities/projects/activities",
+    exportRes.status === 200 &&
+      exportRes.body?.data?.client?.id === lgpdClient?.id &&
+      Array.isArray(exportRes.body?.data?.opportunities),
+    exportRes.body
+  );
+
+  const anonymizeRes = await api(`/v1/clients/${lgpdClient?.id}/anonymize`, { method: "POST" });
+  report(
+    "POST /clients/:id/anonymize → 200, PII zerada e anonymizedAt setado",
+    anonymizeRes.status === 200 &&
+      anonymizeRes.body?.data?.email === null &&
+      anonymizeRes.body?.data?.phone === null &&
+      anonymizeRes.body?.data?.document === null &&
+      !!anonymizeRes.body?.data?.anonymizedAt,
+    anonymizeRes.body
+  );
+
+  const anonymizeAgainRes = await api(`/v1/clients/${lgpdClient?.id}/anonymize`, { method: "POST" });
+  report(
+    "Anonimizar de novo → 422 CLIENT_ALREADY_ANONYMIZED (não repete a operação)",
+    anonymizeAgainRes.status === 422 && anonymizeAgainRes.body?.error?.code === "CLIENT_ALREADY_ANONYMIZED",
+    anonymizeAgainRes.body
+  );
+
+  const lgpdAuditRes = await api(`/v1/audit-log?entityType=Client&entityId=${lgpdClient?.id}`);
+  const lgpdAuditEntries = lgpdAuditRes.body?.data?.entries ?? [];
+  const auditJson = JSON.stringify(lgpdAuditEntries);
+  report(
+    "AuditLog do Client anonimizado não contém mais o telefone/documento reais em texto puro",
+    !auditJson.includes("11988887777") && !auditJson.includes("12345678900") && !auditJson.includes(lgpdLeadEmail),
+    lgpdAuditEntries
+  );
+  report(
+    "...mas o histórico de mudança continua existindo (redigido, não apagado)",
+    lgpdAuditEntries.some((e: any) => e.changes?.phone?.to === "[REDIGIDO]"),
+    lgpdAuditEntries
+  );
+
+  // Cleanup inline -- depois de anonimizado, email vira null e name vira
+  // "Cliente anonimizado (...)", então nem o e-mail único gerado acima
+  // nem nenhum padrão de nome fixo em cleanup-smoke-residue.ts acham este
+  // cliente depois. Precisa apagar a Opportunity antes (FK RESTRICT em
+  // Opportunity.clientId, mesmo comportamento já testado em "DELETE
+  // /clients/:id com oportunidade vinculada → 409").
+  const lgpdOppsRes = await api("/v1/opportunities");
+  const lgpdOpps = lgpdOppsRes.body?.data?.filter((o: any) => o.clientId === lgpdClient?.id) ?? [];
+  for (const opp of lgpdOpps) {
+    await api(`/v1/opportunities/${opp.id}`, { method: "DELETE" });
+  }
+  await api(`/v1/clients/${lgpdClient?.id}`, { method: "DELETE" });
 
   // Fundação de sincronização Google (ver GoogleCredential no schema) --
   // self-service, sem :id na rota (sempre a credencial da PRÓPRIA

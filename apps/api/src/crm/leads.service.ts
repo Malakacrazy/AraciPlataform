@@ -9,6 +9,12 @@ export const leadInputSchema = z.object({
   email: z.email(),
   phone: z.string().optional(),
   message: z.string().max(2000).optional(),
+  // Lacuna da matriz (LGPD) -- achado da auditoria: "o formulário público
+  // coleta dado pessoal sem base declarada". .literal(true) em vez de só
+  // z.boolean(): um checkbox desmarcado nem aparece no corpo (HTML padrão
+  // pra checkbox não marcado), então isto rejeita tanto "false" quanto
+  // "ausente" com a mesma mensagem, sem precisar de .refine().
+  consent: z.literal(true, 'É necessário aceitar para enviarmos seu contato.'),
 });
 
 export type LeadInput = z.infer<typeof leadInputSchema>;
@@ -50,6 +56,15 @@ export class LeadsService {
         phone: input.phone,
         source: 'site',
       }));
+
+    // Lacuna da matriz (LGPD) -- registra a base legal desta coleta
+    // específica, mesmo quando reaproveita um Client já existente (achado
+    // A-05): cada envio do formulário é um evento de consentimento novo,
+    // não só o primeiro.
+    await this.prisma.db.client.update({
+      where: { id: client.id },
+      data: { consentedAt: new Date() },
+    });
 
     // feeModel/stage não vêm do formulário -- um visitante anônimo não
     // tem como saber que "hora_tecnica" é o único modelo em uso real

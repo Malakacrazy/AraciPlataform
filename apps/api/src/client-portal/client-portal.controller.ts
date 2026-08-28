@@ -1,10 +1,12 @@
-import { Body, Controller, Get, Headers, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, Post } from '@nestjs/common';
 import {
   ClientPortalService,
   requestLinkSchema,
   consumeTokenSchema,
+  prospectCommentSchema,
   type RequestLinkInput,
   type ConsumeTokenInput,
+  type ProspectCommentInput,
 } from './client-portal.service';
 import { Public } from '../auth/public.decorator';
 import { UnauthorizedError } from '../common/api-error';
@@ -41,5 +43,52 @@ export class ClientPortalController {
     }
     const data = await this.clientPortalService.listProjects(sessionToken);
     return { data };
+  }
+
+  // Lacuna da matriz (LGPD, "Meus dados" self-service).
+  @Get('data-export')
+  async exportOwnData(@Headers('x-client-session') sessionToken?: string) {
+    if (!sessionToken) {
+      throw new UnauthorizedError('Sessão de cliente ausente.');
+    }
+    const data = await this.clientPortalService.exportOwnData(sessionToken);
+    return { data };
+  }
+
+  // Lacuna da matriz (portal pré-venda).
+  @Get('pending-proposals')
+  async listPendingProposals(@Headers('x-client-session') sessionToken?: string) {
+    if (!sessionToken) {
+      throw new UnauthorizedError('Sessão de cliente ausente.');
+    }
+    const data = await this.clientPortalService.listPendingProposals(sessionToken);
+    return { data };
+  }
+
+  @Post('opportunities/:id/decline')
+  @HttpCode(200)
+  async declineProposal(
+    @Headers('x-client-session') sessionToken: string | undefined,
+    @Param('id') id: string,
+  ) {
+    if (!sessionToken) {
+      throw new UnauthorizedError('Sessão de cliente ausente.');
+    }
+    await this.clientPortalService.declineProposal(sessionToken, id);
+    return { data: { received: true } };
+  }
+
+  @Post('opportunities/:id/comment')
+  @HttpCode(200)
+  async submitProspectComment(
+    @Headers('x-client-session') sessionToken: string | undefined,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(prospectCommentSchema)) input: ProspectCommentInput,
+  ) {
+    if (!sessionToken) {
+      throw new UnauthorizedError('Sessão de cliente ausente.');
+    }
+    await this.clientPortalService.submitProspectComment(sessionToken, id, input.comment);
+    return { data: { received: true } };
   }
 }

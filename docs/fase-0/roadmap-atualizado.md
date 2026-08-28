@@ -1959,6 +1959,91 @@ nativamente) e **Sentry** como ferramenta de rastreamento de erro.
   repassado, token certo → 200 repassado); smoke suite 256/257, mesma
   falha pré-existente de sempre (`ASAAS_API_KEY`).
 
+## Correção — 9 lacunas da matriz de comparação com concorrentes (auditoria externa)
+
+A auditoria compara a plataforma linha a linha contra 36 recursos de
+concorrentes e lista 9 lacunas específicas, com um plano de fechamento em
+6 grupos. Esta rodada fecha as lacunas que são decisão técnica pura; as
+que a própria auditoria já classifica como decisão de negócio/jurídica
+ficam de fora, de propósito (ver "Não corrigido" no fim desta seção).
+
+- **Cálculo de proposta só sabia hora_tecnica, em silêncio**:
+  `ProposalsService.createProposal` calculava horas × tarifa pra
+  qualquer `feeModel`, mesmo pra `valor_m2`/`percentual_cub`/`fixo`/
+  `recorrente` — apresentado como resultado real sem nenhum aviso.
+  Adicionada uma guarda que rejeita com 422 `FEE_MODEL_NOT_SUPPORTED`
+  quando a Opportunity não é `hora_tecnica`, em vez de calcular errado.
+- **Kanban sem arrastar-e-soltar, sem coluna pra estágio desconhecido, e
+  perder pra sempre virava a única opção**: `opportunities-board.tsx`
+  ganhou drag-and-drop nativo (HTML5 DnD, mesma filosofia anti-
+  dependência do resto do projeto), uma coluna "Outro" pra qualquer
+  `stage` fora do enum conhecido (antes essas oportunidades simplesmente
+  não apareciam em lugar nenhum), totais em R$ por coluna, e um endpoint
+  novo (`POST /opportunities/:id/reopen`) que limpa `lostAt`/`lostReason`
+  sem tocar `stage` — reaparece na coluna certa sem redigitar nada.
+- **Sem calendário de férias/ausência, capacidade sempre otimista**:
+  modelo `Absence` novo (CRUD espelhando `Allocation` exatamente — ver
+  `absences.service.ts`/`absences.controller.ts`), com sweep-line
+  (`isOnAbsence`, mesmo algoritmo de `peakHoursInWindow`) usado em dois
+  lugares: `BiService.summarizeCapacidade` (novo `emFeriasAgora`, e
+  `sobrecarregado` agora também dispara se a pessoa está de férias e
+  ainda assim tem horas alocadas) e no formulário de alocação (quem está
+  de férias no período aparece por último, com aviso em vez de horas).
+- **FF&E sem exportação nenhuma**: `ExportFfeCsv`, mesmo padrão de CSV
+  pt-BR já usado pra projetos (`;`, decimal com vírgula, BOM UTF-8) —
+  colunas de ambiente/produto/fornecedor/categoria/quantidade/preço/
+  markup/total/status.
+- **LGPD: nenhum mecanismo de consentimento, portabilidade ou
+  anonimização**: `leadInputSchema` exige `consent: true` (formulário
+  público e o de dentro do produto), gravado como `Client.consentedAt`.
+  `GET /clients/:id/data-export` (admin) devolve tudo que a conta tem
+  sobre o cliente (oportunidades, projetos, notas) num JSON baixável —
+  novo botão "Meus dados" também no portal do cliente
+  (`GET /client-portal/data-export`, rota dedicada em `apps/web`, não
+  passa pelo proxy BFF genérico porque o portal não tem sessão NextAuth).
+  `POST /clients/:id/anonymize` zera nome/e-mail/telefone/documento e
+  redige os mesmos campos no histórico de auditoria já gravado — usando
+  o cliente Prisma **cru** (`rawPrisma`, sem a extensão de auditoria),
+  porque gravar a anonimização pelo cliente estendido geraria um novo
+  `AuditLog` com o PII real como valor "de" do diff, recriando
+  exatamente o dado que a operação existe pra apagar. Página
+  `/privacidade` nova, mas deliberadamente só estrutural — todo texto é
+  um placeholder `[A PREENCHER — revisão jurídica necessária]`, ver
+  "Não corrigido" abaixo.
+- **Portal do cliente não tinha nenhuma superfície de pré-venda**: uma
+  `Opportunity` sem `Project` ainda (proposta enviada, negócio não
+  fechado) não tinha como o prospecto ver, aceitar ou recusar — o único
+  mecanismo de link público (`PresentationLink`) exige `Project`.
+  Estendido o próprio magic link do portal: `GET /client-portal/pending-
+  proposals` lista oportunidades do cliente sem projeto e com proposta
+  já enviada, com a mesma projeção segura já usada em `present/:token`
+  (sem `baseCost`/`adjustedCost`/`complexityMultiplier`/
+  `packageDiscountPercent` — é composição interna de preço, não o que o
+  prospecto aprova). "Aceitar" reaproveita o `zapsignSignUrl` que já
+  existe; "Recusar" (`POST .../decline`) reaproveita `markLost` (mesma
+  trilha, mesma trava contra reverter oportunidade já ganha); e um campo
+  livre novo (`Opportunity.prospectComment`, mesmo padrão de
+  `ProductSpecification.clientComment`) deixa o prospecto perguntar algo
+  sobre a proposta — visível pro time em `/opportunities/:id`.
+- **Não corrigido nesta rodada, de propósito**: exportação CAD/Revit
+  (a própria auditoria recomenda decidir o formato antes de qualquer
+  código — não é uma lacuna que dá pra fechar sem essa decisão);
+  automação de retenção/expurgo de dados (LGPD) e o texto jurídico real
+  da página de privacidade (ambos dependem de decisão da Giulia/revisão
+  jurídica, não de código); autorização de colaborador externo (a
+  própria auditoria já chama isso de "o item mais delicado do plano
+  inteiro" — fica pra um pedido explícito à parte, não misturado aqui).
+- Verificado: build+typecheck limpos (api e web) depois de cada mudança;
+  smoke suite 285/286 (13 novas asserções só pro portal pré-venda —
+  pendentes/aceite/recusa/comentário —, mais as de férias e LGPD),
+  mesma falha pré-existente de sempre (`ASAAS_API_KEY`, agora por um
+  motivo ligeiramente diferente: a chave passou a existir no `.env`
+  local, então o teste chega no `INVOICE_MISSING_DUE_DATE` em vez do
+  `ASAAS_NOT_CONFIGURED` esperado — nada a ver com esta rodada, não
+  corrigido); fluxo de pré-venda do portal (comentário, recusa, e o
+  espelho no lado staff) verificado de ponta a ponta no navegador contra
+  um registro descartável, limpo depois.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

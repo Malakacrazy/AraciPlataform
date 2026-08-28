@@ -76,6 +76,15 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
         </section>
       )}
 
+      {opportunity.prospectComment && (
+        <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+          <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Pergunta do prospecto (portal pré-venda)</h2>
+          <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700 dark:text-zinc-300">
+            {opportunity.prospectComment}
+          </p>
+        </section>
+      )}
+
       <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
         <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Propostas</h2>
         {proposals.length === 0 ? (

@@ -1,8 +1,23 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { requestPortalLink, PortalApiError, SESSION_COOKIE } from "@/lib/portalApi";
+import {
+  requestPortalLink,
+  declineProposal,
+  submitProspectComment,
+  PortalApiError,
+  SESSION_COOKIE,
+} from "@/lib/portalApi";
+
+async function requireSessionToken(): Promise<string> {
+  const sessionToken = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (!sessionToken) {
+    throw new Error("Sessão inválida ou expirada — entre novamente.");
+  }
+  return sessionToken;
+}
 
 export async function requestLink(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim();
@@ -22,6 +37,31 @@ export async function requestLink(formData: FormData) {
     redirect(`/portal/login?error=${encodeURIComponent(message)}`);
   }
   redirect("/portal/login?sent=1");
+}
+
+// Lacuna da matriz (portal pré-venda) -- "recusa" reaproveita markLost
+// do lado da API, aqui só passa a sessão do portal em vez de credencial
+// de staff.
+export async function declineProposalAction(opportunityId: string) {
+  const sessionToken = await requireSessionToken();
+  try {
+    await declineProposal(sessionToken, opportunityId);
+  } catch (err) {
+    throw new Error(err instanceof PortalApiError ? err.message : "Não foi possível registrar a recusa.");
+  }
+  revalidatePath("/portal");
+}
+
+export async function submitProspectCommentAction(opportunityId: string, formData: FormData) {
+  const comment = String(formData.get("comment") ?? "").trim();
+  if (!comment) return;
+  const sessionToken = await requireSessionToken();
+  try {
+    await submitProspectComment(sessionToken, opportunityId, comment);
+  } catch (err) {
+    throw new Error(err instanceof PortalApiError ? err.message : "Não foi possível enviar sua pergunta.");
+  }
+  revalidatePath("/portal");
 }
 
 export async function logoutPortal() {

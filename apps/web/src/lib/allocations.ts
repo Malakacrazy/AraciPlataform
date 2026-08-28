@@ -1,4 +1,4 @@
-import type { Allocation, Project } from "./types";
+import type { Absence, Allocation, Project } from "./types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -67,6 +67,18 @@ export function peakHoursInWindow(
     events.push([Math.min(allocEnd, windowEnd), -Number(alloc.hoursPerWeek)]);
   }
   return sweepPeak(events);
+}
+
+// Lacuna da matriz ("calendário de férias"): entra na mesma máquina de
+// sweep-line -- não soma nada, só responde se alguma ausência da pessoa
+// toca a janela pedida, pra AllocationForm não sugerir (ou pelo menos
+// avisar) alguém que não vai estar disponível no período. Sem janela
+// (nenhuma data ainda escolhida no formulário), cai pra "está de férias
+// agora" -- mesmo espírito de peakHoursPerWeek vs. peakHoursInWindow.
+export function isOnAbsence(absences: Absence[], windowStartIso?: string, windowEndIso?: string): boolean {
+  const windowStart = windowStartIso ? Date.parse(windowStartIso) : Date.now();
+  const windowEnd = windowEndIso ? Date.parse(windowEndIso) : windowStart;
+  return absences.some((ab) => Date.parse(ab.startDate) <= windowEnd && Date.parse(ab.endDate) >= windowStart);
 }
 
 export function phasesBudget(project: Project): number {

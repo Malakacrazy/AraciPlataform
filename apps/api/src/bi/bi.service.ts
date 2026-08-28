@@ -334,12 +334,23 @@ interface TimeEntryRow {
   date: Date;
 }
 
+interface AbsenceRow {
+  userId: string;
+  startDate: Date;
+  endDate: Date;
+}
+
 // Carga atual = soma de hoursPerWeek das alocações ativas hoje (início <=
 // hoje <= fim) -- não é o pico histórico (peakHoursPerWeek em
 // apps/web/src/lib/allocations.ts), que mistura sobrecarga passada e
 // futura num só número. Pra "como está a equipe agora" o corte por hoje
 // é mais direto de explicar numa tela.
-function summarizeCapacidade(users: UserRow[], allocations: AllocationRow[], timeEntries: TimeEntryRow[]) {
+function summarizeCapacidade(
+  users: UserRow[],
+  allocations: AllocationRow[],
+  timeEntries: TimeEntryRow[],
+  absences: AbsenceRow[],
+) {
   const agora = Date.now();
 
   return users.map((user) => {
@@ -347,6 +358,15 @@ function summarizeCapacidade(users: UserRow[], allocations: AllocationRow[], tim
     const horasAlocadasAtualmente = alocacoesDaPessoa
       .filter((a) => a.startDate.getTime() <= agora && a.endDate.getTime() >= agora)
       .reduce((sum, a) => sum + Number(a.hoursPerWeek), 0);
+
+    // Lacuna da matriz ("calendário de férias"): uma ausência ativa
+    // agora não reduz a soma acima (a alocação continua "planejada" no
+    // sentido literal) -- mas junto de sobrecarregado abaixo, é o que
+    // avisa que a equipe está alocando alguém que não está disponível
+    // pra trabalhar nesta semana, não só sobrecarregado.
+    const emFeriasAgora = absences.some(
+      (ab) => ab.userId === user.id && ab.startDate.getTime() <= agora && ab.endDate.getTime() >= agora,
+    );
 
     const capacidade = Number(user.weeklyCapacityHours);
 
@@ -369,7 +389,12 @@ function summarizeCapacidade(users: UserRow[], allocations: AllocationRow[], tim
       nome: user.name,
       capacidadeSemanal: capacidade,
       horasAlocadasAtualmente,
-      sobrecarregado: horasAlocadasAtualmente > capacidade,
+      // Sobrecarregado também quando está de férias mas ainda tem horas
+      // alocadas nesta semana -- é exatamente o "planejamento continua
+      // alocando quem está de férias" que a lacuna da matriz descreve,
+      // não um problema de volume de horas.
+      sobrecarregado: horasAlocadasAtualmente > capacidade || (emFeriasAgora && horasAlocadasAtualmente > 0),
+      emFeriasAgora,
       horasApontadas7d,
       horasApontadas30d,
     };
@@ -454,7 +479,7 @@ export class BiService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getCapacidade(accountId: string) {
-    const [users, allocations, timeEntries] = await Promise.all([
+    const [users, allocations, timeEntries, absences] = await Promise.all([
       this.prisma.db.user.findMany({
         where: { accountId },
         select: { id: true, name: true, weeklyCapacityHours: true },
@@ -467,9 +492,13 @@ export class BiService {
         where: { user: { accountId } },
         select: { userId: true, hours: true, date: true },
       }),
+      this.prisma.db.absence.findMany({
+        where: { user: { accountId } },
+        select: { userId: true, startDate: true, endDate: true },
+      }),
     ]);
 
-    return { porPessoa: summarizeCapacidade(users, allocations, timeEntries) };
+    return { porPessoa: summarizeCapacidade(users, allocations, timeEntries, absences) };
   }
 
   async getFfe(accountId: string) {

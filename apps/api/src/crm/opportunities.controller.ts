@@ -100,6 +100,20 @@ export class OpportunitiesController {
     return { data };
   }
 
+  // Achado da auditoria: sem isto, marcar perdida era uma via de mão
+  // única. Ação dedicada (não o PATCH genérico) pelo mesmo motivo de
+  // mark-lost -- lostAt/lostReason não fazem parte de
+  // opportunityUpdateSchema de propósito.
+  @Post(':id/reopen')
+  @HttpCode(200)
+  async reopen(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
+    const data = await this.opportunitiesService.reopen(accountId, id);
+    return { data };
+  }
+
   @AdminOnly()
   @Delete(':id')
   @HttpCode(204)

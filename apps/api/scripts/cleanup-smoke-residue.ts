@@ -137,6 +137,11 @@ async function main() {
     await tx.allocation.deleteMany({
       where: { OR: [{ projectId: { in: doomedProjectIds } }, { userId: { in: doomedUserIds } }] },
     });
+    // Absence.userId não tem onDelete: Cascade (mesmo padrão de
+    // Allocation acima) -- sem isto, um run que crashar antes de limpar
+    // suas próprias ausências travaria tx.user.deleteMany mais abaixo
+    // com FK RESTRICT.
+    await tx.absence.deleteMany({ where: { userId: { in: doomedUserIds } } });
     await tx.officeLink.deleteMany({
       where: {
         OR: [

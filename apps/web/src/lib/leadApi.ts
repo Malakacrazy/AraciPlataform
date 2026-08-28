@@ -19,6 +19,7 @@ export async function submitLeadPublic(input: {
   email: string;
   phone?: string;
   message?: string;
+  consent: true;
 }): Promise<void> {
   const res = await fetch(`${API_URL}/v1/leads`, {
     method: "POST",

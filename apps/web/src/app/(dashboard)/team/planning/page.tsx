@@ -3,11 +3,12 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet } from "@/lib/api";
-import type { User, Project, Allocation } from "@/lib/types";
+import type { User, Project, Allocation, Absence } from "@/lib/types";
 import { formatDateUTC } from "@/lib/format";
-import { allocationCost, peakHoursPerWeek, phasesBudget, groupBy } from "@/lib/allocations";
+import { allocationCost, isOnAbsence, peakHoursPerWeek, phasesBudget, groupBy } from "@/lib/allocations";
 import { AllocationForm } from "@/components/allocations/allocation-form";
 import { AllocationViews } from "@/components/allocations/allocation-views";
+import { AbsenceSection } from "@/components/absences/absence-section";
 
 export default async function AllocationPlanningPage() {
   const session = await getServerSession(authOptions);
@@ -15,13 +16,15 @@ export default async function AllocationPlanningPage() {
     redirect("/api/auth/signin");
   }
 
-  const [users, projects, allocations] = await Promise.all([
+  const [users, projects, allocations, absences] = await Promise.all([
     apiGet<User[]>("users"),
     apiGet<Project[]>("projects"),
     apiGet<Allocation[]>("allocations"),
+    apiGet<Absence[]>("absences"),
   ]);
 
   const allocationsByUser = groupBy(allocations, (a) => a.userId);
+  const absencesByUser = groupBy(absences, (a) => a.userId);
   const allocationsByProject = groupBy(allocations, (a) => a.projectId);
   const projectsWithAllocations = projects.filter((p) => allocationsByProject.has(p.id));
 
@@ -37,7 +40,9 @@ export default async function AllocationPlanningPage() {
         </p>
       </div>
 
-      <AllocationForm users={users} projects={projects} allocations={allocations} />
+      <AllocationForm users={users} projects={projects} allocations={allocations} absences={absences} />
+
+      <AbsenceSection users={users} absences={absences} />
 
       <AllocationViews allocations={allocations} />
 
@@ -45,9 +50,17 @@ export default async function AllocationPlanningPage() {
         <h2 className="text-lg font-medium text-zinc-900 dark:text-zinc-50">Carga por pessoa</h2>
         {users.map((user) => {
           const userAllocations = allocationsByUser.get(user.id) ?? [];
+          const userAbsences = absencesByUser.get(user.id) ?? [];
           const peak = peakHoursPerWeek(userAllocations);
           const capacity = Number(user.weeklyCapacityHours);
-          const overloaded = peak > capacity;
+          // Lacuna da matriz: uma alocação sobrepondo uma ausência
+          // registrada conta como sobrecarga também, mesmo com horas
+          // dentro da capacidade -- é exatamente "planejamento continua
+          // alocando quem está de férias".
+          const allocatedDuringAbsence = userAllocations.some((a) =>
+            isOnAbsence(userAbsences, a.startDate, a.endDate),
+          );
+          const overloaded = peak > capacity || allocatedDuringAbsence;
           return (
             <div
               key={user.id}
@@ -60,7 +73,10 @@ export default async function AllocationPlanningPage() {
                     overloaded ? "text-xs text-red-600 dark:text-red-400" : "text-xs text-zinc-500 dark:text-zinc-400"
                   }
                 >
-                  {peak}h / {capacity}h por semana no pico{overloaded && " — sobrecarregado"}
+                  {peak}h / {capacity}h por semana no pico
+                  {allocatedDuringAbsence
+                    ? " — alocado durante período de férias"
+                    : overloaded && " — sobrecarregado"}
                 </span>
               </div>
               {userAllocations.length > 0 && (

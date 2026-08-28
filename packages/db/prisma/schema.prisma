@@ -171,6 +171,7 @@ model User {
   timeEntries       TimeEntry[]
   projectMembership ProjectMember[]
   allocations       Allocation[]
+  absences          Absence[]
   activities        Activity[]
   notifications     Notification[]
   assignedTasks     Task[]
@@ -227,6 +228,18 @@ model Client {
   // Client (ver billing/asaas-client.ts) -- cacheado pra não recriar um
   // customer novo na Asaas a cada fatura do mesmo cliente.
   asaasCustomerId String?  @unique
+
+  // Lacuna da matriz (LGPD) -- consentedAt só é setado pelo formulário
+  // público de lead (LeadsService), a única captação sem relação real já
+  // estabelecida antes da coleta; um cliente cadastrado pela equipe
+  // (base legal é a relação contratual em si, não consentimento) fica
+  // null aqui de propósito, não é "consentimento faltando". anonymizedAt
+  // marca quando ClientsService.anonymize rodou -- name/email/phone/
+  // document já viram placeholder nesse momento; o registro em si
+  // sobrevive (Invoice/Opportunity/Project ligados continuam existindo,
+  // é o histórico fiscal que a anonimização precisa preservar).
+  consentedAt   DateTime?
+  anonymizedAt  DateTime?
 
   opportunities Opportunity[]
   projects      Project[]
@@ -294,6 +307,13 @@ model Opportunity {
   // a timeline de Activity pra notas).
   leadMessage    String?
   createdAt      DateTime  @default(now())
+
+  // Lacuna da matriz (portal pré-venda) -- pergunta do prospecto sobre a
+  // proposta, lida pela equipe. Mesmo padrão de ProductSpecification.
+  // clientComment (campo livre único, não uma thread) -- Activity não
+  // serve aqui porque Activity.authorId exige um User de verdade, e o
+  // prospecto não é um.
+  prospectComment String?
 
   proposals Proposal[]
   project   Project?
@@ -436,6 +456,26 @@ model Allocation {
 
   @@index([userId])
   @@index([projectId])
+}
+
+// Lacuna da matriz ("calendário de férias/ausências"): período em que
+// uma pessoa não está disponível pra trabalho -- férias, licença,
+// atestado. `type` é string livre (mesmo padrão de Client.source/
+// Expense.category), não um enum travado, porque o rol real do estúdio
+// pode crescer. Existe pra ENTRAR na mesma máquina de sweep-line que já
+// calcula carga semanal (ver apps/web/src/lib/allocations.ts) -- uma
+// ausência ativa reduz disponibilidade real, não é só um registro
+// decorativo separado do planejamento.
+model Absence {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  startDate DateTime
+  endDate   DateTime
+  type      String   @default("ferias") // ferias | licenca | atestado | ...
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 // A stage of the PEP applied to a specific project. `approvedAt` /

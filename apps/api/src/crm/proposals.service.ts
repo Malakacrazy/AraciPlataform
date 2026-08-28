@@ -77,10 +77,26 @@ export class ProposalsService {
   // cadastradas na conta e persiste o resultado — Proposal + uma
   // ProposalStage por estágio, espelhando a aba 05 da planilha.
   async createProposal(accountId: string, input: ProposalInput) {
-    await this.opportunitiesService.getOpportunity(
+    const opportunity = await this.opportunitiesService.getOpportunity(
       accountId,
       input.opportunityId,
     ); // 404 se a oportunidade não é desta conta
+
+    // Achado da auditoria: calcularProposta só sabe calcular
+    // hora_tecnica (horas × tarifa/papel) -- antes desta guarda, uma
+    // oportunidade valor_m2/percentual_cub/fixo/recorrente calculava
+    // esse mesmo jeito em silêncio, apresentado como resultado real do
+    // motor. Recusar é melhor que devolver um número errado com cara de
+    // certo -- os outros modelos (área × CUB, %, valor fechado) ainda
+    // não têm motor nenhum implementado (percisam de campos que não
+    // existem no schema hoje, ex.: área do projeto e CUB vigente).
+    if (opportunity.feeModel !== 'hora_tecnica') {
+      throw new ApiError(
+        'FEE_MODEL_NOT_SUPPORTED',
+        `Cálculo automático de proposta ainda não existe para o modelo de honorário "${opportunity.feeModel}" -- só hora_tecnica está implementado.`,
+        422,
+      );
+    }
 
     const roleRates = await this.roleRatesService.listRoleRates(accountId);
     if (roleRates.length === 0) {

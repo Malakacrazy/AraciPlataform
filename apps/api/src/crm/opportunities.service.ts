@@ -104,6 +104,34 @@ export class OpportunitiesService {
     });
   }
 
+  // Achado da auditoria: ganho/perdido era irreversível por qualquer
+  // API -- um clique errado (ou o cliente voltando atrás depois de dizer
+  // que ia fechar com outro escritório) não tinha volta. lostAt/
+  // lostReason nunca tocam `stage` ao marcar perdida (ver markLost
+  // acima), então só limpar os dois já basta pra reaparecer na coluna
+  // certa do kanban -- sem precisar redigitar o estágio.
+  async reopen(accountId: string, id: string) {
+    const opportunity = await this.getOpportunity(accountId, id);
+    if (opportunity.wonAt) {
+      throw new ApiError(
+        'OPPORTUNITY_ALREADY_WON',
+        'Esta oportunidade já foi marcada como ganha — reabrir não se aplica.',
+        422,
+      );
+    }
+    if (!opportunity.lostAt) {
+      throw new ApiError(
+        'OPPORTUNITY_NOT_LOST',
+        'Esta oportunidade não está marcada como perdida.',
+        422,
+      );
+    }
+    return this.prisma.db.opportunity.update({
+      where: { id },
+      data: { lostAt: null, lostReason: null },
+    });
+  }
+
   // Usado só pelo job de lembrete de lead parada (ver
   // StalledOpportunitiesCron, em activities/) -- cross-conta de propósito,
   // um cron não tem uma sessão/accountId pra escopar como as rotas HTTP

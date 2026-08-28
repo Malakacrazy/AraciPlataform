@@ -3,9 +3,10 @@ import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet, ApiError } from "@/lib/api";
-import type { Client, Opportunity, OfficeLink, Activity } from "@/lib/types";
+import type { Client, Opportunity, OfficeLink, Activity, Me } from "@/lib/types";
 import { OfficeLinksSection } from "@/components/office-links/office-links-section";
 import { ActivityTimeline } from "@/components/activities/activity-timeline";
+import { LgpdPanel } from "@/components/clients/lgpd-panel";
 
 function opportunityStatus(opp: Opportunity): { label: string; className: string } {
   if (opp.wonAt) return { label: "Ganho", className: "text-emerald-700 dark:text-emerald-400" };
@@ -24,11 +25,13 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
   let client: Client;
   let officeLinks: OfficeLink[];
   let opportunities: Opportunity[];
+  let me: Me;
   try {
-    [client, officeLinks, opportunities] = await Promise.all([
+    [client, officeLinks, opportunities, me] = await Promise.all([
       apiGet<Client>(`clients/${id}`),
       apiGet<OfficeLink[]>(`clients/${id}/office-links`),
       apiGet<Opportunity[]>("opportunities"),
+      apiGet<Me>("me"),
     ]);
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) {
@@ -106,6 +109,8 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
         activities={activities}
         currentUserEmail={session.user.email}
       />
+
+      {me.accessLevel === "admin" && <LgpdPanel clientId={client.id} anonymizedAt={client.anonymizedAt} />}
     </main>
   );
 }

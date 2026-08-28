@@ -67,4 +67,33 @@ export class ClientsController {
   ) {
     await this.clientsService.deleteClient(accountId, id);
   }
+
+  // Lacuna da matriz (LGPD, "exportação dos dados do titular") --
+  // admin-only por lidar com dado pessoal abrangente do titular de uma
+  // vez só, mesmo nível de sensibilidade de custo/hora (ver
+  // UsersController.redactCost).
+  @AdminOnly()
+  @Get(':id/data-export')
+  async exportData(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
+    const data = await this.clientsService.exportClientData(accountId, id);
+    return { data };
+  }
+
+  // Lacuna da matriz (LGPD, "anonimização preservando o registro fiscal,
+  // em vez de exclusão física") -- POST, não DELETE: não remove o
+  // registro, só os campos identificáveis (ver ClientsService.anonymizeClient).
+  @AdminOnly()
+  @Post(':id/anonymize')
+  @HttpCode(200)
+  async anonymize(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
+    await this.clientsService.anonymizeClient(accountId, id);
+    const data = await this.clientsService.getClient(accountId, id);
+    return { data };
+  }
 }

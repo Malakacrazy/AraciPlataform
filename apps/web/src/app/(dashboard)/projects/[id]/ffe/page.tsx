@@ -9,6 +9,7 @@ import { createArea, deleteArea, createSpecification, deleteSpecification } from
 import { createMoodboard, deleteMoodboard } from "@/components/moodboards/actions";
 import { PresentationLinkPanel } from "@/components/moodboards/presentation-link-panel";
 import { MoodboardCanvas } from "@/components/moodboards/moodboard-canvas";
+import { ExportFfeCsv } from "@/components/ffe/export-ffe-csv";
 
 export default async function ProjectFfePage({ params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
@@ -70,7 +71,10 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
         <Link href={`/projects/${id}`} className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
           ← {project.name}
         </Link>
-        <h1 className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">FF&E</h1>
+        <div className="mt-1 flex items-center justify-between">
+          <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">FF&E</h1>
+          <ExportFfeCsv areas={areas} specsByArea={specsByArea} projectName={project.name} />
+        </div>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           Especificação por ambiente e carrinho de aprovação do cliente.
         </p>

@@ -12,6 +12,8 @@ export interface Client {
   email?: string | null;
   phone?: string | null;
   source?: string | null;
+  consentedAt?: string | null;
+  anonymizedAt?: string | null;
 }
 
 export interface ProjectPhase {
@@ -66,6 +68,9 @@ export interface Opportunity {
   // Só preenchido quando a oportunidade nasceu do formulário público de
   // captação (POST /v1/leads) -- a mensagem que o visitante escreveu.
   leadMessage?: string | null;
+  // Lacuna da matriz (portal pré-venda) -- pergunta do prospecto sobre a
+  // proposta, enviada pelo portal magic link antes de existir Project.
+  prospectComment?: string | null;
   project?: { id: string } | null;
 }
 
@@ -104,6 +109,31 @@ export interface Proposal {
   sentAt?: string | null;
   signedAt?: string | null;
   stages: ProposalStage[];
+}
+
+// v1/client-portal/pending-proposals devolve uma projeção própria, sem
+// baseCost/adjustedCost/complexityMultiplier/packageDiscountPercent --
+// mesmo precedente de C-03/C-04 (composição interna de preço, não o que
+// o prospecto vê). Lacuna da matriz (portal pré-venda).
+export interface PortalProposalStage {
+  stage: PepStage;
+  contracted: boolean;
+}
+
+export interface PortalProposal {
+  id: string;
+  value: string;
+  status: "draft" | "sent" | "signed" | "expired";
+  zapsignSignUrl?: string | null;
+  sentAt?: string | null;
+  stages: PortalProposalStage[];
+}
+
+export interface PortalPendingProposal {
+  id: string;
+  title: string;
+  prospectComment?: string | null;
+  proposal: PortalProposal;
 }
 
 // Só existe quando a fatura foi calculada automaticamente por horas
@@ -193,6 +223,16 @@ export interface Allocation {
   hoursPerWeek: string;
   startDate: string;
   endDate: string;
+  createdAt: string;
+}
+
+export interface Absence {
+  id: string;
+  userId: string;
+  user: User;
+  startDate: string;
+  endDate: string;
+  type: string;
   createdAt: string;
 }
 

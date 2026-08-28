@@ -1,18 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Allocation, Project, User } from "@/lib/types";
-import { peakHoursInWindow, peakHoursPerWeek } from "@/lib/allocations";
+import type { Absence, Allocation, Project, User } from "@/lib/types";
+import { isOnAbsence, peakHoursInWindow, peakHoursPerWeek } from "@/lib/allocations";
 import { createAllocation } from "./actions";
 
 export function AllocationForm({
   users,
   projects,
   allocations,
+  absences,
 }: {
   users: User[];
   projects: Project[];
   allocations: Allocation[];
+  absences: Absence[];
 }) {
   const [specialtyQuery, setSpecialtyQuery] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -26,11 +28,23 @@ export function AllocationForm({
     return map;
   }, [allocations]);
 
+  const absencesByUser = useMemo(() => {
+    const map = new Map<string, Absence[]>();
+    for (const absence of absences) {
+      map.set(absence.userId, [...(map.get(absence.userId) ?? []), absence]);
+    }
+    return map;
+  }, [absences]);
+
   // Sugestão de quem alocar: ordena por disponibilidade (no período
   // escolhido, se as duas datas já foram preenchidas -- senão pela carga
   // geral atual) e, quando uma especialidade é buscada, prioriza quem
   // combina. Não esconde ninguém: "especialidade" é texto livre e pode
   // não bater por digitação/nomenclatura, não porque a pessoa não serve.
+  // Lacuna da matriz ("calendário de férias"): quem tem ausência
+  // sobrepondo o período escolhido cai pro fim da lista e aparece
+  // marcado -- sem isso, o formulário sugeria (e permitia) alocar
+  // alguém de férias como se estivesse livre.
   const rankedUsers = useMemo(() => {
     const query = specialtyQuery.trim().toLowerCase();
     return users
@@ -42,9 +56,11 @@ export function AllocationForm({
             : peakHoursPerWeek(userAllocations);
         const availableHours = Math.round((Number(user.weeklyCapacityHours) - committed) * 10) / 10;
         const matchesSpecialty = query.length > 0 && (user.specialty ?? "").toLowerCase().includes(query);
-        return { user, availableHours, matchesSpecialty };
+        const onAbsence = isOnAbsence(absencesByUser.get(user.id) ?? [], startDate || undefined, endDate || undefined);
+        return { user, availableHours, matchesSpecialty, onAbsence };
       })
       .sort((a, b) => {
+        if (a.onAbsence !== b.onAbsence) return a.onAbsence ? 1 : -1;
         if (a.matchesSpecialty !== b.matchesSpecialty) return a.matchesSpecialty ? -1 : 1;
         return b.availableHours - a.availableHours;
       });
@@ -79,10 +95,11 @@ export function AllocationForm({
             <option value="" disabled>
               Selecione…
             </option>
-            {rankedUsers.map(({ user, availableHours, matchesSpecialty }) => (
+            {rankedUsers.map(({ user, availableHours, matchesSpecialty, onAbsence }) => (
               <option key={user.id} value={user.id}>
                 {user.name}
-                {user.specialty ? ` — ${user.specialty}` : ""} · {availableHours}h livres
+                {user.specialty ? ` — ${user.specialty}` : ""} ·{" "}
+                {onAbsence ? "de férias no período" : `${availableHours}h livres`}
                 {matchesSpecialty ? " ✓" : ""}
               </option>
             ))}
