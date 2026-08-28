@@ -101,11 +101,9 @@ export class NotificationsService {
   // Terceiro gatilho -- diferente dos dois acima, não nasce de uma ação
   // que já aconteceu (cliente aprovou/assinou algo); nasce da AUSÊNCIA de
   // ação, detectada pelo StalledOpportunitiesCron (ver activities/).
-  // hasRecentNotification existe pra não mandar o mesmo aviso todo dia
-  // enquanto o lead continuar parado -- só reavisa se aconteceu uma
-  // Activity nova desde o último aviso (o cron recalcula "última
-  // interação" e só chama isto quando ela é mais recente que a
-  // notificação anterior).
+  // getLastStalledNotificationAtByOpportunityIds (abaixo) existe pra não
+  // mandar o mesmo aviso todo dia enquanto o lead continuar parado -- só
+  // reavisa se aconteceu uma Activity nova desde o último aviso.
   async notifyStalledOpportunity(
     accountId: string,
     params: { opportunityId: string; opportunityTitle: string; daysSinceContact: number },
@@ -179,12 +177,24 @@ export class NotificationsService {
     }
   }
 
-  async hasRecentNotification(accountId: string, opportunityId: string, type: string, since: Date) {
-    const existing = await this.prisma.db.notification.findFirst({
-      where: { accountId, opportunityId, type, createdAt: { gte: since } },
-      select: { id: true },
+  // Mesmo espírito de ActivitiesService.getLastActivityAtByOpportunityIds
+  // -- usado só por StalledOpportunitiesCron, uma consulta pra todas as
+  // oportunidades candidatas em vez de uma chamada a hasRecentNotification
+  // por oportunidade dentro do loop (achado "Médio" da auditoria).
+  async getLastStalledNotificationAtByOpportunityIds(opportunityIds: string[]): Promise<Map<string, Date>> {
+    if (opportunityIds.length === 0) return new Map();
+    const rows = await this.prisma.db.notification.findMany({
+      where: { type: 'stalled_opportunity', opportunityId: { in: opportunityIds } },
+      orderBy: { createdAt: 'desc' },
+      select: { opportunityId: true, createdAt: true },
     });
-    return existing !== null;
+    const lastNotifiedAt = new Map<string, Date>();
+    for (const row of rows) {
+      if (row.opportunityId && !lastNotifiedAt.has(row.opportunityId)) {
+        lastNotifiedAt.set(row.opportunityId, row.createdAt);
+      }
+    }
+    return lastNotifiedAt;
   }
 
   // Sino da Nav (apps/web) -- contraparte visual do e-mail acima. Só as

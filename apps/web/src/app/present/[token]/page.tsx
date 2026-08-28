@@ -12,8 +12,15 @@ import {
 // Rota pública -- sem getServerSession/redirect. Quem abre este link não
 // tem conta: a única "autenticação" é possuir o token da URL (ver
 // lib/publicApi.ts e PublicPresentationController em apps/api).
-export default async function PresentationPage({ params }: { params: Promise<{ token: string }> }) {
+export default async function PresentationPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ token: string }>;
+  searchParams: Promise<{ error?: string }>;
+}) {
   const { token } = await params;
+  const { error } = await searchParams;
 
   let data: PresentationData;
   try {
@@ -31,6 +38,12 @@ export default async function PresentationPage({ params }: { params: Promise<{ t
         <p className="text-sm text-zinc-500 dark:text-zinc-400">{data.client.name}</p>
         <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">{data.name}</h1>
       </div>
+
+      {error && (
+        <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </p>
+      )}
 
       {data.moodboards.length > 0 && (
         <section className="flex flex-col gap-4">

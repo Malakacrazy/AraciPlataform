@@ -2,14 +2,25 @@
 
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
-import { requestPortalLink, SESSION_COOKIE } from "@/lib/portalApi";
+import { requestPortalLink, PortalApiError, SESSION_COOKIE } from "@/lib/portalApi";
 
 export async function requestLink(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim();
   if (!email) {
-    throw new Error("Informe seu e-mail.");
+    redirect("/portal/login?error=" + encodeURIComponent("Informe seu e-mail."));
   }
-  await requestPortalLink(email);
+  // Achado "Médio" da auditoria: antes, uma falha do backend aqui subia
+  // sem tratamento e quebrava a tela de login do portal (que não tem
+  // error.tsx nenhum -- só (dashboard) tem, ver achado A-01). Mesmo
+  // padrão já usado em portal/verify/route.ts: captura, redireciona com
+  // o erro na query, a própria página já sabe exibir (ver ?error= mais
+  // abaixo no return normal).
+  try {
+    await requestPortalLink(email);
+  } catch (err) {
+    const message = err instanceof PortalApiError ? err.message : "Não foi possível enviar o link.";
+    redirect(`/portal/login?error=${encodeURIComponent(message)}`);
+  }
   redirect("/portal/login?sent=1");
 }
 

@@ -2,6 +2,7 @@ import { Body, Controller, Headers, HttpCode, Post } from '@nestjs/common';
 import { BillingService } from './billing.service';
 import { Public } from '../auth/public.decorator';
 import { UnauthorizedError } from '../common/api-error';
+import { timingSafeStringEqual } from '../common/timing-safe-equal';
 
 // Terceira rota @Public() do sistema (ver public.decorator.ts) — a
 // própria Asaas chama isto, sem sessão nenhuma, então o AuthGuard
@@ -24,7 +25,7 @@ export class BillingWebhookController {
     @Body() payload: { event?: string; payment?: { id?: string } },
   ) {
     const expected = process.env.ASAAS_WEBHOOK_AUTH_TOKEN;
-    if (!expected || accessToken !== expected) {
+    if (!expected || !accessToken || !timingSafeStringEqual(accessToken, expected)) {
       throw new UnauthorizedError(
         'Webhook Asaas: asaas-access-token ausente ou não confere.',
       );

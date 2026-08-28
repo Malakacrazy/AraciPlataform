@@ -77,6 +77,31 @@ export class ActivitiesService {
     });
   }
 
+  // Usado só por StalledOpportunitiesCron -- sweep entre TODAS as contas
+  // de propósito, então não passa por getOpportunity/escopo de conta como
+  // o resto da classe. Uma consulta só pra todas as oportunidades
+  // candidatas, não uma por oportunidade (achado "Médio" da auditoria: o
+  // cron chamava listForOpportunity -- que já revalida a oportunidade
+  // via getOpportunity -- dentro de um for...of, virando 2 idas ao banco
+  // por oportunidade só nesta etapa).
+  async getLastActivityAtByOpportunityIds(opportunityIds: string[]): Promise<Map<string, Date>> {
+    if (opportunityIds.length === 0) return new Map();
+    const rows = await this.prisma.db.activity.findMany({
+      where: { entityType: 'OPPORTUNITY', entityId: { in: opportunityIds } },
+      orderBy: { createdAt: 'desc' },
+      select: { entityId: true, createdAt: true },
+    });
+    const lastActivityAt = new Map<string, Date>();
+    for (const row of rows) {
+      // Ordenado desc -- a primeira ocorrência de cada entityId já é a
+      // mais recente, sem precisar de groupBy/agregação.
+      if (!lastActivityAt.has(row.entityId)) {
+        lastActivityAt.set(row.entityId, row.createdAt);
+      }
+    }
+    return lastActivityAt;
+  }
+
   async deleteActivity(accountId: string, id: string) {
     const activity = await this.prisma.db.activity.findFirst({ where: { id, accountId } });
     if (!activity) {

@@ -1812,6 +1812,50 @@ nesta sessão:
   dado real (projeto Apto Vila Madalena) depois das mudanças no layout,
   sem regressão visual.
 
+## Correção — os 4 achados "Médios" da mesma auditoria externa
+
+- **Comparação de token de webhook não era de tempo constante**:
+  `billing-webhook.controller.ts` e `zapsign-webhook.controller.ts`
+  comparavam o segredo do header (`asaas-access-token`/`zapsign-webhook-
+  token`) com `!==` puro — o tempo de execução de uma comparação de
+  string vaza informação sobre onde a diferença começa. Corrigido com um
+  helper novo (`common/timing-safe-equal.ts`) sobre `crypto.
+  timingSafeEqual`, usado nos dois controllers. Risco prático baixo pela
+  internet (a auditoria já classificou assim), mas é o único gate dessas
+  duas rotas `@Public()` antes de mutar `Invoice`/`Proposal`.
+- **Cron de oportunidade parada sequencial e sem limite**:
+  `StalledOpportunitiesCron` fazia um `for...of` com `await` por dentro —
+  `listForOpportunity` (que já revalida a oportunidade via
+  `getOpportunity`) mais uma checagem de notificação recente, pra CADA
+  oportunidade aberta de TODAS as contas, uma vez por dia. Reescrito em 2
+  consultas em lote (`ActivitiesService.getLastActivityAtByOpportunityIds`,
+  `NotificationsService.getLastStalledNotificationAtByOpportunityIds`) —
+  agrupadas em memória por não dar pra expressar "desde a última
+  atividade DESTA oportunidade" num único `WHERE` sem SQL cru — mais o
+  envio em paralelo só pra quem de fato precisa de aviso. `hasRecentNotification`
+  (método antigo, virou morto) foi removido em vez de deixado pra trás.
+  Verificado contra o `scripts/verify-stalled-cron.ts` já existente,
+  rodando de verdade contra o banco: cria a notificação na 1ª execução e
+  não duplica na 2ª — mesmo comportamento de antes, com 2 idas ao banco
+  em vez de até 3N.
+- **Server actions do portal/apresentação não tratavam erro do
+  backend**: `portal/actions.ts#requestLink` e `presentation/actions.ts`
+  deixavam um `PortalApiError`/`PublicApiError` (token revogado,
+  especificação excluída entre o render e o clique) subir sem tratamento
+  — e nenhuma dessas duas rotas tem `error.tsx` (só `(dashboard)` tem,
+  ver achado A-01), então virava a tela de erro genérica do Next pro
+  cliente/prospecto. Corrigido com o mesmo padrão que já existia em
+  `portal/verify/route.ts`: captura, redireciona com o erro na query
+  string, a própria página exibe. `present/[token]/page.tsx` ganhou o
+  mesmo banner de erro que `portal/login/page.tsx` já tinha.
+- **Proxy BFF sem `PUT`**: `api/v1/[...path]/route.ts` exportava só
+  `GET/POST/PATCH/DELETE` — sem chamador hoje, mas uma armadilha latente
+  pra uma futura feature que precisasse de `PUT`. A função `proxy` já é
+  genérica (usa `request.method`), então foi só adicionar o export.
+- Verificado: build+typecheck limpos (api e web); smoke suite 256/257,
+  mesma falha pré-existente de sempre (`ASAAS_API_KEY`); `verify-stalled-
+  cron.ts` confirma o comportamento do cron reescrito contra dado real.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

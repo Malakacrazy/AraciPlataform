@@ -2,6 +2,7 @@ import { Body, Controller, Headers, HttpCode, Post } from '@nestjs/common';
 import { ProposalSigningService } from './proposal-signing.service';
 import { Public } from '../auth/public.decorator';
 import { UnauthorizedError } from '../common/api-error';
+import { timingSafeStringEqual } from '../common/timing-safe-equal';
 
 // Quinta e última rota @Public() do sistema (ver public.decorator.ts) --
 // a própria ZapSign chama isto, sem sessão nenhuma. Diferente da Asaas
@@ -29,7 +30,7 @@ export class ZapSignWebhookController {
     },
   ) {
     const expected = process.env.ZAPSIGN_WEBHOOK_AUTH_TOKEN;
-    if (!expected || webhookToken !== expected) {
+    if (!expected || !webhookToken || !timingSafeStringEqual(webhookToken, expected)) {
       throw new UnauthorizedError('Webhook ZapSign: zapsign-webhook-token ausente ou não confere.');
     }
     await this.proposalSigningService.handleWebhookEvent(payload);
