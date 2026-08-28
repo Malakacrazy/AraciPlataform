@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service';
+import { ApiError, NotFoundError } from '../common/api-error';
 import { encryptRefreshToken, decryptRefreshToken } from './google-credential-crypto';
 
 export const saveGoogleCredentialSchema = z.object({
@@ -80,5 +81,59 @@ export class GoogleCredentialsService {
       this.logger.warn(`Falha ao revogar credencial no Google: ${(error as Error).message}`);
     }
     await this.prisma.db.googleCredential.delete({ where: { userId } });
+  }
+
+  // Lacuna da matriz (gestão documental por projeto) -- primeiro uso REAL
+  // do refresh token guardado (até aqui só disconnect() o tocava, pra
+  // revogar). Troca por um access_token de vida curta (~1h) pra
+  // GoogleDriveService chamar a Drive API do servidor, sem o navegador
+  // aberto. Exige GOOGLE_CLIENT_ID/SECRET em apps/api (mesmo client OAuth
+  // de apps/web) -- a troca refresh→access é sempre server-to-server,
+  // nunca exposta ao navegador.
+  async getAccessToken(userId: string): Promise<string> {
+    const credential = await this.prisma.db.googleCredential.findUnique({ where: { userId } });
+    if (!credential) {
+      throw new NotFoundError('Credencial do Google');
+    }
+
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      throw new ApiError(
+        'GOOGLE_OAUTH_NOT_CONFIGURED',
+        'GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET não configurados em apps/api.',
+        422,
+      );
+    }
+
+    const refreshToken = decryptRefreshToken({
+      ciphertext: credential.refreshTokenEnc,
+      iv: credential.refreshTokenIv,
+      tag: credential.refreshTokenTag,
+    });
+
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    });
+    const body: { access_token?: string; error?: string; error_description?: string } = await res.json();
+    if (!res.ok || !body.access_token) {
+      // Acontece se a pessoa revogou o acesso direto em
+      // myaccount.google.com/permissions sem passar por disconnect() aqui
+      // -- a credencial local ainda existe, mas o refresh token morreu do
+      // lado do Google.
+      throw new ApiError(
+        'GOOGLE_TOKEN_REFRESH_FAILED',
+        body.error_description ?? 'Não foi possível renovar o acesso ao Google -- pode ser necessário reconectar.',
+        502,
+      );
+    }
+    return body.access_token;
   }
 }

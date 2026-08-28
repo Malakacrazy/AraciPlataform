@@ -257,6 +257,37 @@ esse domínio).
 
 Carga tributária da fórmula de tarifa/hora (aba 02): **6%**.
 
+**Recomendação registrada (gestão documental, lacuna da matriz) — tipo do
+app OAuth do Google: Internal, não External.** A auditoria pediu essa
+decisão como spike obrigatório antes de aprofundar em Drive. Como o
+domínio `studioaraci.com.br` já é um Google Workspace confirmado (acima)
+e todo mundo que loga na plataforma é `@studioaraci.com.br` (achado C-01,
+já reforçado por `signIn` callback + `hd`), o app OAuth no Google Cloud
+Console pode ser configurado como **Internal** — restrito a contas do
+próprio Workspace, sem processo de verificação do Google nenhum,
+**mesmo para escopos "sensíveis"/"restritos"** (`calendar.events`,
+`gmail.readonly`, `drive.file`). Isso elimina de vez a necessidade da
+avaliação de segurança CASA que bloquearia produção com um app External
+(ver bloqueador "decisão de produto escondida na infraestrutura" da
+rodada de blockers) — **desde que o uso continue só interno** (equipe do
+estúdio). Ação real, fora do código: alguém com acesso ao Google Cloud
+Console do projeto precisa confirmar/trocar o tipo do app OAuth pra
+Internal na tela de consentimento — esta sessão não tem essa credencial.
+Se um dia o portal do cliente precisar de login Google (não precisa
+hoje — magic link), isso mudaria a análise, porque o cliente está fora
+do Workspace.
+
+**Escopo `drive.file` (não um escopo mais amplo) para GoogleDriveService.**
+Mesmo escopo que o Picker do Drive já usa no navegador (`DRIVE_SCOPE` em
+`lib/google-client.ts`) — suficiente porque o modelo adotado é "a
+plataforma cria e é dona da árvore de pastas" (recomendação da própria
+auditoria: Drive continua guardando os arquivos, a plataforma só passa a
+ser dona da árvore/metadados). `drive.file` dá acesso a qualquer arquivo/
+pasta que o app CRIE dali em diante, sem precisar do escopo mais amplo
+(`drive`) que enxergaria o Drive inteiro da pessoa conectada — menor
+privilégio pelo mesmo motivo já documentado para `gmail.send` vs.
+`gmail.readonly` acima.
+
 ## Pendências abertas (não travam Fase 0, mas travam Fase 1 em algum ponto)
 
 - Calibração real dos custos fixos do estúdio e das horas base por

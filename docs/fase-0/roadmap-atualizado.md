@@ -2170,6 +2170,77 @@ de verdade. Faltava exatamente esse elo.
   real da SEFIN aparecendo na tela, status virando "Emitida" — limpo
   depois.
 
+## Correção — Gestão documental por projeto (Google Drive)
+
+Segundo dos dois grupos grandes que a segunda revisão externa apontou
+como nunca tocados (o primeiro foi a NFS-e, seção acima). A recomendação
+da própria auditoria — Drive continua guardando os arquivos, a
+plataforma passa a ser dona só da árvore e dos metadados — e a decisão
+de tipo de app OAuth (Internal, ver `decisoes-pos-descoberta.md` #5)
+foram resolvidas antes de qualquer código.
+
+- **`GoogleDriveService` real**, primeiro uso de verdade do refresh token
+  que `GoogleCredential` guarda desde a Fase 4 (até aqui só `disconnect()`
+  o tocava). `GoogleCredentialsService.getAccessToken` troca esse refresh
+  token por um access_token de vida curta — precisou adicionar
+  `GOOGLE_CLIENT_ID`/`SECRET` também em apps/api (mesmo client OAuth de
+  apps/web) e o escopo `drive.file` ao fluxo de sincronização existente
+  (`/api/google/authorize`). Como `GoogleCredential` é por usuário, não
+  por conta (não existe identidade "do estúdio" no Google), o serviço usa
+  a credencial de QUALQUER admin que já tenha conectado com esse escopo —
+  documentado explicitamente, não escondido.
+- **`DriveClient` como porta**, separando a lógica de orquestração
+  (`GoogleDriveService`) da chamada HTTP real à Drive API
+  (`GoogleDriveApiClient`) — é o que permite testar sem tocar o Google
+  (ver Verificado abaixo).
+- **Árvore de pastas por projeto e por fase do PEP** (`ensureProjectFolderTree`):
+  pasta raiz + uma por fase CONTRATADA (mesma regra de negócio já usada
+  no faturamento), idempotente — clicar de novo só cria o que falta,
+  nunca duplica.
+- **Taxonomia documental no `OfficeLink`**: `documentType` (rótulo livre,
+  mesmo espírito de `Client.source`), `phaseId` (FK real pra
+  `ProjectPhase`, dessa vez — diferente do `entityId` polimórfico de
+  sempre) e `visibleToClient` (metadado por enquanto; o item "grande" que
+  exibiria isso pro cliente de verdade foi adiado, ver abaixo). Editável
+  por um `PATCH /office-links/:id` novo.
+- **Reconciliação de vínculo quebrado**: achado literal da auditoria —
+  "hoje o link apodrece em silêncio" quando um arquivo é movido/
+  renomeado/excluído no Drive. `checkBrokenLinksForAccount` verifica
+  todos os vínculos DRIVE de uma conta contra a Drive API de verdade;
+  `BrokenLinkCheckCron` (semanal) chama isso pra toda conta com vínculo
+  DRIVE e notifica só na transição pra quebrado (mesmo critério de
+  idempotência dos outros gatilhos de notificação desta sessão).
+- **Comentário obsoleto corrigido** (`office-links.service.ts`) — a
+  própria segunda auditoria apontou que ele ainda dizia "colado à mão,
+  sem chamada real ao Google", quando o Picker/Calendar/Gmail já
+  funcionam de verdade há uma fase inteira.
+- **Não corrigido nesta rodada, de propósito**: checklist de documentos
+  obrigatórios amarrado ao gate do PEP (faz mais sentido depois que a
+  taxonomia estiver em uso real — sequenciamento, não só falta de tempo);
+  versionamento (expor revisões do Drive); e o item "grande" da lista —
+  documentos visíveis ao cliente no portal/link de apresentação sem
+  exigir conta Google (precisa de uma rota de proxy de leitura nova,
+  escopo maior que o resto deste grupo).
+- Verificado: build+typecheck limpos (api e web); **porta fake do Drive**
+  pedida explicitamente pela auditoria — `google-drive.service.spec.ts`
+  (6 testes, `FakeDriveClient` em memória) confirma a árvore de pastas
+  completa, a idempotência de rodar duas vezes, criar só a pasta que
+  falta quando uma fase nova é contratada, a recusa sem credencial
+  conectada, e a detecção de vínculo quebrado sem re-notificar o que já
+  estava quebrado antes; smoke suite 297/298 (6 novas asserções: taxonomia
+  via PATCH, guarda de fase só em vínculo de projeto, e as dois guardas
+  reais de "ninguém conectou o Drive" — sem precisar de fake nenhum, é o
+  estado real deste ambiente de dev), mesma falha pré-existente de sempre
+  (`ASAAS_API_KEY`); suíte Jest completa (21 testes, 3 arquivos) sem
+  regressão. Provisionar uma pasta REAL no Drive exige passar pelo
+  consentimento OAuth de verdade (criaria um recurso real na conta Google
+  de quem autorizasse) — não automatizado nesta sessão de propósito;
+  verificado em vez disso, ao vivo no navegador contra um vínculo
+  descartável: os dois textos de erro guiando pra conectar aparecem
+  corretos nos dois botões novos, e o editor de taxonomia (tipo de
+  documento + fase + visibilidade) grava e reflete na tela de ponta a
+  ponta — limpo depois.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

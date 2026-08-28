@@ -10,15 +10,19 @@ import { STATE_COOKIE } from "../state-cookie";
 // usa o fluxo implícito do Google Identity Services, que por design
 // nunca devolve refresh_token (ver google-client.ts). Só este fluxo aqui
 // (response_type=code, access_type=offline) consegue um refresh_token de
-// verdade -- necessário pra guardar a credencial e um dia (fora do
-// escopo desta correção) rodar Calendar events.watch / Gmail
-// users.watch sem o navegador aberto. access_type=offline sozinho não
-// garante refresh_token se a pessoa já tinha consentido antes sem essa
-// flag -- prompt=consent força a tela de novo especificamente pra
-// garantir que ele volte desta vez.
+// verdade -- necessário pra guardar a credencial e rodar coisa sem o
+// navegador aberto: Calendar events.watch / Gmail users.watch (fundação
+// já existia, nunca ligada) e, desde a lacuna de gestão documental,
+// GoogleDriveService (provisionar pasta, checar vínculo quebrado).
+// access_type=offline sozinho não garante refresh_token se a pessoa já
+// tinha consentido antes sem essa flag -- prompt=consent força a tela de
+// novo especificamente pra garantir que ele volte desta vez. Mesmo
+// escopo (drive.file) do Picker em google-client.ts -- reconectar aqui
+// não pede nada que a pessoa já não tivesse visto lá.
 const SYNC_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/drive.file",
 ].join(" ");
 
 export async function GET(request: Request) {

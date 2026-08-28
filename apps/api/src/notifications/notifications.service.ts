@@ -253,6 +253,46 @@ export class NotificationsService {
     }
   }
 
+  // Sétimo gatilho -- lacuna da matriz (gestão documental por projeto),
+  // achado da auditoria: "hoje o link apodrece em silêncio" quando um
+  // arquivo é movido/renomeado/excluído no Drive. Disparado só na
+  // transição pra quebrado (BrokenLinkCheckCron só chama isto pra quem
+  // não tinha brokenAt antes) -- não reavisa toda semana enquanto
+  // continuar quebrado, ninguém precisa do mesmo aviso repetido.
+  async notifyBrokenOfficeLink(
+    accountId: string,
+    params: { officeLinkTitle: string; projectId?: string; projectName: string | null },
+  ) {
+    try {
+      const admins = await this.prisma.db.user.findMany({
+        where: { accountId, accessLevel: 'admin' },
+        select: { id: true, email: true },
+      });
+      if (admins.length === 0) return;
+
+      const title = params.projectName
+        ? `${params.projectName}: vínculo "${params.officeLinkTitle}" quebrado no Drive`
+        : `Vínculo "${params.officeLinkTitle}" quebrado no Drive`;
+      await this.prisma.db.notification.createMany({
+        data: admins.map((admin) => ({
+          accountId,
+          userId: admin.id,
+          type: 'broken_office_link',
+          title,
+          projectId: params.projectId,
+        })),
+      });
+
+      await sendEmail({
+        to: admins.map((a) => a.email),
+        subject: title,
+        html: `<p>O vínculo <strong>${escapeHtml(params.officeLinkTitle)}</strong> não é mais acessível no Drive (arquivo movido, renomeado ou excluído). Revise e vincule de novo se ainda fizer sentido.</p>`,
+      });
+    } catch (error) {
+      this.logger.warn(`Falha ao notificar vínculo quebrado: ${(error as Error).message}`);
+    }
+  }
+
   // Mesmo espírito de ActivitiesService.getLastActivityAtByOpportunityIds
   // -- usado só por StalledOpportunitiesCron, uma consulta pra todas as
   // oportunidades candidatas em vez de uma chamada a hasRecentNotification

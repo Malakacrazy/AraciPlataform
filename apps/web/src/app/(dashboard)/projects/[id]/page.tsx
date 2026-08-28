@@ -239,6 +239,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         links={officeLinks}
         userEmail={session.user.email}
         contactEmail={project.client.email}
+        phases={project.phases}
       />
 
       <ActivityTimeline

@@ -519,6 +519,7 @@ model ProjectPhase {
   tasks       Task[]
   timeEntries TimeEntry[]
   invoices    Invoice[]
+  officeLinks OfficeLink[]
 }
 
 // Existia no schema desde o início (init migration) sem controller, sem
@@ -833,6 +834,31 @@ model OfficeLink {
   url        String
   title      String
   createdAt  DateTime             @default(now())
+
+  // Lacuna da matriz (gestão documental por projeto) -- taxonomia livre
+  // (mesmo espírito de Client.source: rótulo, não enum no banco) só faz
+  // sentido de verdade pra provider=DRIVE, mas não é restringido no
+  // schema pelo mesmo motivo de OfficeLinkProvider já cobrir os três.
+  // phaseId é uma FK real (ProjectPhase é tabela de verdade, ao contrário
+  // de entityId acima, que é polimórfico) -- null quando o vínculo não é
+  // de uma fase específica (ex.: pasta raiz do projeto, ou vínculo de
+  // Client). visibleToClient é metadado por enquanto: o portal/link de
+  // apresentação ainda não expõe documento nenhum (item "grande" da lista
+  // de 11, deliberadamente adiado).
+  documentType    String?
+  phaseId         String?
+  phase           ProjectPhase? @relation(fields: [phaseId], references: [id])
+  visibleToClient Boolean       @default(false)
+
+  // Achado da auditoria: "hoje o link apodrece em silêncio" -- arquivo
+  // movido/renomeado/excluído no Drive não derruba nada aqui, só some
+  // silenciosamente do lado de lá. GoogleDriveService.checkBrokenLinks
+  // (cron semanal + verificação sob demanda) preenche brokenAt quando o
+  // Drive responde 404 pro externalId; lastCheckedAt existe pra saber se
+  // um link nunca foi verificado (null) vs. verificado e ainda saudável
+  // (preenchido, brokenAt null).
+  brokenAt      DateTime?
+  lastCheckedAt DateTime?
 
   @@index([accountId, entityType, entityId])
 }

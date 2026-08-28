@@ -5,12 +5,15 @@ import {
   Get,
   HttpCode,
   Param,
+  Patch,
   Post,
 } from '@nestjs/common';
 import {
   OfficeLinksService,
   officeLinkInputSchema,
+  officeLinkUpdateSchema,
   type OfficeLinkInput,
+  type OfficeLinkUpdateInput,
 } from './office-links.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
@@ -83,6 +86,16 @@ export class ClientOfficeLinksController {
 @Controller('v1/office-links')
 export class OfficeLinksController {
   constructor(private readonly officeLinksService: OfficeLinksService) {}
+
+  @Patch(':id')
+  async update(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(officeLinkUpdateSchema)) input: OfficeLinkUpdateInput,
+  ) {
+    const data = await this.officeLinksService.updateOfficeLink(accountId, id, input);
+    return { data };
+  }
 
   @Delete(':id')
   @HttpCode(204)

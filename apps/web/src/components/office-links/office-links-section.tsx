@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import type { OfficeLink, OfficeLinkProvider } from "@/lib/types";
-import { createOfficeLink, deleteOfficeLink } from "./actions";
+import { STAGE_LABELS } from "@/lib/pep-stages";
+import { createOfficeLink, deleteOfficeLink, updateOfficeLink, provisionDriveFolders, checkBrokenLinks } from "./actions";
 import {
   DRIVE_SCOPE,
   CALENDAR_SCOPE,
@@ -29,6 +30,10 @@ interface Props {
   // entityType é CLIENT) -- só pra pré-preencher o "Para" do formulário
   // de compor e-mail. Sem isso o campo nasce vazio, nada quebra.
   contactEmail?: string | null;
+  // Só vem preenchido quando entityType é PROJECT -- Client não tem fase
+  // do PEP, então nem o botão de provisionar pastas nem o seletor de fase
+  // na taxonomia aparecem sem isso.
+  phases?: { id: string; stage: string }[];
 }
 
 function errorMessage(err: unknown, fallback: string) {
@@ -40,9 +45,13 @@ function toDateTimeLocalValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export function OfficeLinksSection({ entityType, entityId, links, userEmail, contactEmail }: Props) {
+export function OfficeLinksSection({ entityType, entityId, links, userEmail, contactEmail, phases }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [isLinkingDrive, setIsLinkingDrive] = useState(false);
+  const [isProvisioningFolders, setIsProvisioningFolders] = useState(false);
+  const [isCheckingLinks, setIsCheckingLinks] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEventSummary[] | null>(null);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -183,6 +192,54 @@ export function OfficeLinksSection({ entityType, entityId, links, userEmail, con
     }
   }
 
+  // Lacuna da matriz (gestão documental por projeto, "árvore de pastas")
+  // -- só existe pra PROJECT (Client não tem fase do PEP nenhuma).
+  async function handleProvisionFolders() {
+    setError(null);
+    setIsProvisioningFolders(true);
+    try {
+      await provisionDriveFolders(entityId);
+    } catch (err) {
+      setError(errorMessage(err, "Falha ao provisionar pastas no Drive."));
+    } finally {
+      setIsProvisioningFolders(false);
+    }
+  }
+
+  // Lacuna da matriz (gestão documental por projeto, "vínculos
+  // quebrados") -- verifica a CONTA inteira (ver comentário em
+  // checkBrokenLinks), não só este projeto/cliente.
+  async function handleCheckLinks() {
+    setError(null);
+    setIsCheckingLinks(true);
+    try {
+      await checkBrokenLinks(entityType, entityId);
+    } catch (err) {
+      setError(errorMessage(err, "Falha ao verificar vínculos."));
+    } finally {
+      setIsCheckingLinks(false);
+    }
+  }
+
+  async function handleSaveEdit(id: string, formData: FormData) {
+    setError(null);
+    setIsSavingEdit(true);
+    try {
+      const documentType = String(formData.get("documentType") ?? "").trim();
+      const phaseId = String(formData.get("phaseId") ?? "").trim();
+      await updateOfficeLink(id, entityType, entityId, {
+        documentType: documentType || null,
+        phaseId: phaseId || null,
+        visibleToClient: formData.get("visibleToClient") === "on",
+      });
+      setEditingId(null);
+    } catch (err) {
+      setError(errorMessage(err, "Falha ao salvar a taxonomia do vínculo."));
+    } finally {
+      setIsSavingEdit(false);
+    }
+  }
+
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
       <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Office (Drive/Calendar/Gmail)</h2>
@@ -192,27 +249,92 @@ export function OfficeLinksSection({ entityType, entityId, links, userEmail, con
       ) : (
         <ul className="mt-3 flex flex-col gap-2">
           {links.map((link) => (
-            <li
-              key={link.id}
-              className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800"
-            >
-              <a
-                href={link.url}
-                target="_blank"
-                rel="noreferrer"
-                className="truncate text-zinc-900 hover:underline dark:text-zinc-50"
-              >
-                <span className="mr-2 text-xs uppercase text-zinc-500 dark:text-zinc-400">{link.provider}</span>
-                {link.title}
-              </a>
-              <button
-                type="button"
-                onClick={() => handleDelete(link.id)}
-                disabled={pendingDeleteId === link.id}
-                className="shrink-0 text-xs text-zinc-500 hover:text-red-600 disabled:opacity-50 dark:text-zinc-400"
-              >
-                {pendingDeleteId === link.id ? "Removendo…" : "Remover"}
-              </button>
+            <li key={link.id} className="rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800">
+              <div className="flex items-center justify-between gap-3">
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="truncate text-zinc-900 hover:underline dark:text-zinc-50"
+                >
+                  <span className="mr-2 text-xs uppercase text-zinc-500 dark:text-zinc-400">{link.provider}</span>
+                  {link.title}
+                </a>
+                <div className="flex shrink-0 items-center gap-2">
+                  {link.brokenAt && (
+                    <span className="rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
+                      quebrado
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setEditingId((v) => (v === link.id ? null : link.id))}
+                    className="text-xs text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+                  >
+                    {editingId === link.id ? "Fechar" : "Classificar"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(link.id)}
+                    disabled={pendingDeleteId === link.id}
+                    className="text-xs text-zinc-500 hover:text-red-600 disabled:opacity-50 dark:text-zinc-400"
+                  >
+                    {pendingDeleteId === link.id ? "Removendo…" : "Remover"}
+                  </button>
+                </div>
+              </div>
+              {(link.documentType || link.phaseId) && (
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  {link.documentType}
+                  {link.documentType && link.phaseId && " · "}
+                  {link.phaseId && (STAGE_LABELS[phases?.find((p) => p.id === link.phaseId)?.stage ?? ""] ?? "fase removida")}
+                  {link.visibleToClient && " · visível ao cliente"}
+                </p>
+              )}
+              {editingId === link.id && (
+                <form
+                  action={(formData) => handleSaveEdit(link.id, formData)}
+                  className="mt-2 flex flex-wrap items-end gap-2 border-t border-zinc-100 pt-2 dark:border-zinc-900"
+                >
+                  <label className="flex flex-col gap-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    Tipo de documento
+                    <input
+                      name="documentType"
+                      defaultValue={link.documentType ?? ""}
+                      placeholder="contrato, ART, memorial…"
+                      className="w-40 rounded border border-zinc-300 bg-transparent px-2 py-1 text-sm text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                    />
+                  </label>
+                  {phases && phases.length > 0 && (
+                    <label className="flex flex-col gap-1 text-xs text-zinc-500 dark:text-zinc-400">
+                      Fase do PEP
+                      <select
+                        name="phaseId"
+                        defaultValue={link.phaseId ?? ""}
+                        className="w-44 rounded border border-zinc-300 bg-transparent px-2 py-1 text-sm text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                      >
+                        <option value="">— nenhuma —</option>
+                        {phases.map((phase) => (
+                          <option key={phase.id} value={phase.id}>
+                            {STAGE_LABELS[phase.stage] ?? phase.stage}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <label className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                    <input type="checkbox" name="visibleToClient" defaultChecked={link.visibleToClient} />
+                    Visível ao cliente
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={isSavingEdit}
+                    className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
+                  >
+                    {isSavingEdit ? "Salvando…" : "Salvar"}
+                  </button>
+                </form>
+              )}
             </li>
           ))}
         </ul>
@@ -228,6 +350,24 @@ export function OfficeLinksSection({ entityType, entityId, links, userEmail, con
           className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
         >
           {isLinkingDrive ? "Abrindo o Drive…" : "Vincular do Drive"}
+        </button>
+        {phases && (
+          <button
+            type="button"
+            onClick={handleProvisionFolders}
+            disabled={isProvisioningFolders}
+            className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-50"
+          >
+            {isProvisioningFolders ? "Provisionando…" : "Provisionar pastas no Drive"}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={handleCheckLinks}
+          disabled={isCheckingLinks}
+          className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-50"
+        >
+          {isCheckingLinks ? "Verificando…" : "Verificar vínculos"}
         </button>
         <button
           type="button"

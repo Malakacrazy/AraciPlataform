@@ -2138,6 +2138,51 @@ async function main() {
     linkOnMissingProjectRes.body
   );
 
+  // Lacuna da matriz (gestão documental por projeto, "taxonomia") -------
+  const updateLinkTaxonomyRes = await api(`/v1/office-links/${driveLinkId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ documentType: "planta", phaseId: firstPhase.id, visibleToClient: true }),
+  });
+  report(
+    "PATCH /office-links/:id → 200, grava tipo de documento/fase/visibilidade",
+    updateLinkTaxonomyRes.status === 200 &&
+      updateLinkTaxonomyRes.body?.data?.documentType === "planta" &&
+      updateLinkTaxonomyRes.body?.data?.phaseId === firstPhase.id &&
+      updateLinkTaxonomyRes.body?.data?.visibleToClient === true,
+    updateLinkTaxonomyRes.body
+  );
+
+  const updateLinkPhaseOutroProjetoRes = await api(`/v1/office-links/${clientLinkRes.body?.data?.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ phaseId: firstPhase.id }),
+  });
+  report(
+    "PATCH /office-links/:id ligando fase num vínculo de CLIENT (sem fase nenhuma) → 422",
+    updateLinkPhaseOutroProjetoRes.status === 422 &&
+      updateLinkPhaseOutroProjetoRes.body?.error?.code === "OFFICE_LINK_PHASE_NOT_APPLICABLE",
+    updateLinkPhaseOutroProjetoRes.body
+  );
+
+  // Lacuna da matriz (gestão documental por projeto, "Drive real") ------
+  // Sem credencial de sincronização conectada neste ambiente de dev (achado
+  // real: nenhum admin rodou o fluxo OAuth de /api/google/authorize com
+  // escopo drive.file) -- as duas guardas abaixo são exercitadas de
+  // verdade, sem precisar de fake nenhum aqui (o "porta fake do Drive" só
+  // entra em cena no unit test, ver google-drive.service.spec.ts).
+  const driveFoldersRes = await api(`/v1/projects/${projectId}/drive-folders`, { method: "POST" });
+  report(
+    "POST /projects/:id/drive-folders sem ninguém conectado ao Drive → 422 GOOGLE_DRIVE_NOT_CONNECTED",
+    driveFoldersRes.status === 422 && driveFoldersRes.body?.error?.code === "GOOGLE_DRIVE_NOT_CONNECTED",
+    driveFoldersRes.body
+  );
+
+  const checkBrokenLinksRes = await api("/v1/office-links/check-broken-links", { method: "POST" });
+  report(
+    "POST /office-links/check-broken-links sem ninguém conectado ao Drive → 422 GOOGLE_DRIVE_NOT_CONNECTED",
+    checkBrokenLinksRes.status === 422 && checkBrokenLinksRes.body?.error?.code === "GOOGLE_DRIVE_NOT_CONNECTED",
+    checkBrokenLinksRes.body
+  );
+
   const deleteLinkRes = await api(`/v1/office-links/${driveLinkId}`, { method: "DELETE" });
   report("DELETE /office-links/:id → 204", deleteLinkRes.status === 204, deleteLinkRes.body);
 

@@ -5,18 +5,7 @@ import { ProposalsService } from './proposals.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { createZapSignDocument } from './zapsign-client';
 import { setAuditActor } from '../audit/audit-context';
-
-// Só pra deixar o texto do documento na ZapSign legível -- apps/web tem
-// o mesmo mapa (lib/pep-stages.ts) mas não é importável daqui (ADR 0002:
-// apps/api não depende de apps/web nem vice-versa), então é uma cópia
-// deliberada, não uma referência viva.
-const STAGE_LABELS: Record<string, string> = {
-  CAPTACAO_ALINHAMENTO: 'Captação/Alinhamento',
-  BRIEFING: 'Briefing',
-  CRIACAO_CONCEITO: 'Criação de Conceito',
-  DETALHAMENTO_ACABAMENTOS: 'Detalhamento/Acabamentos',
-  EXECUTIVO: 'Executivo',
-};
+import { STAGE_LABELS } from '../common/pep-stage-labels';
 
 @Injectable()
 export class ProposalSigningService {

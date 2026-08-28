@@ -390,6 +390,11 @@ export interface OfficeLink {
   url: string;
   title: string;
   createdAt: string;
+  documentType?: string | null;
+  phaseId?: string | null;
+  visibleToClient: boolean;
+  brokenAt?: string | null;
+  lastCheckedAt?: string | null;
 }
 
 export type TaxRegime = "MEI" | "ME";
