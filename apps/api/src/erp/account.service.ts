@@ -19,6 +19,10 @@ export const accountUpdateSchema = z.object({
   pricingBusinessDaysPerMonth: z.number().int().min(1).max(31).optional(),
   pricingBillableHoursPerDay: z.number().positive().max(24).optional(),
   pricingActiveStaffCount: z.number().positive().optional(),
+  // Lacuna da matriz (LGPD, "retenção/expurgo") -- nulo (padrão) desliga o
+  // DataRetentionCron pra esta conta. `.nullable()` (não só `.optional()`)
+  // pra deixar voltar a desligar depois de já ter configurado um prazo.
+  dataRetentionMonths: z.number().int().min(1, 'Prazo precisa ser de pelo menos 1 mês.').max(600).nullable().optional(),
 });
 
 export type AccountUpdateInput = z.infer<typeof accountUpdateSchema>;

@@ -20,6 +20,27 @@ export async function updateTaxRegime(formData: FormData) {
   revalidatePath("/financeiro");
 }
 
+// Lacuna da matriz (LGPD, "automação de retenção/expurgo") -- string
+// vazia limpa o prazo (volta pra null = desligado), mesmo espírito de
+// campo opcional que "projectId" já usa em createExpense abaixo.
+export async function updateDataRetention(formData: FormData) {
+  const raw = String(formData.get("dataRetentionMonths") ?? "").trim();
+  const dataRetentionMonths = raw ? Number(raw) : null;
+  if (raw && (!Number.isInteger(dataRetentionMonths) || (dataRetentionMonths as number) < 1)) {
+    throw new Error("Prazo precisa ser um número inteiro de meses, maior que zero.");
+  }
+
+  const res = await apiFetch("account", {
+    method: "PATCH",
+    body: JSON.stringify({ dataRetentionMonths }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error?.message ?? "Não foi possível atualizar o prazo de retenção.");
+  }
+  revalidatePath("/financeiro");
+}
+
 // O resultado (fatorR + anexo recomendado) é persistido pelo backend na
 // própria Account -- não precisa devolver nada aqui, revalidar a página
 // já mostra o valor atualizado (mesmo padrão de upsertRoleRate).

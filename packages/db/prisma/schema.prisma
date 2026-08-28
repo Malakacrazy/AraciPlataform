@@ -60,6 +60,15 @@ model Account {
   fatorRPercent  Decimal? // last computed folha/receita 12m ratio, for the Fator R simulator
   createdAt      DateTime @default(now())
 
+  // Lacuna da matriz (LGPD, "automação de retenção/expurgo") -- nulo por
+  // padrão (= desligado): o prazo é decisão de negócio/jurídica de quem
+  // administra a conta, não um número que o código deveria inventar. Só
+  // quando preenchido (tela de Financeiro & Fiscal) o DataRetentionCron
+  // passa a avaliar clientes desta conta. Não é um comando de exclusão --
+  // ver ClientsService.anonymizeClient: o cron só NOTIFICA um admin sobre
+  // candidatos, quem clica em "Anonimizar" continua sendo uma pessoa.
+  dataRetentionMonths Int?
+
   // Abas 01/02 da planilha de precificação (docs/fase-0/Base_Precificacao
   // (fazer cópia).xlsx) -- inputs compartilhados pela fórmula de
   // tarifa/hora (crm/pricing.ts: calcularOverheadPorHora/
@@ -814,11 +823,13 @@ model Activity {
 // Contraparte in-app do que NotificationsService já manda por e-mail via
 // Resend -- pra quem não está de olho na caixa de entrada (sino na Nav).
 // Uma linha por destinatário, não por conta: cada admin marca a sua como
-// lida sem afetar as outras. `projectId`/`opportunityId` ficam soltos (não
-// um par entityType/entityId polimórfico como Activity/OfficeLink) porque
-// só existem dois gatilhos hoje, cada um sempre apontando pro mesmo tipo
-// de alvo -- generalizar antes de um terceiro tipo de alvo existir seria
-// abstração sem uso real.
+// lida sem afetar as outras. `projectId`/`opportunityId`/`clientId` ficam
+// soltos (não um par entityType/entityId polimórfico como Activity/
+// OfficeLink) porque cada gatilho sempre aponta pro mesmo tipo de alvo --
+// generalizar antes de um terceiro tipo de alvo existir seria abstração
+// sem uso real. `clientId` (DataRetentionCron, ver activities/) é esse
+// terceiro -- se aparecer um quarto, vale reconsiderar o par polimórfico
+// em vez de continuar empilhando coluna solta.
 model Notification {
   id            String    @id @default(cuid())
   accountId     String
@@ -830,6 +841,7 @@ model Notification {
   body          String?
   projectId     String?
   opportunityId String?
+  clientId      String?
   readAt        DateTime?
   createdAt     DateTime  @default(now())
 

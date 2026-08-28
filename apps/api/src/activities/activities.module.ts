@@ -10,15 +10,16 @@ import {
 } from './activities.controller';
 import { ActivitiesService } from './activities.service';
 import { StalledOpportunitiesCron } from './stalled-opportunities.cron';
+import { DataRetentionCron } from './data-retention.cron';
 
 @Module({
   // ErpModule para ProjectsService, CrmModule para ClientsService e
   // OpportunitiesService -- só pra validar que o alvo existe e pertence
   // à conta antes de gravar a nota, mesmo padrão do OfficeModule.
-  // NotificationsModule é só pro StalledOpportunitiesCron -- mora aqui (não
-  // em CrmModule) porque também precisa de ActivitiesService, e
-  // ActivitiesModule → CrmModule já é a única direção sem ciclo (ver
-  // comentário no próprio cron).
+  // NotificationsModule é só pros crons (StalledOpportunitiesCron e
+  // DataRetentionCron) -- moram aqui (não em CrmModule) porque também
+  // precisam de ActivitiesService, e ActivitiesModule → CrmModule já é a
+  // única direção sem ciclo (ver comentário nos próprios crons).
   imports: [ErpModule, CrmModule, NotificationsModule],
   controllers: [
     ProjectActivitiesController,
@@ -26,6 +27,6 @@ import { StalledOpportunitiesCron } from './stalled-opportunities.cron';
     OpportunityActivitiesController,
     ActivitiesController,
   ],
-  providers: [ActivitiesService, StalledOpportunitiesCron],
+  providers: [ActivitiesService, StalledOpportunitiesCron, DataRetentionCron],
 })
 export class ActivitiesModule {}

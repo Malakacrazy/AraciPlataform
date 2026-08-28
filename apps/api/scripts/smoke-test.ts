@@ -2269,6 +2269,38 @@ async function main() {
     restoreMeiRes.body
   );
 
+  // --- Retenção/expurgo de dados (LGPD) -- prazo é config, não decisão do
+  // código (ver DataRetentionCron) ------------------------------------
+  const badRetentionRes = await api("/v1/account", {
+    method: "PATCH",
+    body: JSON.stringify({ dataRetentionMonths: 0 }),
+  });
+  report(
+    "PATCH /account { dataRetentionMonths: 0 } → 400 VALIDATION_ERROR (mínimo é 1 mês)",
+    badRetentionRes.status === 400,
+    badRetentionRes.body
+  );
+
+  const setRetentionRes = await api("/v1/account", {
+    method: "PATCH",
+    body: JSON.stringify({ dataRetentionMonths: 24 }),
+  });
+  report(
+    "PATCH /account { dataRetentionMonths: 24 } → 200",
+    setRetentionRes.status === 200 && setRetentionRes.body?.data?.dataRetentionMonths === 24,
+    setRetentionRes.body
+  );
+
+  const clearRetentionRes = await api("/v1/account", {
+    method: "PATCH",
+    body: JSON.stringify({ dataRetentionMonths: null }),
+  });
+  report(
+    "PATCH /account { dataRetentionMonths: null } → 200 (desliga de novo, valor real do estúdio)",
+    clearRetentionRes.status === 200 && clearRetentionRes.body?.data?.dataRetentionMonths === null,
+    clearRetentionRes.body
+  );
+
   // --- Despesas (lado de saída do caixa, achado da auditoria) ---------
   const expenseProjetoRes = await api("/v1/expenses", {
     method: "POST",

@@ -4,7 +4,14 @@ import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { apiGet, ApiError } from "@/lib/api";
 import type { Account, Expense, Project } from "@/lib/types";
-import { updateTaxRegime, simulateFatorR, createExpense, markExpensePaid, deleteExpense } from "@/components/financeiro/actions";
+import {
+  updateTaxRegime,
+  updateDataRetention,
+  simulateFatorR,
+  createExpense,
+  markExpensePaid,
+  deleteExpense,
+} from "@/components/financeiro/actions";
 
 const EXPENSE_STATUS_LABELS: Record<string, string> = {
   pendente: "Pendente",
@@ -211,6 +218,37 @@ export default async function FinanceiroPage({
               <option value="MEI">MEI</option>
               <option value="ME">ME (Simples Nacional)</option>
             </select>
+          </label>
+          <button
+            type="submit"
+            className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
+          >
+            Salvar
+          </button>
+        </form>
+      </section>
+
+      <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+        <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Retenção de dados (LGPD)</h2>
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          Prazo, em meses, sem nenhuma atividade (oportunidade aberta, projeto ativo ou nota) até um cliente virar
+          candidato à anonimização. Desligado por padrão — a plataforma não escolhe esse número por você, é uma
+          decisão de negócio/jurídica. Quando ligado, o sistema só{" "}
+          <strong className="text-zinc-900 dark:text-zinc-50">notifica um admin</strong> sobre os candidatos, toda
+          semana — anonimizar continua sendo um clique manual na tela de cada cliente.
+        </p>
+        <form action={updateDataRetention} className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-500 dark:text-zinc-400">Prazo (meses, em branco = desligado)</span>
+            <input
+              key={account.dataRetentionMonths ?? "off"}
+              name="dataRetentionMonths"
+              type="number"
+              min="1"
+              step="1"
+              defaultValue={account.dataRetentionMonths ?? ""}
+              className="w-48 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+            />
           </label>
           <button
             type="submit"

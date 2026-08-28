@@ -171,4 +171,28 @@ export class ClientsService {
       }
     });
   }
+
+  // Lacuna da matriz (LGPD, "automação de retenção/expurgo") -- usado só
+  // pelo DataRetentionCron, sweep entre TODAS as contas de propósito,
+  // mesmo padrão de OpportunitiesService.listOpenOpportunities. O filtro
+  // `account: { dataRetentionMonths: { not: null } }` já é a própria
+  // decisão de ligar/desligar (ver comentário no schema): conta que nunca
+  // configurou um prazo nem entra nesta consulta. Traz oportunidades/
+  // projetos junto pro cron decidir elegibilidade sem N+1 (uma
+  // oportunidade aberta ou projeto ativo tira o cliente da lista,
+  // independente de data).
+  listRetentionCandidateClients() {
+    return this.prisma.db.client.findMany({
+      where: { anonymizedAt: null, account: { dataRetentionMonths: { not: null } } },
+      select: {
+        id: true,
+        name: true,
+        accountId: true,
+        createdAt: true,
+        account: { select: { dataRetentionMonths: true } },
+        opportunities: { select: { createdAt: true, wonAt: true, lostAt: true } },
+        projects: { select: { createdAt: true, status: true } },
+      },
+    });
+  }
 }

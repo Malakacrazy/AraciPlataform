@@ -102,6 +102,26 @@ export class ActivitiesService {
     return lastActivityAt;
   }
 
+  // Mesmo espírito de getLastActivityAtByOpportunityIds, só que pra
+  // entityType CLIENT -- usado pelo DataRetentionCron como um dos sinais
+  // de "última atividade" (junto de Opportunity/Project do próprio
+  // cliente, ver ClientsService.listRetentionCandidateClients).
+  async getLastActivityAtByClientIds(clientIds: string[]): Promise<Map<string, Date>> {
+    if (clientIds.length === 0) return new Map();
+    const rows = await this.prisma.db.activity.findMany({
+      where: { entityType: 'CLIENT', entityId: { in: clientIds } },
+      orderBy: { createdAt: 'desc' },
+      select: { entityId: true, createdAt: true },
+    });
+    const lastActivityAt = new Map<string, Date>();
+    for (const row of rows) {
+      if (!lastActivityAt.has(row.entityId)) {
+        lastActivityAt.set(row.entityId, row.createdAt);
+      }
+    }
+    return lastActivityAt;
+  }
+
   async deleteActivity(accountId: string, id: string) {
     const activity = await this.prisma.db.activity.findFirst({ where: { id, accountId } });
     if (!activity) {

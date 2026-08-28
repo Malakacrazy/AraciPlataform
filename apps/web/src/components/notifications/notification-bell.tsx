@@ -113,7 +113,9 @@ export function NotificationBell({ initial }: { initial: NotificationsResponse }
                   ? `/projects/${n.projectId}`
                   : n.opportunityId
                     ? `/opportunities/${n.opportunityId}`
-                    : null;
+                    : n.clientId
+                      ? `/clients/${n.clientId}`
+                      : null;
                 return (
                   <li key={n.id} className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
                     {href ? (

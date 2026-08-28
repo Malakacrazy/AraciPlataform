@@ -402,6 +402,7 @@ export interface Account {
   pricingBusinessDaysPerMonth: number;
   pricingBillableHoursPerDay: string;
   pricingActiveStaffCount: string;
+  dataRetentionMonths?: number | null;
 }
 
 export interface FatorRResult {
@@ -554,6 +555,7 @@ export interface Notification {
   body?: string | null;
   projectId?: string | null;
   opportunityId?: string | null;
+  clientId?: string | null;
   readAt?: string | null;
   createdAt: string;
 }

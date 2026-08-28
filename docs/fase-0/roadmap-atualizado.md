@@ -2027,12 +2027,13 @@ ficam de fora, de propósito (ver "Não corrigido" no fim desta seção).
   sobre a proposta — visível pro time em `/opportunities/:id`.
 - **Não corrigido nesta rodada, de propósito**: exportação CAD/Revit
   (a própria auditoria recomenda decidir o formato antes de qualquer
-  código — não é uma lacuna que dá pra fechar sem essa decisão);
-  automação de retenção/expurgo de dados (LGPD) e o texto jurídico real
-  da página de privacidade (ambos dependem de decisão da Giulia/revisão
-  jurídica, não de código); autorização de colaborador externo (a
-  própria auditoria já chama isso de "o item mais delicado do plano
-  inteiro" — fica pra um pedido explícito à parte, não misturado aqui).
+  código — não é uma lacuna que dá pra fechar sem essa decisão); o texto
+  jurídico real da página de privacidade (depende de revisão jurídica,
+  não de código — automação de retenção/expurgo acabou saindo desta
+  frase, ver seção própria logo abaixo); autorização de colaborador
+  externo (a própria auditoria já chama isso de "o item mais delicado do
+  plano inteiro" — fica pra um pedido explícito à parte, não misturado
+  aqui).
 - Verificado: build+typecheck limpos (api e web) depois de cada mudança;
   smoke suite 285/286 (13 novas asserções só pro portal pré-venda —
   pendentes/aceite/recusa/comentário —, mais as de férias e LGPD),
@@ -2043,6 +2044,59 @@ ficam de fora, de propósito (ver "Não corrigido" no fim desta seção).
   corrigido); fluxo de pré-venda do portal (comentário, recusa, e o
   espelho no lado staff) verificado de ponta a ponta no navegador contra
   um registro descartável, limpo depois.
+
+## Correção — automação de retenção/expurgo de dados (LGPD)
+
+Item que a própria rodada anterior deixou de fora de propósito, por
+depender de "decisão da Giulia": o PRAZO de retenção é uma decisão de
+negócio/jurídica que o código não deveria inventar. Pedido explícito do
+usuário pra tackle-ar mesmo assim — a resposta não foi escolher um
+número, foi separar o que É decisão de código (detectar candidatos,
+avisar) do que não é (o prazo em si, e o gatilho da anonimização).
+
+- **Prazo configurável, desligado por padrão**: `Account.
+  dataRetentionMonths` (nulo = desligado), editável só por admin na tela
+  de Financeiro & Fiscal (`PATCH /account`, mesmo controller/guard de
+  `taxRegime`). Nenhuma conta que não configurar isso explicitamente é
+  tocada pela automação — mesmo espírito do `[A PREENCHER]` da página de
+  `/privacidade` (achado anterior): a plataforma não finge ter uma
+  política que ninguém decidiu.
+- **"Automação" é a detecção, não a exclusão**: perguntado ao usuário
+  antes de escrever qualquer código (ver decisão registrada na sessão) --
+  anonimizar cliente já é irreversível, e o único outro gatilho parecido
+  do sistema (NFS-e pronta pra emitir, `NotificationsService.
+  notifyNfseReady`) foi deliberadamente projetado pra só avisar um admin,
+  nunca executar sozinho. `DataRetentionCron` (mora em `activities/`,
+  mesmo motivo de import circular do `StalledOpportunitiesCron`) segue o
+  mesmo molde: roda semanalmente, lista clientes da conta com política
+  configurada, calcula "última atividade" como o mais recente entre
+  criação do cliente, criação/ganho/perda de cada Opportunity, criação de
+  cada Project e a nota (Activity) mais recente — e NUNCA marca como
+  candidato um cliente com Opportunity ainda aberta ou Project ativo,
+  não importa a data. Quem passa do prazo gera uma `Notification` (mesmo
+  sino/e-mail de sempre) apontando pra `/clients/:id`; anonimizar
+  continua sendo o clique já existente ali (`ClientsService.
+  anonymizeClient`, da rodada de LGPD anterior).
+- **`Notification.clientId`**: terceiro campo solto de alvo (depois de
+  `projectId`/`opportunityId`) -- o próprio comentário no schema já
+  avisava que um terceiro tipo justificaria reconsiderar o par
+  polimórfico `entityType`/`entityId` (como `Activity`/`OfficeLink`); por
+  ora só mais uma coluna, seguindo o padrão existente (Rule 3, mudança
+  cirúrgica) — fica marcado no comentário do schema pra próxima vez que
+  aparecer um quarto gatilho.
+- Verificado: build+typecheck limpos (api e web); script dedicado
+  (`verify-data-retention-cron.ts`, mesmo molde do `verify-stalled-
+  cron.ts` já existente) confirma contra o banco real: sem política
+  configurada ninguém é avaliado; cliente parado há ~13 meses com
+  política de 12 meses vira candidato e é notificado; cliente com
+  Opportunity aberta NUNCA vira candidato mesmo com `createdAt` antigo;
+  2ª execução não duplica o aviso (idempotente); smoke suite 288/289
+  (3 novas asserções pra `PATCH /account { dataRetentionMonths }`),
+  mesma falha pré-existente de sempre (`ASAAS_API_KEY`); tela de
+  Financeiro & Fiscal e o link da notificação pro cliente certo testados
+  de ponta a ponta no navegador contra a conta real (prazo configurado,
+  confirmado no banco, depois desligado de novo — nunca deixado ligado
+  sem decisão real por trás).
 
 ## Fase 5 — Beta & go-live
 

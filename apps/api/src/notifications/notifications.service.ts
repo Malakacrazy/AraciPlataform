@@ -177,6 +177,45 @@ export class NotificationsService {
     }
   }
 
+  // Quinto gatilho -- lacuna da matriz (LGPD, "automação de retenção/
+  // expurgo"). Mesmo raciocínio de notifyNfseReady: emitir NFS-e sozinho
+  // também foi uma decisão deliberada de NUNCA automatizar (ver comentário
+  // lá) -- anonimizar um cliente é igualmente irreversível, então este
+  // gatilho só avisa um admin sobre o candidato; quem clica em
+  // "Anonimizar" (ClientsService.anonymizeClient, já existente na tela do
+  // cliente) continua sendo uma pessoa.
+  async notifyDataRetentionCandidate(
+    accountId: string,
+    params: { clientId: string; clientName: string; monthsSinceActivity: number },
+  ) {
+    try {
+      const admins = await this.prisma.db.user.findMany({
+        where: { accountId, accessLevel: 'admin' },
+        select: { id: true, email: true },
+      });
+      if (admins.length === 0) return;
+
+      const title = `${params.clientName}: candidato à retenção de dados (${params.monthsSinceActivity} meses sem atividade)`;
+      await this.prisma.db.notification.createMany({
+        data: admins.map((admin) => ({
+          accountId,
+          userId: admin.id,
+          type: 'data_retention_candidate',
+          title,
+          clientId: params.clientId,
+        })),
+      });
+
+      await sendEmail({
+        to: admins.map((a) => a.email),
+        subject: title,
+        html: `<p>O cliente <strong>${escapeHtml(params.clientName)}</strong> está sem nenhuma atividade (oportunidade aberta, projeto ativo ou nota) há <strong>${params.monthsSinceActivity} meses</strong> — passou do prazo de retenção configurado pra esta conta. Revise e, se fizer sentido, anonimize pela tela do cliente.</p>`,
+      });
+    } catch (error) {
+      this.logger.warn(`Falha ao notificar candidato à retenção de dados: ${(error as Error).message}`);
+    }
+  }
+
   // Mesmo espírito de ActivitiesService.getLastActivityAtByOpportunityIds
   // -- usado só por StalledOpportunitiesCron, uma consulta pra todas as
   // oportunidades candidatas em vez de uma chamada a hasRecentNotification
@@ -192,6 +231,27 @@ export class NotificationsService {
     for (const row of rows) {
       if (row.opportunityId && !lastNotifiedAt.has(row.opportunityId)) {
         lastNotifiedAt.set(row.opportunityId, row.createdAt);
+      }
+    }
+    return lastNotifiedAt;
+  }
+
+  // Mesmo espírito do método acima, só que pro terceiro gatilho baseado em
+  // ausência (DataRetentionCron) -- só reavisa se a última atividade do
+  // cliente for mais recente que o último aviso (mesmo critério de
+  // StalledOpportunitiesCron), evitando reenviar o mesmo aviso toda semana
+  // enquanto o cliente continuar parado do mesmo jeito.
+  async getLastNotifiedAtByClientIds(clientIds: string[]): Promise<Map<string, Date>> {
+    if (clientIds.length === 0) return new Map();
+    const rows = await this.prisma.db.notification.findMany({
+      where: { type: 'data_retention_candidate', clientId: { in: clientIds } },
+      orderBy: { createdAt: 'desc' },
+      select: { clientId: true, createdAt: true },
+    });
+    const lastNotifiedAt = new Map<string, Date>();
+    for (const row of rows) {
+      if (row.clientId && !lastNotifiedAt.has(row.clientId)) {
+        lastNotifiedAt.set(row.clientId, row.createdAt);
       }
     }
     return lastNotifiedAt;

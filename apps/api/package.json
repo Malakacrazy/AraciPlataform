@@ -21,7 +21,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "smoke-test": "tsx scripts/smoke-test.ts",
     "smoke-test:cleanup": "tsx scripts/cleanup-smoke-residue.ts",
-    "verify-stalled-cron": "ts-node scripts/verify-stalled-cron.ts"
+    "verify-stalled-cron": "ts-node scripts/verify-stalled-cron.ts",
+    "verify-data-retention-cron": "ts-node scripts/verify-data-retention-cron.ts"
   },
   "dependencies": {
     "@araci/db": "*",
