@@ -17,6 +17,17 @@ export const publicSpecUpdateSchema = z.object({
 
 export type PublicSpecUpdateInput = z.infer<typeof publicSpecUpdateSchema>;
 
+// Mesma fórmula usada em bi.service.ts (lineTotal) e
+// specifications.service.ts (checkout que gera a fatura de verdade) --
+// preço unitário já com o markup do estúdio aplicado. O cliente nunca
+// recebe unitPrice cru nem markupPercent (achados C-03/C-04): a rota
+// pública devolve só este número computado.
+function unitSalePrice(unitPrice: unknown, markupPercent: unknown): string | null {
+  if (unitPrice === null || unitPrice === undefined) return null;
+  const sale = Number(unitPrice) * (1 + Number(markupPercent ?? 0));
+  return sale.toFixed(2);
+}
+
 // Sem accountId em lugar nenhum aqui de propósito — quem chama este
 // serviço não tem sessão, não é um User. A única autorização é "conhece
 // o token", resolvido para um projectId uma vez em getLinkOrThrow() e
@@ -42,24 +53,56 @@ export class PublicPresentationService {
 
   async getPresentation(token: string) {
     const link = await this.getLinkOrThrow(token);
+    // select explícito (achado C-03) -- o Prisma nunca devolve um campo
+    // que não está listado aqui, diferente do include anterior que
+    // repassava o Product e a ProductSpecification inteiros (custo,
+    // markup, URL do fornecedor) pra fora do estúdio.
     const project = await this.prisma.db.project.findUnique({
       where: { id: link.projectId },
-      include: {
-        client: true,
+      select: {
+        id: true,
+        name: true,
+        client: { select: { name: true } },
         areas: {
-          include: {
+          orderBy: { name: 'asc' },
+          select: {
+            id: true,
+            name: true,
             specifications: {
-              include: { product: true },
               orderBy: { createdAt: 'asc' },
+              select: {
+                id: true,
+                quantity: true,
+                unitPrice: true,
+                markupPercent: true,
+                clientApproved: true,
+                clientComment: true,
+                product: { select: { id: true, name: true, supplier: true, imageUrl: true } },
+              },
             },
           },
-          orderBy: { name: 'asc' },
         },
         moodboards: {
-          include: {
-            items: { include: { product: true }, orderBy: { order: 'asc' } },
-          },
           orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            name: true,
+            items: {
+              orderBy: { order: 'asc' },
+              select: {
+                id: true,
+                kind: true,
+                label: true,
+                colorHex: true,
+                swatchImageUrl: true,
+                order: true,
+                x: true,
+                y: true,
+                width: true,
+                product: { select: { id: true, name: true, imageUrl: true } },
+              },
+            },
+          },
         },
       },
     });
@@ -68,7 +111,24 @@ export class PublicPresentationService {
       // resultado de um token inválido, do ponto de vista de quem chama.
       throw new NotFoundError('Link de apresentação');
     }
-    return project;
+    return {
+      id: project.id,
+      name: project.name,
+      client: project.client,
+      areas: project.areas.map((area) => ({
+        id: area.id,
+        name: area.name,
+        specifications: area.specifications.map((spec) => ({
+          id: spec.id,
+          quantity: spec.quantity,
+          unitPrice: unitSalePrice(spec.unitPrice, spec.markupPercent),
+          clientApproved: spec.clientApproved,
+          clientComment: spec.clientComment,
+          product: spec.product,
+        })),
+      })),
+      moodboards: project.moodboards,
+    };
   }
 
   async updateSpecification(
@@ -105,7 +165,15 @@ export class PublicPresentationService {
     const updated = await this.prisma.db.productSpecification.update({
       where: { id: specId },
       data: input,
-      include: { product: true },
+      select: {
+        id: true,
+        quantity: true,
+        unitPrice: true,
+        markupPercent: true,
+        clientApproved: true,
+        clientComment: true,
+        product: { select: { id: true, name: true, supplier: true, imageUrl: true } },
+      },
     });
 
     // Notifica só na transição pra aprovado -- reenviar o mesmo
@@ -121,6 +189,13 @@ export class PublicPresentationService {
       });
     }
 
-    return updated;
+    return {
+      id: updated.id,
+      quantity: updated.quantity,
+      unitPrice: unitSalePrice(updated.unitPrice, updated.markupPercent),
+      clientApproved: updated.clientApproved,
+      clientComment: updated.clientComment,
+      product: updated.product,
+    };
   }
 }

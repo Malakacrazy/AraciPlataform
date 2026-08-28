@@ -172,7 +172,7 @@ export default async function TeamPage({
                 </button>
               </form>
 
-              <ApiKeyPanel userId={user.id} hasKey={Boolean(user.apiKeyHash)} />
+              {user.id === me.userId && <ApiKeyPanel hasKey={Boolean(user.apiKeyHash)} />}
 
               {user.id === me.userId && (
                 <GoogleSyncPanel

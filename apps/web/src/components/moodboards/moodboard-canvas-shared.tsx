@@ -1,4 +1,16 @@
-import type { MoodboardItem } from "@/lib/types";
+import type { MoodboardItem, MoodboardItemKind } from "@/lib/types";
+
+// Só os campos que este componente de fato lê -- MoodboardItem (canvas
+// interno) e PresentationMoodboardItem (link público, sem custo/markup)
+// satisfazem os dois estruturalmente, então o mesmo visual serve para
+// ambos sem duplicar o componente nem importar o tipo público aqui.
+type VisualItem = {
+  kind: MoodboardItemKind;
+  label?: string | null;
+  colorHex?: string | null;
+  swatchImageUrl?: string | null;
+  product: { name: string; imageUrl?: string | null } | null;
+};
 
 // Dimensões lógicas fixas do canvas (não pixel de tela) -- x/y/width de
 // cada item são guardados nessa escala, então o designer (canvas
@@ -23,7 +35,7 @@ export function moodboardItemWrapperStyle(item: Pick<MoodboardItem, "x" | "y" | 
 // canvas interativo, pela view de impressão/exportação e pelo link de
 // apresentação pública, pra nunca divergir entre o que o designer monta e
 // o que o cliente vê.
-export function MoodboardItemVisual({ item }: { item: MoodboardItem }) {
+export function MoodboardItemVisual({ item }: { item: VisualItem }) {
   if (item.kind === "swatch") {
     return (
       <div className="flex flex-col gap-1">

@@ -10,6 +10,25 @@ import { IS_ADMIN_ONLY_KEY } from './admin-only.decorator';
 import type { SessionAccount } from './session-account.interface';
 import { setAuditActor } from '../audit/audit-context';
 
+// Defesa em profundidade do achado C-01 -- a checagem principal é o
+// callback signIn em apps/web/src/lib/auth.ts (é lá que o login é
+// negado); isto aqui é um segundo gate caso um JWT interno chegue por
+// outro caminho que não o login normal. Mesmas variáveis por nome, cada
+// serviço lê a sua cópia do ambiente.
+function isEmailAllowed(email: string): boolean {
+  const domains = (process.env.ALLOWED_EMAIL_DOMAINS ?? '')
+    .split(',')
+    .map((d) => d.trim().toLowerCase())
+    .filter(Boolean);
+  const emails = (process.env.ALLOWED_EMAILS ?? '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  const normalized = email.toLowerCase();
+  const domain = normalized.split('@')[1];
+  return domains.includes(domain) || emails.includes(normalized);
+}
+
 // Este serviço nunca é chamado pelo navegador — só por apps/web,
 // server-to-server, e pela extensão Captura (chave de API, ver abaixo). O
 // Authorization: Bearer aqui é um token interno de vida curta (~60s) que
@@ -98,6 +117,10 @@ export class AuthGuard implements CanActivate {
       email = payload.email;
     } catch {
       throw new UnauthorizedError();
+    }
+
+    if (!isEmailAllowed(email)) {
+      throw new ForbiddenError();
     }
 
     const user = await this.authService.ensureAccountAndUser(email, email);

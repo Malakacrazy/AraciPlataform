@@ -65,22 +65,21 @@ export class UsersController {
   // Chave de API para a extensão Captura (ver AuthGuard) -- devolvida em
   // texto puro só nesta resposta; a partir daqui só o hash sobrevive no
   // banco, então perder a resposta significa regenerar, não recuperar.
-  @Post(':id/api-key')
+  // Sem :id (achado C-02 da auditoria): a rota antiga aceitava qualquer
+  // userId de outra conta no MESMO account e gerava a chave dele -- staff
+  // conseguia forjar uma chave com accessLevel de admin (AuthGuard resolve
+  // x-api-key direto pro accessLevel do dono). Igual ao padrão já usado em
+  // GoogleCredentialsController: só opera na PRÓPRIA sessão.
+  @Post('api-key')
   @HttpCode(201)
-  async generateApiKey(
-    @SessionAccount() { accountId }: SessionAccountType,
-    @Param('id') id: string,
-  ) {
-    const apiKey = await this.usersService.generateApiKey(accountId, id);
+  async generateApiKey(@SessionAccount() { userId }: SessionAccountType) {
+    const apiKey = await this.usersService.generateApiKey(userId);
     return { data: { apiKey } };
   }
 
-  @Delete(':id/api-key')
+  @Delete('api-key')
   @HttpCode(204)
-  async revokeApiKey(
-    @SessionAccount() { accountId }: SessionAccountType,
-    @Param('id') id: string,
-  ) {
-    await this.usersService.revokeApiKey(accountId, id);
+  async revokeApiKey(@SessionAccount() { userId }: SessionAccountType) {
+    await this.usersService.revokeApiKey(userId);
   }
 }

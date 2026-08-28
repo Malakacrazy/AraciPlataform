@@ -1663,6 +1663,93 @@ plus material/fabric swatches and a branded export."
   mesmo layout replicado no link de apresentação pública. Dados de teste
   removidos depois.
 
+## Correção — 4 achados críticos de segurança/negócio (auditoria externa)
+
+Uma segunda auditoria independente ("Auditoria da Plataforma Araci",
+revisão de código linha a linha contra `src/`, `scripts/` e
+`schema.prisma`) encontrou 4 achados **críticos** que bloqueavam
+qualquer publicação — dois de autorização, dois do link de apresentação
+ao cliente. Os quatro foram verificados contra o código real (não só
+aceitos da auditoria) antes de corrigir, e os quatro foram corrigidos
+nesta sessão:
+
+- **C-01 — Login Google sem restrição de domínio**: `apps/web/src/lib/auth.ts`
+  não tinha `callback signIn`; o parâmetro `hd` do Google é só uma dica de
+  UI, não uma imposição, e `ensureAccountAndUser` promovia qualquer e-mail
+  novo a `staff` automaticamente. Corrigido em duas camadas (defesa em
+  profundidade): callback `signIn` em `auth.ts` (nega o login antes da
+  sessão existir) e uma segunda checagem em `auth.guard.ts` antes de
+  `ensureAccountAndUser` (caso um JWT interno chegue por outro caminho).
+  Lista permitida via `ALLOWED_EMAIL_DOMAINS`/`ALLOWED_EMAILS` (env, lista
+  separada por vírgula) — domínio `studioaraci.com.br` mais qualquer
+  e-mail avulso explicitamente aprovado, em vez de "só o domínio, sem
+  exceção" (decisão da Giulia: a conta pessoal usada nesta sessão
+  continua funcionando).
+- **C-02 — Escalonamento de privilégio via chave de API**: `POST/DELETE
+  /v1/users/:id/api-key` aceitava qualquer `id`, e como `AuthGuard`
+  resolve `x-api-key` direto pro `accessLevel` do dono, qualquer staff
+  conseguia gerar a chave do admin e autenticar como admin — contornando
+  todo gate `@AdminOnly()` de uma vez. Corrigido removendo o `:id` da
+  rota inteiramente (mesmo padrão do `GoogleCredentialsController`: só
+  opera na própria sessão, nunca em nome de outro usuário) tanto no
+  controller/service quanto nos dois lados (`apps/web` actions + UI). A
+  UI também escondia o problema: `<ApiKeyPanel>` era renderizado pra
+  TODA linha da tela `/team`, deixando qualquer staff clicar "Gerar
+  chave" na linha do admin — agora só aparece na própria linha
+  (`user.id === me.userId`), mesmo padrão já usado por
+  `<GoogleSyncPanel>` ao lado.
+- **C-03 — Link de apresentação vaza custo/markup/fornecedor**:
+  `public-presentation.service.ts` devolvia o `Project` inteiro do Prisma
+  via `include` sem filtrar nada — `product.sourceUrl`, `spec.unitPrice`
+  (cru) e `spec.markupPercent` inclusos. Corrigido com `select` explícito
+  em vez de `include`, tanto no `GET` quanto no `PATCH
+  specifications/:id` (a mesma rota `@Public()` tinha o mesmo problema no
+  retorno da escrita, mesmo o frontend nunca lendo esse corpo). Tipos
+  novos e estreitos no frontend (`PresentationData`/`PresentationArea`/
+  `PresentationSpecification`/`PresentationProduct`/
+  `PresentationMoodboard(Item)`) substituindo o reaproveitamento dos
+  tipos internos completos.
+- **C-04 — Preço mostrado ao cliente é o custo, não o preço de venda**:
+  `present/[token]/page.tsx` renderizava `spec.unitPrice` cru; o resto do
+  sistema (carrinho, checkout que gera a fatura) sempre calcula
+  `quantity × unitPrice × (1 + markupPercent)`. Decisão da Giulia: cliente
+  vê preço unitário já com markup aplicado (não só total da linha nem só
+  total do ambiente). Resolvido calculando o preço de venda **no
+  service**, não no frontend — o campo `unitPrice` que sai da rota
+  pública já é `unitPrice × (1 + markupPercent)`, então o cliente nunca
+  recebe os dois números crus que permitiriam reconstruir o markup (C-03
+  e C-04 resolvidos pela mesma mudança).
+- Verificado: build+typecheck limpos (api e web); smoke suite com 2 casos
+  novos de regressão (`intruso@gmail.com` contra `/v1/clients` → 403 em
+  vez de virar staff; a rota antiga `POST /users/:id/api-key` não gera
+  mais chave nenhuma) e 2 novos no link público (preço já com markup —
+  8200 × 1,1 = 9020 — em vez do custo cru; `markupPercent`/`sourceUrl`
+  nunca aparecem no payload) — 250/251, a mesma falha pré-existente de
+  sempre (`ASAAS_API_KEY` configurada localmente faz o teste que espera
+  "não configurada" falhar; nada a ver com esta correção). Testado
+  também contra o link de apresentação real do projeto Apto Vila
+  Madalena: `Sofá Modular Nuvem` aparece por R$ 9.020 (igual à fatura já
+  gerada no checkout), e uma checagem direta do JSON confirma
+  `markupPercent`/`sourceUrl` ausentes do payload.
+- **Achado à parte, fora do escopo desta correção**: rotas sem handler
+  correspondente (ex.: a própria `POST /users/:id/api-key` antiga) caem
+  num bug pré-existente do `HttpExceptionFilter` que devolve 500
+  genérico em vez do 404 que o NestJS já gera sozinho — não é um
+  problema de autorização (nenhuma chave é gerada), só de status
+  code/observabilidade. Não corrigido aqui (fora do escopo dos 4
+  achados críticos, e mexer no filtro global de exceção é uma mudança de
+  raio maior do que o pedido); registrado pra não ser confundido com um
+  efeito colateral desta correção.
+- **Ainda não corrigido desta mesma auditoria** (não críticos, não
+  pedidos nesta sessão): 5 achados "Altos" (sem error boundary no
+  dashboard; exclusão de cliente/projeto deixa `Activity` órfã, mesmo
+  padrão já corrigido pro `OfficeLink`; falta de índice em quase toda
+  FK; fluxo OAuth do Google sem `state`, CSRF de consentimento;
+  `Client.email` sem constraint de unicidade apesar do login do portal
+  buscar por e-mail) e a lista completa de bloqueadores de publicação
+  (empacotamento/deploy, banco de produção, observabilidade — 15 no
+  total, ver o documento da auditoria).
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

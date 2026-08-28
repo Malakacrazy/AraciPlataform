@@ -60,6 +60,22 @@ async function main() {
   const unauth = await fetch(`${BASE_URL}/v1/clients`);
   report("GET /clients sem token → 401", unauth.status === 401);
 
+  // Achado C-01: antes desta correção, qualquer e-mail num JWT interno
+  // válido virava User staff automaticamente (ensureAccountAndUser sem
+  // checagem nenhuma). O JWT aqui é forjado direto com mintToken (só
+  // precisa do INTERNAL_API_SECRET, que este script já tem) -- é
+  // exatamente o caminho que auth.guard.ts precisa barrar sozinho, sem
+  // depender do callback signIn de apps/web (defesa em profundidade).
+  const intruderToken = await mintToken("intruso@gmail.com");
+  const intruderRes = await fetch(`${BASE_URL}/v1/clients`, {
+    headers: { Authorization: `Bearer ${intruderToken}` },
+  });
+  report(
+    "JWT interno válido com e-mail fora do domínio/allowlist → 403, não 200 (achado C-01)",
+    intruderRes.status === 403,
+    await intruderRes.json().catch(() => null)
+  );
+
   const clientRes = await api("/v1/clients", {
     method: "POST",
     body: JSON.stringify({ name: "Fernanda Ribeiro", email: "fernanda@example.com", source: "indicacao" }),
@@ -1040,12 +1056,29 @@ async function main() {
     noKeyYetRes.body
   );
 
-  const generateKeyRes = await api(`/v1/users/${user2.id}/api-key`, { method: "POST" });
+  // Sem :id na rota (achado C-02 corrigido) -- cada colaborador só gera a
+  // PRÓPRIA chave, então geramos com o token do próprio user2 (api2), não
+  // com o do admin (api) que só está deste script pra montar o fixture.
+  const generateKeyRes = await api2(`/v1/users/api-key`, { method: "POST" });
   const apiKey = generateKeyRes.body?.data?.apiKey;
   report(
-    "POST /users/:id/api-key → 201, devolve a chave em texto puro",
+    "POST /users/api-key → 201, devolve a chave em texto puro pro dono do token",
     generateKeyRes.status === 201 && typeof apiKey === "string" && apiKey.startsWith("araci_"),
     generateKeyRes.body
+  );
+
+  // A rota não existe mais (nenhum handler POST de 3 segmentos sob
+  // /v1/users), então o Nest devolve "rota não encontrada" -- não checa
+  // um status exato aqui porque esse caminho (rota nunca registrada) cai
+  // num bug pré-existente do HttpExceptionFilter que devolve 500 em vez
+  // de 404 pra NotFoundException do próprio framework (fora do escopo
+  // desta correção). O que importa pro achado C-02 é o invariante: essa
+  // URL nunca mais devolve uma chave de API de outra pessoa.
+  const escalationRes = await api(`/v1/users/${user2.id}/api-key`, { method: "POST" });
+  report(
+    "Rota antiga POST /users/:id/api-key não gera mais chave nenhuma (achado C-02: era assim que qualquer staff virava admin)",
+    escalationRes.status !== 201 && !escalationRes.body?.data?.apiKey,
+    escalationRes.body
   );
 
   const productViaApiKeyRes = await api(`/v1/products`, {
@@ -1059,7 +1092,7 @@ async function main() {
     productViaApiKeyRes.body
   );
 
-  const regenerateKeyRes = await api(`/v1/users/${user2.id}/api-key`, { method: "POST" });
+  const regenerateKeyRes = await api2(`/v1/users/api-key`, { method: "POST" });
   const newApiKey = regenerateKeyRes.body?.data?.apiKey;
   const oldKeyAfterRegenRes = await api(`/v1/products`, { headers: { "X-Api-Key": apiKey } });
   report(
@@ -1068,10 +1101,10 @@ async function main() {
     { regenerateKeyRes: regenerateKeyRes.body, oldKeyAfterRegenRes: oldKeyAfterRegenRes.body }
   );
 
-  const revokeKeyRes = await api(`/v1/users/${user2.id}/api-key`, { method: "DELETE" });
+  const revokeKeyRes = await api2(`/v1/users/api-key`, { method: "DELETE" });
   const afterRevokeRes = await api(`/v1/products`, { headers: { "X-Api-Key": newApiKey } });
   report(
-    "DELETE /users/:id/api-key → 204, e a chave revogada para de autenticar",
+    "DELETE /users/api-key → 204, e a chave revogada para de autenticar",
     revokeKeyRes.status === 204 && afterRevokeRes.status === 401,
     { revokeKeyRes: revokeKeyRes.body, afterRevokeRes: afterRevokeRes.body }
   );
@@ -1533,6 +1566,26 @@ async function main() {
       Array.isArray(publicViewBody?.data?.areas) &&
       Array.isArray(publicViewBody?.data?.moodboards),
     publicViewBody
+  );
+
+  // spec1 foi criado com unitPrice: 8200, markupPercent: 0.1 (linha
+  // ~1364) -- achados C-03/C-04: o link público nunca pode devolver esse
+  // 8200 cru nem o 0.1 do markup, e o número que aparece como unitPrice
+  // aqui tem que já ser o preço de venda (8200 × 1,1 = 9020), o mesmo
+  // valor que specifications.service.ts usa pra gerar a fatura de
+  // verdade no checkout.
+  const publicSpec1 = publicViewBody?.data?.areas
+    ?.flatMap((a: any) => a.specifications ?? [])
+    .find((s: any) => s.product?.id === product1Id);
+  report(
+    "Link público: unitPrice já é o preço com markup (9020), não o custo cru (8200)",
+    Number(publicSpec1?.unitPrice) === 9020,
+    publicSpec1
+  );
+  report(
+    "Link público: markupPercent e sourceUrl nunca aparecem no payload (achado C-03)",
+    publicSpec1?.markupPercent === undefined && publicSpec1?.product?.sourceUrl === undefined,
+    publicSpec1
   );
 
   const approveViaLinkRes = await fetch(`${BASE_URL}/v1/present/${firstToken}/specifications/${spec1Id}`, {

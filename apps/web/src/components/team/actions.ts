@@ -35,9 +35,11 @@ export async function updateUser(userId: string, formData: FormData) {
 // Devolve a chave em texto puro -- só existe nesta resposta, o backend só
 // guarda o hash (ver apps/api/src/erp/users.service.ts#generateApiKey).
 // Usada pela extensão Captura para autenticar POST /v1/products direto do
-// navegador do colaborador, sem depender da sessão web.
-export async function generateApiKey(userId: string): Promise<string> {
-  const res = await apiFetch(`users/${userId}/api-key`, { method: "POST" });
+// navegador do colaborador, sem depender da sessão web. Sem userId de
+// parâmetro (achado C-02 da auditoria) -- igual a disconnectGoogleSync
+// abaixo, sempre opera na PRÓPRIA sessão, nunca em nome de outro usuário.
+export async function generateApiKey(): Promise<string> {
+  const res = await apiFetch(`users/api-key`, { method: "POST" });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error(body?.error?.message ?? "Não foi possível gerar a chave de API.");
@@ -47,8 +49,8 @@ export async function generateApiKey(userId: string): Promise<string> {
   return body.data.apiKey as string;
 }
 
-export async function revokeApiKey(userId: string): Promise<void> {
-  const res = await apiFetch(`users/${userId}/api-key`, { method: "DELETE" });
+export async function revokeApiKey(): Promise<void> {
+  const res = await apiFetch(`users/api-key`, { method: "DELETE" });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error(body?.error?.message ?? "Não foi possível remover a chave de API.");

@@ -55,17 +55,17 @@ export class UsersService {
   // /v1/products direto do navegador -- ver AuthGuard) só existe em texto
   // puro aqui, no retorno desta chamada; só o hash sha-256 é persistido.
   // Regenerar sobrescreve o hash antigo, invalidando a chave anterior sem
-  // precisar de um passo de revogação separado.
-  async generateApiKey(accountId: string, id: string): Promise<string> {
-    await this.getUser(accountId, id);
+  // precisar de um passo de revogação separado. `id` vem só da sessão
+  // (ver UsersController) -- nunca de um :id de rota -- então não existe
+  // risco de gerar/revogar a chave de outro usuário.
+  async generateApiKey(id: string): Promise<string> {
     const apiKey = `araci_${randomBytes(24).toString('base64url')}`;
     const apiKeyHash = createHash('sha256').update(apiKey).digest('hex');
     await this.prisma.db.user.update({ where: { id }, data: { apiKeyHash } });
     return apiKey;
   }
 
-  async revokeApiKey(accountId: string, id: string): Promise<void> {
-    await this.getUser(accountId, id);
+  async revokeApiKey(id: string): Promise<void> {
     await this.prisma.db.user.update({
       where: { id },
       data: { apiKeyHash: null },

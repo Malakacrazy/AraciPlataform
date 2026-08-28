@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { generateApiKey, revokeApiKey } from "./actions";
 
-export function ApiKeyPanel({ userId, hasKey }: { userId: string; hasKey: boolean }) {
+export function ApiKeyPanel({ hasKey }: { hasKey: boolean }) {
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -12,7 +12,7 @@ export function ApiKeyPanel({ userId, hasKey }: { userId: string; hasKey: boolea
     setError(null);
     startTransition(async () => {
       try {
-        const key = await generateApiKey(userId);
+        const key = await generateApiKey();
         setRevealedKey(key);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro desconhecido.");
@@ -24,7 +24,7 @@ export function ApiKeyPanel({ userId, hasKey }: { userId: string; hasKey: boolea
     setError(null);
     startTransition(async () => {
       try {
-        await revokeApiKey(userId);
+        await revokeApiKey();
         setRevealedKey(null);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro desconhecido.");

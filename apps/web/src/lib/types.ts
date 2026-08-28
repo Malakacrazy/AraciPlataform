@@ -283,15 +283,58 @@ export interface PresentationLink {
   createdAt: string;
 }
 
-// GET v1/present/:token devolve o Project inteiro (o service não filtra
-// campos) -- esta interface lista só os campos que a página de
-// apresentação usa, igual ao resto deste arquivo (comentário do topo).
+// v1/present/:token (GET e PATCH specifications/:specId) devolve uma
+// projeção própria, não o Client/ProductSpecification/Product internos --
+// nunca inclui custo, markup ou fornecedor de origem (achado C-03), e
+// unitPrice aqui já é o preço com markup aplicado, calculado no service
+// (achado C-04), não o unitPrice cru dos tipos internos acima.
+export interface PresentationProduct {
+  id: string;
+  name: string;
+  supplier?: string | null;
+  imageUrl?: string | null;
+}
+
+export interface PresentationSpecification {
+  id: string;
+  product: PresentationProduct;
+  quantity: number;
+  unitPrice: string | null;
+  clientApproved: boolean;
+  clientComment?: string | null;
+}
+
+export interface PresentationArea {
+  id: string;
+  name: string;
+  specifications: PresentationSpecification[];
+}
+
+export interface PresentationMoodboardItem {
+  id: string;
+  kind: MoodboardItemKind;
+  product: PresentationProduct | null;
+  label?: string | null;
+  colorHex?: string | null;
+  swatchImageUrl?: string | null;
+  order: number;
+  x: number;
+  y: number;
+  width: number;
+}
+
+export interface PresentationMoodboard {
+  id: string;
+  name: string;
+  items: PresentationMoodboardItem[];
+}
+
 export interface PresentationData {
   id: string;
   name: string;
-  client: Client;
-  areas: (Area & { specifications: ProductSpecification[] })[];
-  moodboards: Moodboard[];
+  client: { name: string };
+  areas: PresentationArea[];
+  moodboards: PresentationMoodboard[];
 }
 
 export type OfficeLinkProvider = "DRIVE" | "CALENDAR" | "GMAIL";
