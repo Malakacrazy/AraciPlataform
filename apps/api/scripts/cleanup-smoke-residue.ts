@@ -34,6 +34,12 @@ const SMOKE_TEST_PRODUCT_NAMES = ["Luminária Pendente Latão", "Sofá Modular N
 // pra sempre como uma "despesa geral" órfã se nada limpar por descrição.
 const SMOKE_TEST_EXPENSE_DESCRIPTIONS = ["Marcenaria sob medida", "Assinatura do software de renderização"];
 
+// Lacuna da matriz ("checklist de documentos obrigatórios") -- config da
+// CONTA, não do projeto descartável: sobreviver a um crash a meio do
+// teste mudaria o comportamento real do gate pra qualquer projeto futuro
+// nesse estágio, não só residir sem uso como o resto daqui.
+const SMOKE_TEST_REQUIRED_DOCUMENT_TYPE = "aprovacao-conceito-smoke-test";
+
 // E-mail fixo usado pelo teste do formulário público de captação
 // (POST /v1/leads) -- diferente de todo o resto do smoke suite, esse
 // Client não nasce vinculado a nenhum projeto "Apto Vila Madalena", então
@@ -115,6 +121,13 @@ async function main() {
     });
     await tx.productSpecification.deleteMany({ where: { area: { projectId: { in: doomedProjectIds } } } });
     await tx.area.deleteMany({ where: { projectId: { in: doomedProjectIds } } });
+    // WhiteboardGuestAccess.moodboardId não tem onDelete: Cascade (mesmo
+    // padrão de CollaboratorProjectAccess/Allocation/Absence acima) --
+    // correção "moodboard vira quadro tldraw", sem isto um run que
+    // convidou alguém a um quadro descartável travaria este delete com
+    // FK RESTRICT. MoodboardComment já é cascade (ver schema), não
+    // precisa de limpeza explícita.
+    await tx.whiteboardGuestAccess.deleteMany({ where: { moodboard: { projectId: { in: doomedProjectIds } } } });
     await tx.moodboard.deleteMany({ where: { projectId: { in: doomedProjectIds } } });
     await tx.presentationLink.deleteMany({ where: { projectId: { in: doomedProjectIds } } });
     // InvoiceLine → Invoice é RESTRICT (mesma convenção de ProposalStage →
@@ -126,6 +139,7 @@ async function main() {
     await tx.expense.deleteMany({
       where: { OR: [{ projectId: { in: doomedProjectIds } }, { description: { in: SMOKE_TEST_EXPENSE_DESCRIPTIONS } }] },
     });
+    await tx.requiredDocumentType.deleteMany({ where: { documentType: SMOKE_TEST_REQUIRED_DOCUMENT_TYPE } });
     await tx.timeEntry.deleteMany({
       where: { OR: [{ projectId: { in: doomedProjectIds } }, { userId: { in: doomedUserIds } }] },
     });
@@ -162,15 +176,16 @@ async function main() {
     await tx.client.deleteMany({ where: { id: { in: doomedClientIds } } });
     await tx.user.deleteMany({ where: { id: { in: doomedUserIds } } });
 
-    // Só produtos órfãos (não usados em nenhuma especificação/moodboard) --
-    // a fixture mantida entre sessões usa alguns desses mesmos nomes e
+    // Só produtos órfãos (não usados em nenhuma especificação) -- a
+    // fixture mantida entre sessões usa alguns desses mesmos nomes e
     // continua em uso pelo projeto/cliente KEEP, então nunca é apagada por
-    // essa condição.
+    // essa condição. Não checa mais moodboard nenhum: correção "moodboard
+    // vira quadro tldraw" tirou a referência a Product de dentro do
+    // Moodboard (era MoodboardItem.productId, model que não existe mais).
     const deletedProducts = await tx.product.deleteMany({
       where: {
         name: { in: SMOKE_TEST_PRODUCT_NAMES },
         specifications: { none: {} },
-        moodboardItems: { none: {} },
       },
     });
     console.log(`  Produtos órfãos removidos: ${deletedProducts.count}`);
@@ -194,6 +209,9 @@ async function main() {
     where: { description: { in: SMOKE_TEST_EXPENSE_DESCRIPTIONS } },
   });
   const remainingLeadClients = await prisma.client.count({ where: { email: SMOKE_TEST_LEAD_EMAIL } });
+  const remainingRequiredDocumentTypes = await prisma.requiredDocumentType.count({
+    where: { documentType: SMOKE_TEST_REQUIRED_DOCUMENT_TYPE },
+  });
   console.log({
     remainingProjects,
     remainingClients,
@@ -201,6 +219,7 @@ async function main() {
     remainingProducts,
     remainingExpenses,
     remainingLeadClients,
+    remainingRequiredDocumentTypes,
   });
 }
 

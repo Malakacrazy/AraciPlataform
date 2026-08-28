@@ -101,6 +101,7 @@ model Account {
   projects              Project[]
   products              Product[]
   externalCollaborators ExternalCollaborator[]
+  whiteboardGuests      WhiteboardGuest[]
   roleRates             RoleRate[]
   officeLinks           OfficeLink[]
   activities            Activity[]
@@ -108,6 +109,7 @@ model Account {
   auditLogs             AuditLog[]
   expenses              Expense[]
   studioFixedCosts      StudioFixedCost[]
+  requiredDocumentTypes RequiredDocumentType[]
 }
 
 // Aba 01 ("Custos Fixos do Estúdio") -- item por item (aluguel, software,
@@ -155,6 +157,30 @@ model RoleRate {
   updatedAt             DateTime @updatedAt
 
   @@unique([accountId, role])
+}
+
+// Lacuna da matriz ("checklist de documentos obrigatórios por fase,
+// amarrado ao gate do PEP") -- configurado uma vez por STAGE (não por
+// ProjectPhase individual): o processo do estúdio é o mesmo em todo
+// projeto ("Briefing sempre exige contrato assinado"), então cadastrar
+// isto por projeto seria repetir a mesma configuração toda vez. Vazio
+// (nenhuma linha pra um stage) = gate continua exatamente como sempre
+// foi -- este recurso é aditivo, nunca muda o comportamento de uma conta
+// que não configurou nada, mesmo espírito de Account.dataRetentionMonths/
+// nfseAmbiente. documentType precisa bater exatamente (case-sensitive)
+// com o OfficeLink.documentType marcado na fase real -- ver
+// PhasesService.approvePhaseGate e o <datalist> em
+// office-links-section.tsx, que sugere estes mesmos valores na hora de
+// classificar um vínculo, pra reduzir divergência de digitação.
+model RequiredDocumentType {
+  id           String           @id @default(cuid())
+  accountId    String
+  account      Account          @relation(fields: [accountId], references: [id])
+  stage        ProjectStageName
+  documentType String
+  createdAt    DateTime         @default(now())
+
+  @@unique([accountId, stage, documentType])
 }
 
 model User {
@@ -792,7 +818,6 @@ model Product {
   images ProductImage[]
 
   specifications ProductSpecification[]
-  moodboardItems MoodboardItem[]
 
   @@index([accountId])
 }
@@ -830,50 +855,105 @@ model ProductSpecification {
   @@index([productId])
 }
 
-// FF&E: prancha de apresentação — conjunto curado e ordenado de produtos
-// para mostrar ao cliente (não é o carrinho, que já é a soma das
-// ProductSpecification aprovadas; um moodboard é material de
-// apresentação visual, pode não ter preço/quantidade definidos ainda).
-// Por projeto, não por Area — o estúdio pode montar mais de uma prancha
-// para o mesmo ambiente (ex.: "Sala de Estar — Conceito 1/2").
+// FF&E: prancha de apresentação — antes um canvas livre próprio
+// (posição/tamanho de produto/amostra, ver MoodboardItem no histórico),
+// agora um quadro tldraw embutido de verdade: desenho livre, texto,
+// qualquer imagem, não só produtos do catálogo. `snapshot` é o
+// TLStoreSnapshot inteiro (shapes + assets), salvo pelo cliente via
+// debounce (ver MoodboardsService.saveSnapshot) -- Postgres continua
+// sendo o sistema de registro; a sincronização ao vivo entre quem está
+// olhando ao mesmo tempo passa por um canal Realtime do Supabase
+// (ver TldrawSupabaseSync no frontend), nunca persistida lá — só
+// retransmitida. Por projeto, não por Area — o estúdio pode montar mais
+// de uma prancha para o mesmo ambiente (ex.: "Sala de Estar — Conceito
+// 1/2").
 model Moodboard {
   id        String   @id @default(cuid())
   projectId String
   project   Project  @relation(fields: [projectId], references: [id])
   name      String
   createdAt DateTime @default(now())
+  snapshot  Json?
 
-  items MoodboardItem[]
+  guestAccess WhiteboardGuestAccess[]
+  comments    MoodboardComment[]
 }
 
-// productId opcional -- correção "Moodboards" (auditoria, Fase 2): um item
-// pode ser um Product real (kind="product") ou uma amostra de material/
-// tecido sem produto nenhum no catálogo (kind="swatch", ver label/
-// colorHex/swatchImageUrl abaixo). Os dois conjuntos de campo nunca
-// coexistem de verdade -- validado no service (MoodboardsService), não no
-// schema, porque Prisma não tem constraint condicional entre colunas.
-model MoodboardItem {
+// Chat por prancha, ao lado do desenho ao vivo -- tldraw cobre o canvas,
+// isto cobre a conversa. Sem FK de verdade pro autor: User/Client/
+// WhiteboardGuest são três tabelas diferentes, e Activity.authorId não
+// serve aqui pelo mesmo motivo que não serve pro comentário de
+// prospecto no portal (ver PublicPresentationService, achado documentado
+// lá) -- exige um User de verdade, e nem cliente nem convidado são.
+// authorName é um retrato do nome no momento do comentário, não uma
+// referência viva (se a pessoa mudar de nome depois, comentários antigos
+// mantêm o nome de quando foram escritos -- comportamento aceitável pra
+// chat, não pra auditoria). Retransmitido ao vivo pelo mesmo canal
+// Realtime do Supabase que sincroniza o canvas (ver
+// TldrawSupabaseSync), além de persistido aqui.
+model MoodboardComment {
   id          String    @id @default(cuid())
   moodboardId String
   moodboard   Moodboard @relation(fields: [moodboardId], references: [id], onDelete: Cascade)
-  productId   String?
-  product     Product?  @relation(fields: [productId], references: [id])
-  order       Int       @default(0)
+  authorType  String // "user" | "client" | "guest"
+  authorName  String
+  body        String
+  createdAt   DateTime  @default(now())
+}
 
-  // Canvas livre -- x/y/width em pontos lógicos de um canvas de tamanho
-  // fixo (ver MOODBOARD_CANVAS_WIDTH/HEIGHT no frontend), não pixel de
-  // tela: designer e cliente (link de apresentação) desenham o mesmo
-  // layout em qualquer resolução. `order` dobra como z-index de
-  // empilhamento (trazer pra frente = maior order) -- não precisa de
-  // coluna própria pra isso.
-  x     Float @default(24)
-  y     Float @default(24)
-  width Float @default(180)
+// Nova audiência que não é staff (sem conta Google Workspace) nem o
+// cliente do projeto (sem CollaboratorPortalService, que é read-only e
+// escopado a PROJETO inteiro) -- alguém convidado só pra colaborar num
+// quadro específico. Autenticado via Logto (OIDC), não magic link
+// próprio como ExternalCollaborator/Client: decisão explícita do
+// usuário, não invenção desta sessão. logtoSubjectId fica null até o
+// primeiro login bem-sucedido (convite por e-mail sempre vem antes,
+// mesma ordem de ExternalCollaborator) -- depois disso, trava nesse
+// subject específico, e-mail sozinho não basta mais pra provar
+// identidade.
+model WhiteboardGuest {
+  id             String   @id @default(cuid())
+  accountId      String
+  account        Account  @relation(fields: [accountId], references: [id])
+  email          String   @unique
+  name           String
+  logtoSubjectId String?  @unique
+  createdAt      DateTime @default(now())
 
-  kind           String  @default("product") // "product" | "swatch"
-  label          String? // só kind="swatch" -- nome da amostra (ex.: "Linho cru")
-  colorHex       String? // só kind="swatch", opcional -- cor sólida
-  swatchImageUrl String? // só kind="swatch", opcional -- foto da amostra
+  access   WhiteboardGuestAccess[]
+  sessions WhiteboardGuestSession[]
+}
+
+// O convite em si -- criado por um admin ANTES do convidado logar pela
+// primeira vez (mesmo padrão de CollaboratorProjectAccess). Escopado ao
+// QUADRO, não ao projeto inteiro -- convite mais estreito que o de
+// consultor externo, de propósito: "colabora neste quadro" é uma
+// concessão menor que "vê o projeto inteiro".
+model WhiteboardGuestAccess {
+  id          String          @id @default(cuid())
+  guestId     String
+  guest       WhiteboardGuest @relation(fields: [guestId], references: [id])
+  moodboardId String
+  moodboard   Moodboard       @relation(fields: [moodboardId], references: [id])
+  invitedAt   DateTime        @default(now())
+
+  @@unique([guestId, moodboardId])
+}
+
+// Sessão própria da plataforma, não o cookie/JWT do Logto em si --
+// mesmo raciocínio de ClientSession/CollaboratorSession: um token nesta
+// tabela É a credencial, verificado aqui, sem exigir validação de JWKS a
+// cada chamada. Nasce só depois que o login OIDC via Logto confirma a
+// identidade (ver LogtoCallback em apps/web); Logto prova QUEM é a
+// pessoa uma vez, esta tabela decide por quanto tempo ela continua
+// autenticada na plataforma.
+model WhiteboardGuestSession {
+  id        String          @id @default(cuid())
+  guestId   String
+  guest     WhiteboardGuest @relation(fields: [guestId], references: [id])
+  token     String          @unique
+  expiresAt DateTime
+  createdAt DateTime        @default(now())
 }
 
 // Link de apresentação: dá a um cliente (sem login, sem conta) acesso de

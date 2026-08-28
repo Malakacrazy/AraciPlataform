@@ -22,7 +22,6 @@ const ENTITY_TYPES = [
   "ProductSpecification",
   "Area",
   "Moodboard",
-  "MoodboardItem",
   "Invoice",
   "RoleRate",
   "TimeEntry",

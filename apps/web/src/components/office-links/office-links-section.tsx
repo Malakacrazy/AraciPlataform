@@ -34,6 +34,11 @@ interface Props {
   // do PEP, então nem o botão de provisionar pastas nem o seletor de fase
   // na taxonomia aparecem sem isso.
   phases?: { id: string; stage: string }[];
+  // Lacuna da matriz ("checklist de documentos obrigatórios") -- sugestões
+  // pro <datalist> do campo de tipo de documento, reduzindo divergência
+  // de digitação contra o que RequiredDocumentTypesService espera bater
+  // exatamente. Continua sendo texto livre -- isto só ajuda a acertar.
+  documentTypeSuggestions?: string[];
 }
 
 function errorMessage(err: unknown, fallback: string) {
@@ -45,7 +50,15 @@ function toDateTimeLocalValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export function OfficeLinksSection({ entityType, entityId, links, userEmail, contactEmail, phases }: Props) {
+export function OfficeLinksSection({
+  entityType,
+  entityId,
+  links,
+  userEmail,
+  contactEmail,
+  phases,
+  documentTypeSuggestions,
+}: Props) {
   const [error, setError] = useState<string | null>(null);
   const [isLinkingDrive, setIsLinkingDrive] = useState(false);
   const [isProvisioningFolders, setIsProvisioningFolders] = useState(false);
@@ -242,6 +255,13 @@ export function OfficeLinksSection({ entityType, entityId, links, userEmail, con
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+      {documentTypeSuggestions && documentTypeSuggestions.length > 0 && (
+        <datalist id="document-type-suggestions">
+          {documentTypeSuggestions.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      )}
       <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Office (Drive/Calendar/Gmail)</h2>
 
       {links.length === 0 ? (
@@ -300,6 +320,7 @@ export function OfficeLinksSection({ entityType, entityId, links, userEmail, con
                     Tipo de documento
                     <input
                       name="documentType"
+                      list="document-type-suggestions"
                       defaultValue={link.documentType ?? ""}
                       placeholder="contrato, ART, memorial…"
                       className="w-40 rounded border border-zinc-300 bg-transparent px-2 py-1 text-sm text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"

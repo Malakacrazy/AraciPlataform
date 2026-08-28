@@ -13,6 +13,7 @@ const LINKS = [
   { href: "/team", label: "Equipe" },
   { href: "/products", label: "Produtos" },
   { href: "/financeiro", label: "Financeiro", adminOnly: true },
+  { href: "/documentos-obrigatorios", label: "Documentos", adminOnly: true },
   { href: "/log", label: "Log", adminOnly: true },
 ];
 

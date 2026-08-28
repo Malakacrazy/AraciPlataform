@@ -1649,101 +1649,230 @@ async function main() {
     ffeInvoiceListRes.body
   );
 
+  // Correção "moodboard vira quadro tldraw" -- canvas livre próprio
+  // (posição de produto/amostra) trocado por um quadro tldraw embutido
+  // de verdade; snapshot é opaco pra este service (só o tldraw sabe
+  // desenhar a partir dele), então o teste aqui só prova que o
+  // round-trip funciona, não valida a forma do JSON.
   const moodboardRes = await api(`/v1/projects/${projectId}/moodboards`, {
     method: "POST",
     body: JSON.stringify({ name: "Sala de Estar — Conceito 1" }),
   });
-  report("POST /projects/:id/moodboards → 201", moodboardRes.status === 201, moodboardRes.body);
+  report(
+    "POST /projects/:id/moodboards → 201, sem snapshot ainda (prancha recém-criada)",
+    moodboardRes.status === 201 && moodboardRes.body?.data?.snapshot === null,
+    moodboardRes.body
+  );
   const moodboardId = moodboardRes.body?.data?.id;
 
-  const moodboardItemRes = await api(`/v1/moodboards/${moodboardId}/items`, {
-    method: "POST",
-    body: JSON.stringify({ productId: product1Id }),
+  const fakeSnapshot = { document: { shapeFake: true }, marker: "smoke-test-snapshot" };
+  const saveSnapshotRes = await api(`/v1/moodboards/${moodboardId}/snapshot`, {
+    method: "PATCH",
+    body: JSON.stringify({ snapshot: fakeSnapshot }),
   });
   report(
-    "POST /moodboards/:id/items → 201, inclui o produto, kind='product', com x/y/width numéricos",
-    moodboardItemRes.status === 201 &&
-      moodboardItemRes.body?.data?.product?.id === product1Id &&
-      moodboardItemRes.body?.data?.kind === "product" &&
-      typeof moodboardItemRes.body?.data?.x === "number" &&
-      typeof moodboardItemRes.body?.data?.width === "number",
-    moodboardItemRes.body
-  );
-  const moodboardItemId = moodboardItemRes.body?.data?.id;
-
-  // Correção "Moodboards" (auditoria, Fase 2): canvas livre (posição real,
-  // não card em grid) + amostra de material/tecido sem Product nenhum.
-  const swatchRes = await api(`/v1/moodboards/${moodboardId}/items`, {
-    method: "POST",
-    body: JSON.stringify({ kind: "swatch", label: "Linho cru", colorHex: "#D8CDBA" }),
-  });
-  report(
-    "POST /moodboards/:id/items (amostra, sem productId) → 201, product null, label/colorHex certos",
-    swatchRes.status === 201 &&
-      swatchRes.body?.data?.product === null &&
-      swatchRes.body?.data?.label === "Linho cru" &&
-      swatchRes.body?.data?.colorHex === "#D8CDBA",
-    swatchRes.body
-  );
-  const swatchItemId = swatchRes.body?.data?.id;
-  report(
-    "Segundo item nasce deslocado do primeiro (cascata), não empilhado exatamente em cima",
-    swatchRes.body?.data?.x !== moodboardItemRes.body?.data?.x ||
-      swatchRes.body?.data?.y !== moodboardItemRes.body?.data?.y,
-    { primeiro: { x: moodboardItemRes.body?.data?.x, y: moodboardItemRes.body?.data?.y }, segundo: { x: swatchRes.body?.data?.x, y: swatchRes.body?.data?.y } }
-  );
-
-  const swatchSemCorRes = await api(`/v1/moodboards/${moodboardId}/items`, {
-    method: "POST",
-    body: JSON.stringify({ kind: "swatch", label: "Sem cor nem foto" }),
-  });
-  report(
-    "POST /moodboards/:id/items (amostra sem colorHex nem swatchImageUrl) → 400 VALIDATION_ERROR",
-    swatchSemCorRes.status === 400,
-    swatchSemCorRes.body
+    "PATCH /moodboards/:id/snapshot → 200, devolve o snapshot salvo",
+    saveSnapshotRes.status === 200 && saveSnapshotRes.body?.data?.snapshot?.marker === "smoke-test-snapshot",
+    saveSnapshotRes.body
   );
 
   const getMoodboardRes = await api(`/v1/moodboards/${moodboardId}`);
   report(
-    "GET /moodboards/:id (prancha única, endpoint novo) → 200, traz os 2 itens",
-    getMoodboardRes.status === 200 && getMoodboardRes.body?.data?.items?.length === 2,
+    "GET /moodboards/:id → 200, snapshot sobrevive ao round-trip",
+    getMoodboardRes.status === 200 && getMoodboardRes.body?.data?.snapshot?.marker === "smoke-test-snapshot",
     getMoodboardRes.body
-  );
-
-  const updateLayoutRes = await api(`/v1/moodboard-items/${moodboardItemId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ x: 500, y: 300, width: 240, bringToFront: true }),
-  });
-  report(
-    "PATCH /moodboard-items/:id → 200, move/redimensiona e traz pra frente (order > o outro item)",
-    updateLayoutRes.status === 200 &&
-      Number(updateLayoutRes.body?.data?.x) === 500 &&
-      Number(updateLayoutRes.body?.data?.y) === 300 &&
-      Number(updateLayoutRes.body?.data?.width) === 240 &&
-      updateLayoutRes.body?.data?.order > swatchRes.body?.data?.order,
-    updateLayoutRes.body
   );
 
   const moodboardListRes = await api(`/v1/projects/${projectId}/moodboards`);
   const listedMoodboard = moodboardListRes.body?.data?.find((m: any) => m.id === moodboardId);
   report(
-    "GET /projects/:id/moodboards inclui a prancha com os 2 itens",
-    listedMoodboard?.items?.length === 2,
+    "GET /projects/:id/moodboards inclui a prancha com o snapshot salvo",
+    listedMoodboard?.snapshot?.marker === "smoke-test-snapshot",
     moodboardListRes.body
   );
 
-  const deleteSwatchItemRes = await api(`/v1/moodboard-items/${swatchItemId}`, { method: "DELETE" });
-  report("DELETE /moodboard-items/:id (amostra) → 204", deleteSwatchItemRes.status === 204, deleteSwatchItemRes.body);
+  // Chat por prancha (pedido junto com a colaboração ao vivo) --
+  // authorType="user" pro comentário de staff, authorName vem do próprio
+  // User da sessão (não passado no corpo).
+  const emptyCommentsRes = await api(`/v1/moodboards/${moodboardId}/comments`);
+  report(
+    "GET /moodboards/:id/comments antes de qualquer comentário → 200, lista vazia",
+    emptyCommentsRes.status === 200 && emptyCommentsRes.body?.data?.length === 0,
+    emptyCommentsRes.body
+  );
 
-  const deleteMoodboardItemRes = await api(`/v1/moodboard-items/${moodboardItemId}`, { method: "DELETE" });
-  report("DELETE /moodboard-items/:id → 204", deleteMoodboardItemRes.status === 204, deleteMoodboardItemRes.body);
+  const addStaffCommentRes = await api(`/v1/moodboards/${moodboardId}/comments`, {
+    method: "POST",
+    body: JSON.stringify({ body: "Ficou ótimo esse conceito!" }),
+  });
+  report(
+    "POST /moodboards/:id/comments (staff) → 201, authorType='user'",
+    addStaffCommentRes.status === 201 &&
+      addStaffCommentRes.body?.data?.authorType === "user" &&
+      addStaffCommentRes.body?.data?.body === "Ficou ótimo esse conceito!",
+    addStaffCommentRes.body
+  );
+
+  const listCommentsAfterRes = await api(`/v1/moodboards/${moodboardId}/comments`);
+  report(
+    "GET /moodboards/:id/comments depois → inclui o comentário do staff",
+    listCommentsAfterRes.body?.data?.length === 1,
+    listCommentsAfterRes.body
+  );
+
+  // Nova audiência (nem staff, nem Client, nem ExternalCollaborator de
+  // projeto inteiro): alguém convidado só pra colaborar NESTE quadro,
+  // autenticado via Logto -- ver WhiteboardGuest no schema. verify-login
+  // não chama o Logto de verdade (isto é só apps/api, que já recebe as
+  // claims prontas do callback OAuth em apps/web) -- por isso é
+  // inteiramente testável aqui sem credencial real nenhuma, diferente
+  // do resto da integração Logto/Supabase.
+  const guestEmail = `convidado-quadro-${Date.now()}@example.com`;
+  const inviteGuestRes = await api(`/v1/moodboards/${moodboardId}/guests`, {
+    method: "POST",
+    body: JSON.stringify({ email: guestEmail, name: "Convidado do Quadro" }),
+  });
+  report(
+    "POST /moodboards/:id/guests → 201, convida um novo convidado ao quadro",
+    inviteGuestRes.status === 201 && inviteGuestRes.body?.data?.guest?.email === guestEmail,
+    inviteGuestRes.body
+  );
+  const guestId = inviteGuestRes.body?.data?.guest?.id;
+
+  const inviteGuestNovoRes = await api(`/v1/moodboards/${moodboardId}/guests`, {
+    method: "POST",
+    body: JSON.stringify({ email: guestEmail, name: "Convidado do Quadro" }),
+  });
+  report(
+    "Convidar de novo o MESMO e-mail pro MESMO quadro → 201 idempotente, mesmo guestId, não duplica",
+    inviteGuestNovoRes.status === 201 && inviteGuestNovoRes.body?.data?.guest?.id === guestId,
+    inviteGuestNovoRes.body
+  );
+
+  const listGuestsRes = await api(`/v1/moodboards/${moodboardId}/guests`);
+  report(
+    "GET /moodboards/:id/guests → inclui o convite, sem duplicar (achado de idempotência acima)",
+    listGuestsRes.status === 200 && listGuestsRes.body?.data?.length === 1,
+    listGuestsRes.body
+  );
+
+  const uninvitedLoginRes = await fetch(`${BASE_URL}/v1/whiteboard-guest-portal/verify-login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "nunca-convidado@example.com", name: "Ninguém", logtoSubjectId: "sub-fake-1" }),
+  });
+  report(
+    "POST /whiteboard-guest-portal/verify-login com e-mail nunca convidado → 401",
+    uninvitedLoginRes.status === 401,
+    await uninvitedLoginRes.json().catch(() => null)
+  );
+
+  const guestSubjectId = `logto-sub-${Date.now()}`;
+  const guestLoginRes = await fetch(`${BASE_URL}/v1/whiteboard-guest-portal/verify-login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: guestEmail, name: "Convidado do Quadro", logtoSubjectId: guestSubjectId }),
+  });
+  const guestLoginBody = await guestLoginRes.json().catch(() => null);
+  report(
+    "POST /whiteboard-guest-portal/verify-login com e-mail convidado → 200, devolve sessionToken",
+    guestLoginRes.status === 200 && !!guestLoginBody?.data?.sessionToken,
+    guestLoginBody
+  );
+  const guestSessionToken = guestLoginBody?.data?.sessionToken;
+
+  const guestBoardsRes = await fetch(`${BASE_URL}/v1/whiteboard-guest-portal/boards`, {
+    headers: { "X-Whiteboard-Guest-Session": guestSessionToken },
+  });
+  const guestBoardsBody = await guestBoardsRes.json().catch(() => null);
+  report(
+    "GET /whiteboard-guest-portal/boards → inclui só o quadro convidado",
+    guestBoardsRes.status === 200 &&
+      guestBoardsBody?.data?.boards?.length === 1 &&
+      guestBoardsBody.data.boards[0].id === moodboardId,
+    guestBoardsBody
+  );
+
+  const guestGetBoardRes = await fetch(`${BASE_URL}/v1/whiteboard-guest-portal/boards/${moodboardId}`, {
+    headers: { "X-Whiteboard-Guest-Session": guestSessionToken },
+  });
+  const guestGetBoardBody = await guestGetBoardRes.json().catch(() => null);
+  report(
+    "GET /whiteboard-guest-portal/boards/:id → 200, traz o snapshot salvo pelo staff",
+    guestGetBoardRes.status === 200 && guestGetBoardBody?.data?.snapshot?.marker === "smoke-test-snapshot",
+    guestGetBoardBody
+  );
+
+  const guestSaveSnapshotRes = await fetch(`${BASE_URL}/v1/whiteboard-guest-portal/boards/${moodboardId}/snapshot`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", "X-Whiteboard-Guest-Session": guestSessionToken },
+    body: JSON.stringify({ snapshot: { ...fakeSnapshot, marker: "editado-pelo-convidado" } }),
+  });
+  report(
+    "PATCH /whiteboard-guest-portal/boards/:id/snapshot → 200, convidado tem escrita no quadro",
+    guestSaveSnapshotRes.status === 200,
+    await guestSaveSnapshotRes.json().catch(() => null)
+  );
+
+  const guestCommentRes = await fetch(`${BASE_URL}/v1/whiteboard-guest-portal/boards/${moodboardId}/comments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Whiteboard-Guest-Session": guestSessionToken },
+    body: JSON.stringify({ body: "Cheguei!" }),
+  });
+  const guestCommentBody = await guestCommentRes.json().catch(() => null);
+  report(
+    "POST /whiteboard-guest-portal/boards/:id/comments → 201, authorType='guest'",
+    guestCommentRes.status === 201 && guestCommentBody?.data?.authorType === "guest",
+    guestCommentBody
+  );
+
+  const commentsAfterGuestRes = await api(`/v1/moodboards/${moodboardId}/comments`);
+  report(
+    "GET /moodboards/:id/comments (visão do staff) inclui o comentário do convidado",
+    commentsAfterGuestRes.body?.data?.length === 2,
+    commentsAfterGuestRes.body
+  );
+
+  // Segundo quadro, sem convite nenhum -- prova que o escopo é POR
+  // QUADRO, não por conta/projeto inteiro (mesmo espírito do teste de
+  // CollaboratorPortalService pra "sem acesso a este projeto").
+  const secondMoodboardRes = await api(`/v1/projects/${projectId}/moodboards`, {
+    method: "POST",
+    body: JSON.stringify({ name: "Quarto — Conceito 1" }),
+  });
+  const secondMoodboardId = secondMoodboardRes.body?.data?.id;
+  const guestWrongBoardRes = await fetch(`${BASE_URL}/v1/whiteboard-guest-portal/boards/${secondMoodboardId}`, {
+    headers: { "X-Whiteboard-Guest-Session": guestSessionToken },
+  });
+  report(
+    "GET /whiteboard-guest-portal/boards/:id sem convite pra ESTE quadro → 403 (sessão continua válida, não é 401)",
+    guestWrongBoardRes.status === 403,
+    await guestWrongBoardRes.json().catch(() => null)
+  );
+  await api(`/v1/moodboards/${secondMoodboardId}`, { method: "DELETE" });
+
+  const revokeGuestRes = await api(`/v1/moodboards/${moodboardId}/guests/${guestId}`, { method: "DELETE" });
+  report("DELETE /moodboards/:id/guests/:guestId → 204", revokeGuestRes.status === 204, revokeGuestRes.body);
+
+  const guestAfterRevokeRes = await fetch(`${BASE_URL}/v1/whiteboard-guest-portal/boards/${moodboardId}`, {
+    headers: { "X-Whiteboard-Guest-Session": guestSessionToken },
+  });
+  report(
+    "Depois de revogado, GET .../boards/:id direto → 403 (mesma sessão, ainda válida)",
+    guestAfterRevokeRes.status === 403,
+    await guestAfterRevokeRes.json().catch(() => null)
+  );
 
   const deleteMoodboardRes = await api(`/v1/moodboards/${moodboardId}`, { method: "DELETE" });
-  report(
-    "DELETE /moodboards/:id → 204 (cascade cuida dos itens, já sem nenhum aqui)",
-    deleteMoodboardRes.status === 204,
-    deleteMoodboardRes.body
-  );
+  report("DELETE /moodboards/:id → 204", deleteMoodboardRes.status === 204, deleteMoodboardRes.body);
+
+  // Limpeza inline da identidade do convidado -- mesmo padrão de
+  // collaboratorEmail mais adiante no run: e-mail único por run, então é
+  // seguro apagar tudo ligado a ele aqui mesmo, sem esperar o cleanup
+  // script genérico (que só limpa por doomedProjectIds/doomedUserIds).
+  await prisma.whiteboardGuestSession.deleteMany({ where: { guest: { email: guestEmail } } });
+  await prisma.whiteboardGuestAccess.deleteMany({ where: { guest: { email: guestEmail } } });
+  await prisma.whiteboardGuest.deleteMany({ where: { email: guestEmail } });
 
   // --- Link de apresentação: sem sessão nenhuma a partir daqui, o token
   // na URL é a única credencial. `api()` continua mandando o Bearer
@@ -1799,6 +1928,157 @@ async function main() {
     publicSpec1?.markupPercent === undefined && publicSpec1?.product?.sourceUrl === undefined,
     publicSpec1
   );
+
+  // Item "grande" da lista de 11 (adiado até a taxonomia documental estar
+  // em uso real): documento visível ao cliente no link de apresentação.
+  // Criado pelo endpoint real (mesmo que a tela do projeto usa) e depois
+  // marcado documentType/visibleToClient via PATCH; brokenAt só é setável
+  // de servidor pra servidor (checkBrokenLinksForAccount), então esse
+  // caso vai direto no banco -- mesmo padrão de asaasPaymentId/
+  // nfseChaveAcesso nos testes de webhook.
+  const visibleDocRes = await api(`/v1/projects/${projectId}/office-links`, {
+    method: "POST",
+    body: JSON.stringify({
+      provider: "DRIVE",
+      externalId: "drive-file-visivel",
+      url: "https://drive.google.com/file/d/drive-file-visivel/view",
+      title: "Contrato.pdf",
+    }),
+  });
+  const visibleDocId = visibleDocRes.body?.data?.id;
+  await api(`/v1/office-links/${visibleDocId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ documentType: "contrato", visibleToClient: true }),
+  });
+
+  const hiddenDocRes = await api(`/v1/projects/${projectId}/office-links`, {
+    method: "POST",
+    body: JSON.stringify({
+      provider: "DRIVE",
+      externalId: "drive-file-interno",
+      url: "https://drive.google.com/file/d/drive-file-interno/view",
+      title: "Rascunho interno.pdf",
+    }),
+  });
+  const hiddenDocId = hiddenDocRes.body?.data?.id; // nunca marcado visibleToClient -- false por default
+
+  const brokenVisibleDocRes = await api(`/v1/projects/${projectId}/office-links`, {
+    method: "POST",
+    body: JSON.stringify({
+      provider: "DRIVE",
+      externalId: "drive-file-quebrado",
+      url: "https://drive.google.com/file/d/drive-file-quebrado/view",
+      title: "ART antiga.pdf",
+    }),
+  });
+  const brokenVisibleDocId = brokenVisibleDocRes.body?.data?.id;
+  await api(`/v1/office-links/${brokenVisibleDocId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ visibleToClient: true }),
+  });
+  await prisma.officeLink.update({ where: { id: brokenVisibleDocId }, data: { brokenAt: new Date() } });
+
+  const publicViewWithDocsRes = await fetch(`${BASE_URL}/v1/present/${firstToken}`);
+  const publicViewWithDocsBody = await publicViewWithDocsRes.json().catch(() => null);
+  const publicDocs = publicViewWithDocsBody?.data?.documents ?? [];
+  report(
+    "GET /v1/present/:token traz só o documento marcado visibleToClient e não quebrado (nunca o interno nem o quebrado)",
+    publicDocs.length === 1 && publicDocs[0]?.id === visibleDocId && publicDocs[0]?.documentType === "contrato",
+    publicDocs
+  );
+
+  const downloadHiddenRes = await fetch(`${BASE_URL}/v1/present/${firstToken}/documents/${hiddenDocId}`);
+  report(
+    "GET .../present/:token/documents/:id de um vínculo nunca marcado visível → 404 (não vaza que existe)",
+    downloadHiddenRes.status === 404,
+    await downloadHiddenRes.json().catch(() => null)
+  );
+
+  const downloadBrokenRes = await fetch(`${BASE_URL}/v1/present/${firstToken}/documents/${brokenVisibleDocId}`);
+  report(
+    "GET .../present/:token/documents/:id de um vínculo visível mas já quebrado → 404",
+    downloadBrokenRes.status === 404,
+    await downloadBrokenRes.json().catch(() => null)
+  );
+
+  const downloadInexistentRes = await fetch(`${BASE_URL}/v1/present/${firstToken}/documents/id-que-nao-existe`);
+  report(
+    "GET .../present/:token/documents/:id inexistente → 404",
+    downloadInexistentRes.status === 404,
+    await downloadInexistentRes.json().catch(() => null)
+  );
+
+  const downloadVisibleRes = await fetch(`${BASE_URL}/v1/present/${firstToken}/documents/${visibleDocId}`);
+  const downloadVisibleBody = await downloadVisibleRes.json().catch(() => null);
+  report(
+    "GET .../present/:token/documents/:id visível, sem ninguém da conta conectado ao Drive → 422 GOOGLE_DRIVE_NOT_CONNECTED",
+    downloadVisibleRes.status === 422 && downloadVisibleBody?.error?.code === "GOOGLE_DRIVE_NOT_CONNECTED",
+    downloadVisibleBody
+  );
+
+  // Limpeza inline -- este projectId é reaproveitado bem mais adiante no
+  // run (teste "GET /projects/:id/office-links inclui os três vínculos",
+  // que conta Drive+Calendar+Gmail já contratados nesse projeto); sem
+  // isto, os 3 vínculos daqui vazariam pra lá e quebrariam a contagem.
+  await api(`/v1/office-links/${visibleDocId}`, { method: "DELETE" });
+  await api(`/v1/office-links/${hiddenDocId}`, { method: "DELETE" });
+  await api(`/v1/office-links/${brokenVisibleDocId}`, { method: "DELETE" });
+
+  // Quadro tldraw pelo link de apresentação -- mesmo escopo (token só
+  // prova posse de UM projeto) já provado pra documentos/especificações;
+  // aqui só falta confirmar que um moodboardId de outro projeto dá 404
+  // (não vaza que a prancha existe alhures), igual updateSpecification
+  // já faz pro specId.
+  const presentationMoodboardRes = await api(`/v1/projects/${projectId}/moodboards`, {
+    method: "POST",
+    body: JSON.stringify({ name: "Prancha do link de apresentação" }),
+  });
+  const presentationMoodboardId = presentationMoodboardRes.body?.data?.id;
+
+  const publicGetBoardRes = await fetch(`${BASE_URL}/v1/present/${firstToken}/moodboards/${presentationMoodboardId}`);
+  report(
+    "GET /v1/present/:token/moodboards/:id → 200, sem Authorization",
+    publicGetBoardRes.status === 200,
+    await publicGetBoardRes.json().catch(() => null)
+  );
+
+  const publicSaveSnapshotRes = await fetch(
+    `${BASE_URL}/v1/present/${firstToken}/moodboards/${presentationMoodboardId}/snapshot`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ snapshot: { marker: "editado-pelo-cliente" } }),
+    },
+  );
+  report(
+    "PATCH .../present/:token/moodboards/:id/snapshot → 200, cliente tem escrita (posse do link = acesso)",
+    publicSaveSnapshotRes.status === 200,
+    await publicSaveSnapshotRes.json().catch(() => null)
+  );
+
+  const publicAddCommentRes = await fetch(
+    `${BASE_URL}/v1/present/${firstToken}/moodboards/${presentationMoodboardId}/comments`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: "Adorei a prancha!" }),
+    },
+  );
+  const publicAddCommentBody = await publicAddCommentRes.json().catch(() => null);
+  report(
+    "POST .../present/:token/moodboards/:id/comments → 201, authorType='client'",
+    publicAddCommentRes.status === 201 && publicAddCommentBody?.data?.authorType === "client",
+    publicAddCommentBody
+  );
+
+  const otherProjectMoodboardRes = await fetch(`${BASE_URL}/v1/present/${firstToken}/moodboards/id-de-outro-projeto`);
+  report(
+    "GET /v1/present/:token/moodboards/:id de um id que não pertence a este projeto → 404",
+    otherProjectMoodboardRes.status === 404,
+    await otherProjectMoodboardRes.json().catch(() => null)
+  );
+
+  await api(`/v1/moodboards/${presentationMoodboardId}`, { method: "DELETE" });
 
   const approveViaLinkRes = await fetch(`${BASE_URL}/v1/present/${firstToken}/specifications/${spec1Id}`, {
     method: "PATCH",
@@ -2758,6 +3038,95 @@ async function main() {
   await prisma.collaboratorProjectAccess.deleteMany({ where: { collaborator: { email: collaboratorEmail } } });
   await prisma.externalCollaborator.deleteMany({ where: { email: collaboratorEmail } });
 
+  // --- Checklist de documentos obrigatórios (lacuna da matriz, "amarrado
+  // ao gate do PEP") -- reaproveita thirdPhase (phases[2], CRIACAO_CONCEITO)
+  // já declarado acima como "ainda não aprovada": nada depois daquele
+  // ponto do script dependia disso continuar assim, e este projeto inteiro
+  // é descartado no fim do run mesmo. ---------------------------------
+  const requiredDocTypeName = "aprovacao-conceito-smoke-test";
+  const requiredDocRes = await api("/v1/required-document-types", {
+    method: "POST",
+    body: JSON.stringify({ stage: thirdPhase.stage, documentType: requiredDocTypeName }),
+  });
+  report(
+    "POST /required-document-types → 201, exige documento pro estágio",
+    requiredDocRes.status === 201 && requiredDocRes.body?.data?.documentType === requiredDocTypeName,
+    requiredDocRes.body
+  );
+  const requiredDocId = requiredDocRes.body?.data?.id;
+
+  const requiredDocAgainRes = await api("/v1/required-document-types", {
+    method: "POST",
+    body: JSON.stringify({ stage: thirdPhase.stage, documentType: requiredDocTypeName }),
+  });
+  report(
+    "Cadastrar de novo o MESMO tipo pro MESMO estágio → 409 (não duplica a exigência)",
+    requiredDocAgainRes.status === 409,
+    requiredDocAgainRes.body
+  );
+
+  const checklistBeforeRes = await api(`/v1/projects/${projectId}/phases/${thirdPhase.id}/document-checklist`);
+  report(
+    "GET .../document-checklist antes de qualquer vínculo → tipo exigido aparece como não satisfeito",
+    checklistBeforeRes.status === 200 &&
+      checklistBeforeRes.body?.data?.length === 1 &&
+      checklistBeforeRes.body?.data?.[0]?.satisfied === false,
+    checklistBeforeRes.body
+  );
+
+  const approveWithoutDocRes = await api(`/v1/projects/${projectId}/phases/${thirdPhase.id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ approvalChannel: "email" }),
+  });
+  report(
+    "Aprovar gate sem o documento obrigatório presente → 422 MISSING_REQUIRED_DOCUMENTS",
+    approveWithoutDocRes.status === 422 && approveWithoutDocRes.body?.error?.code === "MISSING_REQUIRED_DOCUMENTS",
+    approveWithoutDocRes.body
+  );
+
+  const satisfyingLinkRes = await api(`/v1/projects/${projectId}/office-links`, {
+    method: "POST",
+    body: JSON.stringify({
+      provider: "DRIVE",
+      externalId: "smoke-test-required-doc-file",
+      url: "https://drive.google.com/file/d/smoke-test-required-doc-file/view",
+      title: "Aprovação do conceito (smoke-test)",
+    }),
+  });
+  const satisfyingLinkId = satisfyingLinkRes.body?.data?.id;
+  const classifyLinkRes = await api(`/v1/office-links/${satisfyingLinkId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ documentType: requiredDocTypeName, phaseId: thirdPhase.id }),
+  });
+  report(
+    "Classificar o vínculo com o tipo exigido, ligado à fase → 200",
+    classifyLinkRes.status === 200,
+    classifyLinkRes.body
+  );
+
+  const checklistAfterRes = await api(`/v1/projects/${projectId}/phases/${thirdPhase.id}/document-checklist`);
+  report(
+    "Depois de classificar, checklist mostra o tipo satisfeito",
+    checklistAfterRes.body?.data?.[0]?.satisfied === true,
+    checklistAfterRes.body
+  );
+
+  const approveWithDocRes = await api(`/v1/projects/${projectId}/phases/${thirdPhase.id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ approvalChannel: "email" }),
+  });
+  report(
+    "Aprovar o mesmo gate agora, com o documento presente → 200",
+    approveWithDocRes.status === 200 && !!approveWithDocRes.body?.data?.approvedAt,
+    approveWithDocRes.body
+  );
+
+  // Cleanup inline -- RequiredDocumentType é config da CONTA, não do
+  // projeto descartável (cleanup-smoke-residue.ts não sabe limpar isto
+  // sozinho); deixar sobreviver mudaria o comportamento real do gate pra
+  // qualquer projeto futuro de verdade nesse estágio.
+  await api(`/v1/required-document-types/${requiredDocId}`, { method: "DELETE" });
+
   // --- Permissões: Admin vs Staff -------------------------------------
   // Deixado pro final de propósito: se um bug deixasse um DELETE staff
   // passar de verdade, isso derrubaria clientId/projectId que todo o
@@ -2792,6 +3161,16 @@ async function main() {
     "GET /me como staff (usuário novo) → accessLevel staff por padrão",
     meAsStaffRes.body?.data?.accessLevel === "staff",
     meAsStaffRes.body
+  );
+
+  const staffRequiredDocRes = await apiAsStaff("/v1/required-document-types", {
+    method: "POST",
+    body: JSON.stringify({ stage: "BRIEFING", documentType: "x" }),
+  });
+  report(
+    "POST /required-document-types como staff → 403 FORBIDDEN (exigência de documento é decisão de admin)",
+    staffRequiredDocRes.status === 403,
+    staffRequiredDocRes.body
   );
 
   const staffRoleRatesRes = await apiAsStaff("/v1/role-rates");
@@ -2829,6 +3208,22 @@ async function main() {
     staffInviteCollabRes.status === 403,
     staffInviteCollabRes.body
   );
+
+  const permissoesMoodboardRes = await api(`/v1/projects/${projectId}/moodboards`, {
+    method: "POST",
+    body: JSON.stringify({ name: "Prancha (teste de permissão)" }),
+  });
+  const permissoesMoodboardId = permissoesMoodboardRes.body?.data?.id;
+  const staffInviteGuestRes = await apiAsStaff(`/v1/moodboards/${permissoesMoodboardId}/guests`, {
+    method: "POST",
+    body: JSON.stringify({ email: "outro-convidado@example.com", name: "x" }),
+  });
+  report(
+    "POST /moodboards/:id/guests como staff → 403 FORBIDDEN (convidar pro quadro é decisão de admin)",
+    staffInviteGuestRes.status === 403,
+    staffInviteGuestRes.body
+  );
+  await api(`/v1/moodboards/${permissoesMoodboardId}`, { method: "DELETE" });
 
   const staffDeleteClientRes = await apiAsStaff(`/v1/clients/${clientId}`, { method: "DELETE" });
   report(

@@ -15,6 +15,7 @@ import { BiModule } from './bi/bi.module';
 import { ActivitiesModule } from './activities/activities.module';
 import { ClientPortalModule } from './client-portal/client-portal.module';
 import { CollaboratorPortalModule } from './collaborator-portal/collaborator-portal.module';
+import { WhiteboardGuestPortalModule } from './whiteboard-guest-portal/whiteboard-guest-portal.module';
 import { AuditLogModule } from './audit/audit-log.module';
 import { HttpExceptionFilter } from './common/http-exception.filter';
 
@@ -32,6 +33,7 @@ import { HttpExceptionFilter } from './common/http-exception.filter';
     ActivitiesModule,
     ClientPortalModule,
     CollaboratorPortalModule,
+    WhiteboardGuestPortalModule,
     AuditLogModule,
     // Defesa em profundidade — este serviço não é exposto ao navegador,
     // mas um limite de taxa custa pouco e ajuda contra um chamador

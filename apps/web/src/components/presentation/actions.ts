@@ -2,7 +2,13 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { updatePublicSpecification, PublicApiError } from "@/lib/publicApi";
+import {
+  updatePublicSpecification,
+  savePresentationMoodboardSnapshot,
+  addPresentationMoodboardComment,
+  PublicApiError,
+} from "@/lib/publicApi";
+import type { MoodboardComment } from "@/lib/types";
 
 // Achado "Médio" da auditoria: antes, uma falha do backend aqui (token
 // revogado ou especificação excluída entre o render e o clique) não era
@@ -32,4 +38,17 @@ export async function submitSpecificationComment(token: string, specId: string, 
     redirectWithError(token, err);
   }
   revalidatePath(`/present/${token}`);
+}
+
+// Sem redirect/revalidatePath de propósito, diferente das duas ações
+// acima -- chamada com debounce a cada pausa no desenho (ver
+// CollaborativeBoard); um redirect a cada poucos segundos enquanto o
+// cliente desenha quebraria a experiência. Erro aqui só loga no
+// console do navegador (ver CollaborativeBoard), não derruba a página.
+export async function saveMoodboardSnapshot(token: string, moodboardId: string, snapshot: unknown): Promise<void> {
+  await savePresentationMoodboardSnapshot(token, moodboardId, snapshot);
+}
+
+export async function addMoodboardComment(token: string, moodboardId: string, body: string): Promise<MoodboardComment> {
+  return addPresentationMoodboardComment(token, moodboardId, body);
 }

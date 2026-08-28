@@ -10,12 +10,10 @@ import {
   FfeCheckoutController,
 } from './specifications.controller';
 import { SpecificationsService } from './specifications.service';
-import {
-  ProjectMoodboardsController,
-  MoodboardsController,
-  MoodboardItemsController,
-} from './moodboards.controller';
+import { ProjectMoodboardsController, MoodboardsController } from './moodboards.controller';
 import { MoodboardsService } from './moodboards.service';
+import { WhiteboardGuestsController } from './whiteboard-guests.controller';
+import { WhiteboardGuestsService } from './whiteboard-guests.service';
 
 @Module({
   imports: [ErpModule], // AreasService/SpecificationsService/MoodboardsService precisam de ProjectsService
@@ -29,13 +27,14 @@ import { MoodboardsService } from './moodboards.service';
     FfeCheckoutController,
     ProjectMoodboardsController,
     MoodboardsController,
-    MoodboardItemsController,
+    WhiteboardGuestsController,
   ],
   providers: [
     ProductsService,
     AreasService,
     SpecificationsService,
     MoodboardsService,
+    WhiteboardGuestsService,
   ],
   exports: [SpecificationsService, MoodboardsService],
 })

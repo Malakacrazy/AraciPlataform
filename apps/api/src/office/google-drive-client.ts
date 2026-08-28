@@ -16,6 +16,12 @@ export interface DriveFileMetadata {
   trashed: boolean;
 }
 
+export interface DriveFileContent {
+  name: string;
+  mimeType: string;
+  data: Buffer;
+}
+
 // Token de injeção do Nest -- DriveClient é uma interface (não existe em
 // runtime), então precisa de um token explícito pra @Inject(). Mesmo
 // espírito de qualquer outra porta/adapter: GoogleDriveService depende da
@@ -41,6 +47,16 @@ export interface DriveClient {
   // também (arquivo ainda existe tecnicamente, mas não é mais acessível
   // do jeito que o vínculo promete).
   getFile(accessToken: string, fileId: string): Promise<DriveFileMetadata | null>;
+  // Lacuna da matriz (item "grande" adiado na rodada de gestão
+  // documental) -- o cliente nunca tem conta Google/Workspace do
+  // estúdio, então não dá pra simplesmente linkar pro Drive e torcer;
+  // o servidor baixa o conteúdo com a credencial de um admin e devolve
+  // pra API repassar (ver PublicPresentationService.downloadDocument).
+  // Google Doc/Sheet/Slide nativo não tem bytes pra baixar via
+  // alt=media -- exportado como PDF em vez disso, mesma decisão de
+  // produto implícita de "o cliente só precisa visualizar", nunca
+  // editar pelo portal.
+  downloadFile(accessToken: string, fileId: string): Promise<DriveFileContent>;
 }
 
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
@@ -76,5 +92,35 @@ export class GoogleDriveApiClient implements DriveClient {
       throw new Error(body.error?.message ?? `Falha ao consultar o arquivo ${fileId} no Drive.`);
     }
     return { id: body.id, name: body.name ?? '', trashed: body.trashed ?? false };
+  }
+
+  async downloadFile(accessToken: string, fileId: string): Promise<DriveFileContent> {
+    const metaRes = await fetch(`${DRIVE_API_BASE}/files/${fileId}?fields=id,name,mimeType,trashed`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const meta: { id?: string; name?: string; mimeType?: string; trashed?: boolean; error?: { message?: string } } =
+      await metaRes.json();
+    if (!metaRes.ok || !meta.id || meta.trashed) {
+      throw new Error(meta.error?.message ?? `Arquivo ${fileId} não está mais disponível no Drive.`);
+    }
+
+    const isGoogleNative = meta.mimeType?.startsWith('application/vnd.google-apps.') ?? false;
+    const contentRes = isGoogleNative
+      ? await fetch(`${DRIVE_API_BASE}/files/${fileId}/export?mimeType=application/pdf`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        })
+      : await fetch(`${DRIVE_API_BASE}/files/${fileId}?alt=media`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+    if (!contentRes.ok) {
+      const body: { error?: { message?: string } } | null = await contentRes.json().catch(() => null);
+      throw new Error(body?.error?.message ?? `Falha ao baixar o arquivo ${fileId} do Drive.`);
+    }
+
+    return {
+      name: isGoogleNative ? `${meta.name}.pdf` : (meta.name ?? fileId),
+      mimeType: isGoogleNative ? 'application/pdf' : (meta.mimeType ?? 'application/octet-stream'),
+      data: Buffer.from(await contentRes.arrayBuffer()),
+    };
   }
 }

@@ -1,21 +1,12 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  Param,
-  Patch,
-  Post,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
 import {
   MoodboardsService,
   moodboardInputSchema,
-  moodboardItemInputSchema,
-  moodboardItemLayoutSchema,
+  moodboardSnapshotInputSchema,
+  moodboardCommentInputSchema,
   type MoodboardInput,
-  type MoodboardItemInput,
-  type MoodboardItemLayoutInput,
+  type MoodboardSnapshotInput,
+  type MoodboardCommentInput,
 } from './moodboards.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
@@ -30,10 +21,7 @@ export class ProjectMoodboardsController {
     @SessionAccount() { accountId }: SessionAccountType,
     @Param('projectId') projectId: string,
   ) {
-    const data = await this.moodboardsService.listMoodboards(
-      accountId,
-      projectId,
-    );
+    const data = await this.moodboardsService.listMoodboards(accountId, projectId);
     return { data };
   }
 
@@ -44,11 +32,7 @@ export class ProjectMoodboardsController {
     @Param('projectId') projectId: string,
     @Body(new ZodValidationPipe(moodboardInputSchema)) input: MoodboardInput,
   ) {
-    const data = await this.moodboardsService.createMoodboard(
-      accountId,
-      projectId,
-      input,
-    );
+    const data = await this.moodboardsService.createMoodboard(accountId, projectId, input);
     return { data };
   }
 }
@@ -57,9 +41,6 @@ export class ProjectMoodboardsController {
 export class MoodboardsController {
   constructor(private readonly moodboardsService: MoodboardsService) {}
 
-  // Existia só o list por projeto -- adicionado pra view de impressão/
-  // exportação de uma prancha só (`/projects/:id/moodboards/:moodboardId/print`),
-  // que não precisa das outras pranchas do projeto.
   @Get(':id')
   async get(
     @SessionAccount() { accountId }: SessionAccountType,
@@ -78,41 +59,37 @@ export class MoodboardsController {
     await this.moodboardsService.deleteMoodboard(accountId, id);
   }
 
-  @Post(':id/items')
+  // Debounced no frontend (ver TldrawBoard) -- não é chamado a cada
+  // stroke, só depois de uma pausa no desenho, pra não martelar o banco
+  // a cada movimento de mouse.
+  @Patch(':id/snapshot')
+  async saveSnapshot(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(moodboardSnapshotInputSchema)) input: MoodboardSnapshotInput,
+  ) {
+    const data = await this.moodboardsService.saveSnapshot(accountId, id, input);
+    return { data };
+  }
+
+  @Get(':id/comments')
+  async listComments(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
+    await this.moodboardsService.getMoodboard(accountId, id); // 404 se a prancha não é desta conta
+    const data = await this.moodboardsService.listComments(id);
+    return { data };
+  }
+
+  @Post(':id/comments')
   @HttpCode(201)
-  async addItem(
-    @SessionAccount() { accountId }: SessionAccountType,
+  async addComment(
+    @SessionAccount() { accountId, userId }: SessionAccountType,
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(moodboardItemInputSchema))
-    input: MoodboardItemInput,
+    @Body(new ZodValidationPipe(moodboardCommentInputSchema)) input: MoodboardCommentInput,
   ) {
-    const data = await this.moodboardsService.addItem(accountId, id, input);
+    const data = await this.moodboardsService.addStaffComment(accountId, id, userId, input.body);
     return { data };
-  }
-}
-
-@Controller('v1/moodboard-items')
-export class MoodboardItemsController {
-  constructor(private readonly moodboardsService: MoodboardsService) {}
-
-  // Mover/redimensionar/trazer-pra-frente no canvas -- não reenvia
-  // kind/productId/label, só o que o arrastar/redimensionar de fato muda.
-  @Patch(':id')
-  async updateLayout(
-    @SessionAccount() { accountId }: SessionAccountType,
-    @Param('id') id: string,
-    @Body(new ZodValidationPipe(moodboardItemLayoutSchema)) input: MoodboardItemLayoutInput,
-  ) {
-    const data = await this.moodboardsService.updateItemLayout(accountId, id, input);
-    return { data };
-  }
-
-  @Delete(':id')
-  @HttpCode(204)
-  async remove(
-    @SessionAccount() { accountId }: SessionAccountType,
-    @Param('id') id: string,
-  ) {
-    await this.moodboardsService.removeItem(accountId, id);
   }
 }

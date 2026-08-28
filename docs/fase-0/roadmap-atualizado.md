@@ -2216,11 +2216,14 @@ foram resolvidas antes de qualquer código.
   funcionam de verdade há uma fase inteira.
 - **Não corrigido nesta rodada, de propósito**: checklist de documentos
   obrigatórios amarrado ao gate do PEP (faz mais sentido depois que a
-  taxonomia estiver em uso real — sequenciamento, não só falta de tempo);
-  versionamento (expor revisões do Drive); e o item "grande" da lista —
-  documentos visíveis ao cliente no portal/link de apresentação sem
-  exigir conta Google (precisa de uma rota de proxy de leitura nova,
-  escopo maior que o resto deste grupo).
+  taxonomia estiver em uso real — sequenciamento, não só falta de tempo,
+  ver "Correção — Checklist de documentos obrigatórios..." mais abaixo,
+  já fechado); versionamento (expor revisões do Drive); e o item "grande"
+  da lista — documentos visíveis ao cliente no portal/link de
+  apresentação sem exigir conta Google (precisa de uma rota de proxy de
+  leitura nova, escopo maior que o resto deste grupo — ver "Correção —
+  Documentos visíveis ao cliente no link de apresentação" mais abaixo,
+  já fechado).
 - Verificado: build+typecheck limpos (api e web); **porta fake do Drive**
   pedida explicitamente pela auditoria — `google-drive.service.spec.ts`
   (6 testes, `FakeDriveClient` em memória) confirma a árvore de pastas
@@ -2301,6 +2304,236 @@ algo que o consultor simplesmente não consegue chamar.
   cronograma visível e financeiro ausente na tela do consultor, revogação
   pela tela do projeto, e a mesma sessão do consultor perdendo acesso na
   hora (403, sem crash, sem precisar logar de novo) — limpo depois.
+
+## Correção — Checklist de documentos obrigatórios amarrado ao gate do PEP
+
+Última lacuna da matriz de comparação com concorrentes (segunda auditoria
+externa) ainda em aberto: a aprovação de gate de uma fase (`approvedAt`)
+não checava se os documentos que o estúdio considera obrigatórios pra
+aquele estágio (contrato assinado, aprovação de conceito, etc.) já
+estavam de fato vinculados no Drive do projeto — o gate aprovava mesmo
+sem nada anexado.
+
+Decisão de design tomada sem precisar perguntar ao usuário (ao contrário
+da janela de retenção e do ambiente de NFS-e, que são decisão de negócio
+genuína): a exigência é configurada **uma vez por estágio do PEP, no
+nível da conta** (`RequiredDocumentType`, mesma forma de `RoleRate`/
+`StudioFixedCost`), não por instância de projeto — o processo do estúdio
+é uniforme entre projetos, então reconfigurar isso a cada projeto novo
+seria retrabalho sem propósito. Off-by-default e aditivo, como toda
+config nova nesta sessão: nada configurado = gate aprova exatamente como
+sempre aprovou.
+
+- **`RequiredDocumentType`** (`accountId`, `stage`, `documentType`,
+  `@@unique([accountId, stage, documentType])`) — CRUD admin-only em
+  `/required-document-types`, tela nova "Documentos" no menu (admin-only).
+- **`PhasesService.getDocumentChecklist`** — pro estágio da fase, cruza a
+  lista configurada contra os `OfficeLink` da fase (`phaseId`,
+  `documentType` preenchido, `brokenAt: null`); devolve `[]` (nada
+  bloqueia) quando o estágio não tem nenhuma exigência cadastrada.
+  Integrado em `approvePhaseGate`: item faltando → `422
+  MISSING_REQUIRED_DOCUMENTS` com a lista dos tipos que faltam, antes de
+  gravar `approvedAt`.
+- **`GET .../document-checklist`** — nova rota, consumida pela tela do
+  projeto pra mostrar um preview ✓/✗ logo acima do formulário de
+  aprovação de gate, só nas fases contratadas e ainda não aprovadas (as
+  únicas onde o checklist pesa de verdade).
+- **Datalist de sugestão** no campo "tipo de documento" da classificação
+  de `OfficeLink` (`office-links-section.tsx`) — sugere os tipos já
+  cadastrados como exigência, mas o campo continua livre (texto solto
+  também é aceito, igual antes).
+- Verificado: build+typecheck limpos (api e web, rota
+  `/documentos-obrigatorios` presente no build do Next); Jest 21/21;
+  smoke suite 322/323 (6 novas asserções: criar exigência, 409 pro mesmo
+  par estágio+tipo, checklist mostrando não-satisfeito antes de
+  qualquer vínculo, 422 `MISSING_REQUIRED_DOCUMENTS` ao tentar aprovar
+  sem o documento, checklist satisfeito depois de classificar o vínculo,
+  aprovação normal — 200 — com o documento presente; mais um 403 no bloco
+  de permissões pra staff tentando criar exigência), mesma falha
+  pré-existente de sempre (`ASAAS_API_KEY`); `cleanup-smoke-residue.ts`
+  ganhou limpeza defensiva de `RequiredDocumentType` antes que sobrasse
+  pra um run futuro. Fluxo completo testado no navegador contra o projeto
+  fixture real ("Apto Vila Madalena"): duas exigências cadastradas pela
+  tela admin (Executivo e Criação de Conceito), checklist renderizando
+  "✗ aprovacao-conceito-verify" na fase Criação de Conceito, datalist
+  sugerindo os dois tipos cadastrados ao classificar um `OfficeLink` —
+  sem nunca aprovar o gate de verdade nesse projeto (isso já foi coberto
+  pelo smoke test, no projeto descartável); as duas linhas de
+  `RequiredDocumentType` criadas pra essa verificação foram apagadas no
+  fim, já que são config real e persistente da conta, não dado de teste.
+
+## Correção — Documentos visíveis ao cliente no link de apresentação
+
+O item "grande" da lista de 11 (gestão documental por projeto),
+deliberadamente adiado até agora: o cliente nunca teve como ver um
+documento do Drive pela plataforma, mesmo que a equipe já marcasse
+`visibleToClient=true` num vínculo (campo que existia desde aquela
+rodada, mas era só metadado — nada lia). O motivo do adiamento era
+estrutural, não falta de tempo: o cliente nunca tem conta Google/
+Workspace do estúdio, então simplesmente linkar pro Drive não funciona
+(o Google mostraria "solicitar acesso"). Precisava de uma rota de proxy
+de leitura nova — o servidor baixa o conteúdo com a credencial de um
+admin já conectado e repassa, sem o cliente nunca precisar de login
+Google.
+
+- **`DriveClient.downloadFile`** — nova operação na porta (mesmo padrão
+  de `createFolder`/`getFile`, ver `google-drive-client.ts`): busca
+  metadado (nome, mimeType) e, se for um Google Doc/Sheet/Slide nativo
+  (sem bytes pra baixar via `alt=media`), exporta como PDF em vez disso
+  — decisão de produto implícita de "o cliente só visualiza, nunca edita
+  pelo portal".
+- **`GoogleDriveService.listClientVisibleDocuments` /
+  `downloadClientVisibleDocument`** — mesmo escopo de sempre
+  (conta + projeto + `visibleToClient=true` + não quebrado) antes de
+  sequer falar com o Drive; um vínculo que a equipe nunca marcou visível
+  dá 404, não vaza que existe (mesmo padrão de `updateSpecification` no
+  próprio `PublicPresentationService` pra um `specId` fora de escopo).
+- **`GET /v1/present/:token`** agora também devolve `documents` (id,
+  title, documentType, stage) — só os que passam no escopo acima.
+  **`GET /v1/present/:token/documents/:officeLinkId`** é a rota de
+  download em si: corpo binário de verdade (`StreamableFile`), não
+  `{ data }` como o resto da API — por isso `@Res({ passthrough: true })`
+  em vez de deixar o Nest serializar. `Content-Disposition: inline` de
+  propósito: o cliente só visualiza, PDF/imagem abre direto no navegador
+  em vez de forçar download.
+- **Proxy no apps/web** (`present/[token]/documents/[officeLinkId]/
+  route.ts`) — o navegador do cliente nunca fala com apps/api direto
+  (só apps/web expõe porta pública); mesmo padrão de `lib/publicApi.ts`
+  e `api/portal/data-export/route.ts`: servidor chamando apps/api,
+  repassando o corpo e os headers de tipo/nome do arquivo.
+- **Seção "Documentos" na tela de apresentação** (`/present/[token]`) —
+  lista os documentos visíveis com título + tipo/fase como legenda (mesmo
+  padrão visual de `office-links-section.tsx` do lado da equipe), cada
+  um linkando pra rota de download acima.
+- **Comentário obsoleto corrigido** (`public-presentation.controller.ts`)
+  — dizia "a segunda (e última) rota `@Public()` do sistema, além de
+  `/health`", desatualizado desde que client-portal e collaborator-portal
+  vieram depois.
+- Verificado: build+typecheck limpos (api e web, rota
+  `/present/[token]/documents/[officeLinkId]` presente no build do Next);
+  Jest 25/25 (4 novos: lista só o vínculo visível e não quebrado, baixa
+  conteúdo com sucesso via `FakeDriveClient`, recusa vínculo nunca
+  marcado visível, recusa vínculo visível mas já quebrado — os dois
+  últimos com 404, não vazam que o recurso existe); smoke suite 327/328
+  (6 novas asserções: `documents` no link público inclui só o visível e
+  não quebrado, download do vínculo oculto → 404, do quebrado → 404, de
+  um id inexistente → 404, do visível sem ninguém conectado ao Drive →
+  422 `GOOGLE_DRIVE_NOT_CONNECTED` — mesmo critério de cobertura de
+  sempre pra features que dependem do Drive de verdade, nunca testável
+  fim-a-fim sem credencial real), mesma falha pré-existente de sempre
+  (`ASAAS_API_KEY`). Fluxo completo testado no navegador contra o projeto
+  fixture real: vínculo visível criado direto no banco (sem credencial
+  Drive real conectada nesta conta, mesma limitação de sempre), seção
+  "Documentos" renderizando título + tipo na tela de apresentação, clique
+  abrindo a rota de download e devolvendo o erro `GOOGLE_DRIVE_NOT_CONNECTED`
+  de ponta a ponta (apps/web → apps/api → GoogleDriveService) sem
+  quebrar a página — confirma a integração completa até a borda que só
+  uma credencial Drive real destrava; vínculo de verificação apagado no
+  fim.
+- **Não corrigido nesta rodada, de propósito**: cancelamento/substituição
+  de NFS-e; exportação CAD/Revit (decisão de formato que só o usuário
+  pode tomar); cálculo real de IBS/CBS por nota (padrão da indústria
+  ainda não estabilizado); versionamento de documentos (expor revisões do
+  Drive).
+
+## Correção — Moodboard vira quadro tldraw colaborativo (com chat)
+
+Pedido direto do usuário, não achado de auditoria: substituir o canvas
+livre próprio do moodboard (posição/tamanho de produto/amostra, ver
+`MoodboardItem` no histórico do git) por um quadro **tldraw** embutido
+de verdade, com sincronização ao vivo entre quem está olhando ao mesmo
+tempo, mais um chat por prancha pra colaboração assíncrona. A primeira
+tentativa foi Miro (API real, board provisionado por conta) — abandonada
+antes de qualquer schema porque o plano free do Miro não cobre SAML SSO,
+achado só depois de já ter desenhado a integração inteira; o rollback
+ficou só em `schema.prisma` (nunca chegou a aplicar migration nenhuma),
+sem perda de dado real.
+
+- **Substituição do canvas**: `MoodboardItem` (posição, produto/amostra)
+  removido — `Moodboard` ganhou `snapshot Json?` (o `TLStoreSnapshot` do
+  tldraw, opaco pra este service: só o tldraw sabe desenhar a partir
+  dele). As 4 linhas reais de `MoodboardItem` que existiam (2 em
+  "Área Gourmet — Conceito 1/2", 2 em "Teste") foram dropadas com a
+  migration — confirmado e aprovado explicitamente pelo usuário antes de
+  aplicar, já que não tinham pra onde migrar (o novo formato não é uma
+  lista de itens). As pranchas (`Moodboard`) em si sobreviveram, só sem o
+  desenho antigo.
+- **Nova audiência: `WhiteboardGuest`** — nem staff (Google Workspace),
+  nem o `Client` do projeto, nem `ExternalCollaborator` (projeto
+  inteiro, só leitura): alguém convidado só pra colaborar num QUADRO
+  específico, com escrita real (desenha + comenta). Autenticado via
+  **Logto** (OIDC) — decisão explícita do usuário, não um 4º magic link
+  bespoke. Convite (`WhiteboardGuestAccess`, admin-only) sempre vem
+  antes do login, mesmo padrão de `ExternalCollaborator`; `logtoSubjectId`
+  fica null até o primeiro login (casado por e-mail nesse momento,
+  travado nesse subject dali em diante). `WhiteboardGuestSession` é uma
+  sessão própria da plataforma (mesmo padrão de `ClientSession`/
+  `CollaboratorSession`), não o cookie/JWT do Logto em si — Logto prova
+  identidade uma vez, esta tabela decide por quanto tempo isso continua
+  valendo.
+- **OAuth do Logto** (`/api/quadro/authorize` + `/api/quadro/callback`
+  em apps/web) — mesmo esqueleto de `/api/google/authorize|callback`
+  (state cookie contra CSRF, troca code→token servidor-a-servidor), com
+  uma diferença: como o objetivo aqui é estabelecer identidade nova (não
+  só guardar um refresh token de alguém já conhecido, caso do Google),
+  o callback também chama `/oidc/userinfo` do Logto pra pegar
+  email/nome/sub já verificados, sem precisar de biblioteca de
+  JWT/JWKS.
+- **Chat por prancha** (`MoodboardComment`) — pedido junto com a
+  colaboração ao vivo. Sem FK de verdade pro autor (User/Client/
+  WhiteboardGuest são três tabelas diferentes, mesmo problema que já
+  tirou o comentário de prospecto de `Activity`): `authorType` +
+  `authorName` (retrato do nome no momento, não referência viva).
+  Exposto nos três surfaces (`/v1/moodboards/:id/comments` pra staff,
+  `/v1/present/:token/moodboards/:id/comments` pro cliente,
+  `/v1/whiteboard-guest-portal/boards/:id/comments` pro convidado), todos
+  delegando pro mesmo `MoodboardsService`.
+- **Sincronização ao vivo via Supabase Realtime** (`lib/supabaseRealtime.ts`)
+  — canal de *broadcast* puro por prancha (`moodboard:{id}`), sem
+  nenhuma tabela do Supabase envolvida: Postgres (via Prisma) continua
+  sendo o único sistema de registro. O canvas é salvo com debounce de 2s
+  (não a cada traço); o canal só acelera a entrega pra quem já está com
+  a página aberta. Sem `NEXT_PUBLIC_SUPABASE_URL`/`_ANON_KEY`
+  configurados, degrada pra "sem sincronização ao vivo" (aviso no
+  console, sem quebrar canvas nem chat) — verificado ao vivo no
+  navegador contra o projeto fixture real, já que não há projeto
+  Supabase real conectado nesta sessão.
+- **`CollaborativeBoard`** — componente único (canvas tldraw + chat)
+  reaproveitado nos três surfaces via duas props (`onSaveSnapshot`/
+  `onAddComment`), cada chamador passando sua própria server action já
+  parcialmente aplicada (`.bind()`) com o escopo certo (staff: só
+  moodboardId; cliente: token + moodboardId; convidado: sessão vem do
+  cookie httpOnly, nunca de um argumento).
+- Verificado: build+typecheck limpos (api e web — `/api/quadro/authorize`,
+  `/api/quadro/callback`, `/quadro`, `/quadro/[boardId]` presentes no
+  build do Next); Jest 25/25 (inalterado, nenhum teste existente
+  dependia do canvas antigo); smoke suite 342/343 (25 novas asserções:
+  round-trip de snapshot, chat do staff, convite/idempotência/listagem
+  de convidado, `verify-login` recusando e-mail nunca convidado — 401 —
+  e aceitando o convidado — 200 —, escopo por QUADRO nos dois sentidos
+  — inclui só o convidado E nega acesso a outro quadro sem convite,
+  403 não 401 —, revogação com sessão ainda válida, e o mesmo teste de
+  escopo/escrita pelo link de apresentação, incluindo 404 pra
+  moodboardId de outro projeto), mesma falha pré-existente de sempre
+  (`ASAAS_API_KEY`); `cleanup-smoke-residue.ts` ganhou limpeza de
+  `WhiteboardGuestAccess` antes de `Moodboard` (mesma classe de bug que
+  `CollaboratorProjectAccess` já tinha resolvido — FK RESTRICT sem
+  isso) e perdeu o filtro `moodboardItems: { none: {} }` no produto
+  órfão (campo que não existe mais). Fluxo completo testado ao vivo no
+  navegador contra o projeto fixture real: tela do projeto renderizando
+  o quadro tldraw (`.tl-container`/`.tl-canvas` confirmados no DOM) +
+  chat + seção de convidados, link de apresentação renderizando o mesmo
+  quadro pro cliente sem exigir login, avisos de configuração ausente
+  aparecendo no console sem derrubar a página (nem Logto nem Supabase
+  têm credencial real nesta sessão — mesmo limite de sempre pra
+  integrações novas: "build now, credentials later").
+- **Não corrigido nesta rodada, de propósito**: presença ao vivo
+  (cursores de quem está olhando o quadro agora) — o pedido foi
+  colaboração via canvas + chat, não presença; escopo maior, deixado de
+  fora do MVP. Licença comercial do tldraw (removível o watermark
+  "Made with tldraw" via plano pago/programa de startup) é decisão de
+  negócio do usuário, não deste código — confirmado que a Studio Araci
+  se qualifica pro uso sem marca d'água como empresa de 2 pessoas.
 
 ## Fase 5 — Beta & go-live
 

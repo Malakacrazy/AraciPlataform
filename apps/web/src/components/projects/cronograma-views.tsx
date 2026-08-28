@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { ProjectPhase } from "@/lib/types";
+import type { ProjectPhase, DocumentChecklistItem } from "@/lib/types";
 import { STAGE_LABELS } from "@/lib/pep-stages";
 import { formatDateUTC } from "@/lib/format";
 import { approveGate, createInvoice, updatePhaseDates } from "./actions";
@@ -26,11 +26,17 @@ export function CronogramaViews({
   phases,
   invoicedPhaseIds,
   feeModel,
+  documentChecklists,
 }: {
   projectId: string;
   phases: ProjectPhase[];
   invoicedPhaseIds: string[];
   feeModel: string;
+  // Lacuna da matriz ("checklist de documentos obrigatórios") -- por
+  // phaseId, só das fases contratadas ainda não aprovadas (ver
+  // projects/[id]/page.tsx). Opcional pra não quebrar quem ainda não
+  // passa isso.
+  documentChecklists?: Record<string, DocumentChecklistItem[]>;
 }) {
   const [view, setView] = useState<ViewMode>("lista");
   const invoiced = new Set(invoicedPhaseIds);
@@ -60,7 +66,13 @@ export function CronogramaViews({
 
       <div className="mt-4">
         {view === "lista" && (
-          <ListaView projectId={projectId} contracted={contracted} invoiced={invoiced} feeModel={feeModel} />
+          <ListaView
+            projectId={projectId}
+            contracted={contracted}
+            invoiced={invoiced}
+            feeModel={feeModel}
+            documentChecklists={documentChecklists}
+          />
         )}
         {view === "kanban" && <KanbanView contracted={contracted} />}
         {view === "gantt" && <GanttView contracted={contracted} />}
@@ -75,11 +87,13 @@ function ListaView({
   contracted,
   invoiced,
   feeModel,
+  documentChecklists,
 }: {
   projectId: string;
   contracted: ProjectPhase[];
   invoiced: Set<string>;
   feeModel: string;
+  documentChecklists?: Record<string, DocumentChecklistItem[]>;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -103,6 +117,18 @@ function ListaView({
               {phase.budget ? ` · orçamento R$ ${Number(phase.budget).toLocaleString("pt-BR")}` : ""}
             </p>
 
+            {!phase.approvedAt && previousApproved && documentChecklists?.[phase.id]?.length ? (
+              <ul className="mt-2 flex flex-col gap-0.5 text-xs">
+                {documentChecklists[phase.id].map((item) => (
+                  <li
+                    key={item.documentType}
+                    className={item.satisfied ? "text-emerald-700 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}
+                  >
+                    {item.satisfied ? "✓" : "✗"} {item.documentType}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             {!phase.approvedAt && previousApproved && (
               <form action={approveGate.bind(null, projectId, phase.id)} className="mt-2 flex items-center gap-2">
                 <select

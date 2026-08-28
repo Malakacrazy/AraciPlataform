@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotFoundError } from '../common/api-error';
 import { NotificationsService } from '../notifications/notifications.service';
 import { setAuditActor } from '../audit/audit-context';
+import { GoogleDriveService } from '../office/google-drive.service';
+import { MoodboardsService, type MoodboardCommentInput } from '../ffe/moodboards.service';
 
 // Só clientApproved/clientComment — nunca productId/quantity/unitPrice/
 // markupPercent. O cliente aprova e comenta; preço e quantidade
@@ -39,6 +41,8 @@ export class PublicPresentationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
+    private readonly googleDriveService: GoogleDriveService,
+    private readonly moodboardsService: MoodboardsService,
   ) {}
 
   private async getLinkOrThrow(token: string) {
@@ -61,6 +65,7 @@ export class PublicPresentationService {
       where: { id: link.projectId },
       select: {
         id: true,
+        accountId: true,
         name: true,
         client: { select: { name: true } },
         areas: {
@@ -82,27 +87,13 @@ export class PublicPresentationService {
             },
           },
         },
+        // Só id/name aqui -- snapshot do tldraw pode ser um JSON grande
+        // (shapes + assets), carregado sob demanda por prancha (ver
+        // getMoodboardBoard abaixo), não de uma vez com o resto da
+        // apresentação.
         moodboards: {
           orderBy: { createdAt: 'asc' },
-          select: {
-            id: true,
-            name: true,
-            items: {
-              orderBy: { order: 'asc' },
-              select: {
-                id: true,
-                kind: true,
-                label: true,
-                colorHex: true,
-                swatchImageUrl: true,
-                order: true,
-                x: true,
-                y: true,
-                width: true,
-                product: { select: { id: true, name: true, imageUrl: true } },
-              },
-            },
-          },
+          select: { id: true, name: true },
         },
       },
     });
@@ -111,6 +102,13 @@ export class PublicPresentationService {
       // resultado de um token inválido, do ponto de vista de quem chama.
       throw new NotFoundError('Link de apresentação');
     }
+
+    // Item "grande" da lista de 11, adiado até a taxonomia documental
+    // estar em uso real (ver GoogleDriveService.listClientVisibleDocuments):
+    // só o que a equipe marcou visibleToClient=true e ainda não está
+    // quebrado chega aqui — nunca a árvore de pastas inteira do projeto.
+    const documents = await this.googleDriveService.listClientVisibleDocuments(project.accountId, project.id);
+
     return {
       id: project.id,
       name: project.name,
@@ -128,7 +126,76 @@ export class PublicPresentationService {
         })),
       })),
       moodboards: project.moodboards,
+      documents: documents.map((doc) => ({
+        id: doc.id,
+        title: doc.title,
+        documentType: doc.documentType,
+        stage: doc.phase?.stage ?? null,
+      })),
     };
+  }
+
+  // Mesmo princípio de escopo de updateSpecification/declineProposal: o
+  // token só prova posse de UM projeto, resolvido aqui pra accountId
+  // antes de delegar pro GoogleDriveService, que faz a checagem de
+  // verdade (visibleToClient + não quebrado) antes de tocar no Drive.
+  async downloadDocument(token: string, officeLinkId: string) {
+    const link = await this.getLinkOrThrow(token);
+    const project = await this.prisma.db.project.findUnique({
+      where: { id: link.projectId },
+      select: { accountId: true },
+    });
+    if (!project) {
+      throw new NotFoundError('Link de apresentação');
+    }
+    return this.googleDriveService.downloadClientVisibleDocument(project.accountId, link.projectId, officeLinkId);
+  }
+
+  // Mesmo padrão de escopo de updateSpecification pro specId: o
+  // moodboardId precisa pertencer ao projeto deste token, senão 404
+  // (não vaza que a prancha existe noutro projeto).
+  private async getOwnMoodboardAccountId(projectId: string, moodboardId: string) {
+    const moodboard = await this.prisma.db.moodboard.findFirst({
+      where: { id: moodboardId, projectId },
+      select: { project: { select: { accountId: true } } },
+    });
+    if (!moodboard) {
+      throw new NotFoundError('Prancha');
+    }
+    return moodboard.project.accountId;
+  }
+
+  // O quadro tldraw em si -- carregado sob demanda (ver comentário em
+  // getPresentation). Cliente com o link tem acesso de escrita igual ao
+  // resto do link de apresentação (posse do link = acesso, mesmo
+  // princípio de updateSpecification): pode desenhar/comentar, não só
+  // olhar.
+  async getMoodboardBoard(token: string, moodboardId: string) {
+    const link = await this.getLinkOrThrow(token);
+    const accountId = await this.getOwnMoodboardAccountId(link.projectId, moodboardId);
+    return this.moodboardsService.getMoodboard(accountId, moodboardId);
+  }
+
+  async saveMoodboardSnapshot(token: string, moodboardId: string, snapshot: unknown) {
+    const link = await this.getLinkOrThrow(token);
+    const accountId = await this.getOwnMoodboardAccountId(link.projectId, moodboardId);
+    return this.moodboardsService.saveSnapshot(accountId, moodboardId, { snapshot });
+  }
+
+  async listMoodboardComments(token: string, moodboardId: string) {
+    const link = await this.getLinkOrThrow(token);
+    await this.getOwnMoodboardAccountId(link.projectId, moodboardId);
+    return this.moodboardsService.listComments(moodboardId);
+  }
+
+  async addMoodboardComment(token: string, moodboardId: string, input: MoodboardCommentInput) {
+    const link = await this.getLinkOrThrow(token);
+    await this.getOwnMoodboardAccountId(link.projectId, moodboardId);
+    const project = await this.prisma.db.project.findUnique({
+      where: { id: link.projectId },
+      select: { client: { select: { name: true } } },
+    });
+    return this.moodboardsService.addComment(moodboardId, 'client', project?.client.name ?? 'Cliente', input.body);
   }
 
   async updateSpecification(

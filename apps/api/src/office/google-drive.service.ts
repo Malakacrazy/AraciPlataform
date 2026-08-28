@@ -156,4 +156,51 @@ export class GoogleDriveService {
 
     return { checked: links.length, newlyBroken };
   }
+
+  // Item "grande" da lista de 11 (deliberadamente adiado até aqui, ver
+  // roadmap) -- só o que a equipe marcou visibleToClient=true chega ao
+  // portal/link de apresentação, e só o que ainda não está quebrado
+  // (achado sobre link apodrecido em silêncio não faz sentido oferecer
+  // pra download também). accountId aqui não vem de uma sessão de staff
+  // -- PublicPresentationService o resolve a partir do próprio Project,
+  // mesmo princípio de "escopo validado na service layer" do resto do
+  // OfficeLink.
+  async listClientVisibleDocuments(accountId: string, projectId: string) {
+    return this.prisma.db.officeLink.findMany({
+      where: {
+        accountId,
+        entityType: 'PROJECT',
+        entityId: projectId,
+        provider: 'DRIVE',
+        visibleToClient: true,
+        brokenAt: null,
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, title: true, documentType: true, phase: { select: { stage: true } } },
+    });
+  }
+
+  // Mesma checagem de escopo de listClientVisibleDocuments (conta +
+  // projeto + visibleToClient + não quebrado) antes de sequer tentar
+  // falar com o Drive -- um documento que a equipe nunca marcou como
+  // visível não deveria ser baixável só por alguém adivinhar o id.
+  async downloadClientVisibleDocument(accountId: string, projectId: string, officeLinkId: string) {
+    const link = await this.prisma.db.officeLink.findFirst({
+      where: {
+        id: officeLinkId,
+        accountId,
+        entityType: 'PROJECT',
+        entityId: projectId,
+        provider: 'DRIVE',
+        visibleToClient: true,
+        brokenAt: null,
+      },
+    });
+    if (!link) {
+      throw new NotFoundError('Documento');
+    }
+
+    const accessToken = await this.resolveDriveAccessToken(accountId);
+    return this.driveClient.downloadFile(accessToken, link.externalId);
+  }
 }

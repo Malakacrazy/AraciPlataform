@@ -55,6 +55,37 @@ export class PhasesService {
     return phase;
   }
 
+  // Lacuna da matriz ("checklist de documentos obrigatórios por fase,
+  // amarrado ao gate do PEP") -- lista o que é exigido pra este STAGE
+  // (configurado por RequiredDocumentTypesService, nunca por padrão) e
+  // marca cada um como satisfeito ou não. "Satisfeito" exige as três
+  // coisas: OfficeLink com aquele documentType exato, ligado a ESTA fase
+  // (phaseId), e não quebrado (brokenAt null -- ver GoogleDriveService)
+  // -- um vínculo apodrecido no Drive não conta como documento entregue.
+  // Usado tanto pra mostrar o checklist antes de tentar aprovar quanto
+  // internamente por approvePhaseGate, pra não duplicar a lógica.
+  async getDocumentChecklist(accountId: string, projectId: string, phaseId: string) {
+    const phase = await this.getPhase(accountId, projectId, phaseId);
+    const required = await this.prisma.db.requiredDocumentType.findMany({
+      where: { accountId, stage: phase.stage },
+      orderBy: { documentType: 'asc' },
+    });
+    if (required.length === 0) {
+      return [];
+    }
+
+    const links = await this.prisma.db.officeLink.findMany({
+      where: { phaseId, brokenAt: null, documentType: { not: null } },
+      select: { documentType: true },
+    });
+    const present = new Set(links.map((l) => l.documentType));
+
+    return required.map((r) => ({
+      documentType: r.documentType,
+      satisfied: present.has(r.documentType),
+    }));
+  }
+
   // Aprova o gate de uma fase — só depois disso o estágio pode ser
   // faturado (Invoice.phaseId) e, no PEP, o próximo estágio pode começar
   // (§3.2: "Não se inicia o estágio seguinte sem aprovação formal do
@@ -87,6 +118,16 @@ export class PhasesService {
       throw new ApiError(
         'GATE_OUT_OF_ORDER',
         `O estágio "${unapprovedPrior.stage}" (ordem ${unapprovedPrior.order}) ainda não foi aprovado — os gates são sequenciais.`,
+        422,
+      );
+    }
+
+    const checklist = await this.getDocumentChecklist(accountId, projectId, phaseId);
+    const missing = checklist.filter((item) => !item.satisfied);
+    if (missing.length > 0) {
+      throw new ApiError(
+        'MISSING_REQUIRED_DOCUMENTS',
+        `Faltam documentos obrigatórios pra aprovar este gate: ${missing.map((m) => m.documentType).join(', ')}.`,
         422,
       );
     }

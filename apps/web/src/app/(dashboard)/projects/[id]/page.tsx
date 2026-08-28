@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet, ApiError } from "@/lib/api";
-import type { Project, OfficeLink, Invoice, ProjectMember, User, Activity, Task, ProjectCollaborator } from "@/lib/types";
+import type { Project, OfficeLink, Invoice, ProjectMember, User, Activity, Task, ProjectCollaborator, RequiredDocumentType, DocumentChecklistItem } from "@/lib/types";
 import { OfficeLinksSection } from "@/components/office-links/office-links-section";
 import { CronogramaViews } from "@/components/projects/cronograma-views";
 import { markInvoiceIssued, emitirNfse, chargeInvoice, addMember, removeMember } from "@/components/projects/actions";
@@ -71,9 +71,37 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     }
   }
 
+  // Lacuna da matriz ("checklist de documentos obrigatórios") -- 403 aqui
+  // só significa staff sem acesso a essa config; degrada pra datalist
+  // vazio (o input de tipo de documento continua livre), não quebra a
+  // tela.
+  let requiredDocumentTypeSuggestions: string[] = [];
+  try {
+    const requirements = await apiGet<RequiredDocumentType[]>("required-document-types");
+    requiredDocumentTypeSuggestions = [...new Set(requirements.map((r) => r.documentType))];
+  } catch (err) {
+    if (!(err instanceof ApiError && err.status === 403)) {
+      throw err;
+    }
+  }
+
   const memberUserIds = new Set(members.map((m) => m.userId));
   const availableUsers = users.filter((u) => !memberUserIds.has(u.id));
   const invoicedPhaseIds = invoices.map((inv) => inv.phaseId).filter((v): v is string => Boolean(v));
+
+  // Lacuna da matriz ("checklist de documentos obrigatórios") -- só pras
+  // fases contratadas e ainda não aprovadas (as únicas onde o checklist
+  // importa de verdade); vazio quando nada está configurado pro estágio
+  // (ver PhasesService.getDocumentChecklist), então não pesa em conta sem
+  // nada cadastrado.
+  const unapprovedContractedPhases = project.phases.filter((p) => p.contracted && !p.approvedAt);
+  const documentChecklistEntries = await Promise.all(
+    unapprovedContractedPhases.map(async (phase) => [
+      phase.id,
+      await apiGet<DocumentChecklistItem[]>(`projects/${id}/phases/${phase.id}/document-checklist`),
+    ] as const),
+  );
+  const documentChecklists = Object.fromEntries(documentChecklistEntries);
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-12">
@@ -95,6 +123,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         phases={project.phases}
         invoicedPhaseIds={invoicedPhaseIds}
         feeModel={project.feeModel}
+        documentChecklists={documentChecklists}
       />
 
       <TaskList projectId={id} phases={project.phases} tasks={tasks} users={users} />
@@ -253,6 +282,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         userEmail={session.user.email}
         contactEmail={project.client.email}
         phases={project.phases}
+        documentTypeSuggestions={requiredDocumentTypeSuggestions}
       />
 
       {canManageCollaborators && <CollaboratorSection projectId={project.id} collaborators={collaborators} />}

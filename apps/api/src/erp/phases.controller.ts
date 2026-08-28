@@ -23,6 +23,19 @@ export class PhasesController {
     return { data };
   }
 
+  // Lacuna da matriz ("checklist de documentos obrigatórios por fase") --
+  // preview do que approve() abaixo vai exigir, pra tela mostrar antes de
+  // alguém tentar aprovar e levar um 422.
+  @Get(':phaseId/document-checklist')
+  async documentChecklist(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('projectId') projectId: string,
+    @Param('phaseId') phaseId: string,
+  ) {
+    const data = await this.phasesService.getDocumentChecklist(accountId, projectId, phaseId);
+    return { data };
+  }
+
   // Ação dedicada, não um PATCH genérico na fase — não existe rota para
   // setar approvedAt diretamente, só esta, que aplica as regras do gate
   // (ordem sequencial, canal válido) antes de gravar. 200, não 201 (Nest

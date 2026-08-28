@@ -46,6 +46,18 @@ export interface RoleRate {
   billableHoursPerMonth?: string | null;
 }
 
+// Lacuna da matriz ("checklist de documentos obrigatórios por fase").
+export interface RequiredDocumentType {
+  id: string;
+  stage: PepStage;
+  documentType: string;
+}
+
+export interface DocumentChecklistItem {
+  documentType: string;
+  satisfied: boolean;
+}
+
 export interface StudioFixedCost {
   id: string;
   description: string;
@@ -351,27 +363,41 @@ export interface ProductSpecification {
   clientComment?: string | null;
 }
 
-export type MoodboardItemKind = "product" | "swatch";
-
-export interface MoodboardItem {
-  id: string;
-  kind: MoodboardItemKind;
-  productId: string | null;
-  product: Product | null;
-  label?: string | null;
-  colorHex?: string | null;
-  swatchImageUrl?: string | null;
-  order: number;
-  x: number;
-  y: number;
-  width: number;
-}
-
+// Correção "moodboard vira quadro tldraw" -- snapshot é o TLStoreSnapshot
+// inteiro (shapes + assets), opaco pra este app (só o tldraw sabe
+// desenhar a partir dele). null numa prancha recém-criada, ainda sem
+// nenhum traço.
 export interface Moodboard {
   id: string;
   projectId: string;
   name: string;
-  items: MoodboardItem[];
+  snapshot: unknown;
+}
+
+export type MoodboardCommentAuthorType = "user" | "client" | "guest";
+
+export interface MoodboardComment {
+  id: string;
+  authorType: MoodboardCommentAuthorType;
+  authorName: string;
+  body: string;
+  createdAt: string;
+}
+
+// Nova audiência convidada só pra colaborar num quadro específico (nem
+// staff, nem o Client do projeto, nem ExternalCollaborator de projeto
+// inteiro), autenticada via Logto -- ver
+// app/quadro/login|callback/route.ts e whiteboardGuestPortalApi.ts.
+export interface WhiteboardGuestBoard {
+  id: string;
+  name: string;
+  projectName: string;
+}
+
+export interface WhiteboardGuestAccess {
+  id: string;
+  guest: { id: string; name: string; email: string; logtoSubjectId: string | null };
+  invitedAt: string;
 }
 
 export interface PresentationLink {
@@ -408,23 +434,28 @@ export interface PresentationArea {
   specifications: PresentationSpecification[];
 }
 
-export interface PresentationMoodboardItem {
-  id: string;
-  kind: MoodboardItemKind;
-  product: PresentationProduct | null;
-  label?: string | null;
-  colorHex?: string | null;
-  swatchImageUrl?: string | null;
-  order: number;
-  x: number;
-  y: number;
-  width: number;
-}
-
+// Só id/name aqui -- snapshot é carregado sob demanda por prancha (ver
+// getMoodboardBoard/GET .../present/:token/moodboards/:id), não de uma
+// vez com o resto da apresentação.
 export interface PresentationMoodboard {
   id: string;
   name: string;
-  items: PresentationMoodboardItem[];
+}
+
+export interface PresentationMoodboardBoard {
+  id: string;
+  name: string;
+  snapshot: unknown;
+}
+
+// Item "grande" da lista de 11 (gestão documental) -- só o que a equipe
+// marcou visibleToClient=true e ainda não está quebrado no OfficeLink,
+// ver GoogleDriveService.listClientVisibleDocuments.
+export interface PresentationDocument {
+  id: string;
+  title: string;
+  documentType: string | null;
+  stage: PepStage | null;
 }
 
 export interface PresentationData {
@@ -433,6 +464,7 @@ export interface PresentationData {
   client: { name: string };
   areas: PresentationArea[];
   moodboards: PresentationMoodboard[];
+  documents: PresentationDocument[];
 }
 
 export type OfficeLinkProvider = "DRIVE" | "CALENDAR" | "GMAIL";

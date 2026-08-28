@@ -257,25 +257,23 @@ esse domínio).
 
 Carga tributária da fórmula de tarifa/hora (aba 02): **6%**.
 
-**Recomendação registrada (gestão documental, lacuna da matriz) — tipo do
-app OAuth do Google: Internal, não External.** A auditoria pediu essa
-decisão como spike obrigatório antes de aprofundar em Drive. Como o
-domínio `studioaraci.com.br` já é um Google Workspace confirmado (acima)
-e todo mundo que loga na plataforma é `@studioaraci.com.br` (achado C-01,
-já reforçado por `signIn` callback + `hd`), o app OAuth no Google Cloud
-Console pode ser configurado como **Internal** — restrito a contas do
-próprio Workspace, sem processo de verificação do Google nenhum,
-**mesmo para escopos "sensíveis"/"restritos"** (`calendar.events`,
-`gmail.readonly`, `drive.file`). Isso elimina de vez a necessidade da
-avaliação de segurança CASA que bloquearia produção com um app External
-(ver bloqueador "decisão de produto escondida na infraestrutura" da
-rodada de blockers) — **desde que o uso continue só interno** (equipe do
-estúdio). Ação real, fora do código: alguém com acesso ao Google Cloud
-Console do projeto precisa confirmar/trocar o tipo do app OAuth pra
-Internal na tela de consentimento — esta sessão não tem essa credencial.
-Se um dia o portal do cliente precisar de login Google (não precisa
-hoje — magic link), isso mudaria a análise, porque o cliente está fora
-do Workspace.
+**Confirmado (gestão documental, lacuna da matriz) — tipo do app OAuth do
+Google já é Internal, não External.** A auditoria pediu essa decisão como
+spike obrigatório antes de aprofundar em Drive; a checagem (2026-08-28)
+confirmou que o app já estava configurado como Internal desde antes desta
+sessão — nenhuma ação nova foi necessária. Como o domínio
+`studioaraci.com.br` já é um Google Workspace confirmado (acima) e todo
+mundo que loga na plataforma é `@studioaraci.com.br` (achado C-01, já
+reforçado por `signIn` callback + `hd`), Internal restringe o app a
+contas do próprio Workspace, sem processo de verificação do Google
+nenhum, **mesmo para escopos "sensíveis"/"restritos"**
+(`calendar.events`, `gmail.readonly`, `drive.file`) — elimina de vez a
+necessidade da avaliação de segurança CASA que bloquearia produção com um
+app External (ver bloqueador "decisão de produto escondida na
+infraestrutura" da rodada de blockers), **desde que o uso continue só
+interno** (equipe do estúdio). Se um dia o portal do cliente precisar de
+login Google (não precisa hoje — magic link), isso mudaria a análise,
+porque o cliente está fora do Workspace.
 
 **Escopo `drive.file` (não um escopo mais amplo) para GoogleDriveService.**
 Mesmo escopo que o Picker do Drive já usa no navegador (`DRIVE_SCOPE` em

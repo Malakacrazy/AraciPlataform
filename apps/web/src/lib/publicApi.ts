@@ -1,4 +1,4 @@
-import type { PresentationData } from "./types";
+import type { PresentationData, PresentationMoodboardBoard, MoodboardComment } from "./types";
 
 // Contraparte pública de api.ts: quem abre /present/[token] não tem
 // sessão NextAuth, então não há como mintInternalToken() (precisa de
@@ -32,6 +32,47 @@ export async function getPresentation(token: string): Promise<PresentationData> 
     throw new PublicApiError(res.status, body?.error?.message ?? "Erro ao carregar apresentação.");
   }
   return body.data as PresentationData;
+}
+
+export async function getPresentationMoodboardBoard(token: string, moodboardId: string): Promise<PresentationMoodboardBoard> {
+  const res = await presentationFetch(token, `/moodboards/${moodboardId}`);
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new PublicApiError(res.status, body?.error?.message ?? "Não foi possível carregar o quadro.");
+  }
+  return body.data;
+}
+
+export async function savePresentationMoodboardSnapshot(token: string, moodboardId: string, snapshot: unknown): Promise<void> {
+  const res = await presentationFetch(token, `/moodboards/${moodboardId}/snapshot`, {
+    method: "PATCH",
+    body: JSON.stringify({ snapshot }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new PublicApiError(res.status, body?.error?.message ?? "Não foi possível salvar o quadro.");
+  }
+}
+
+export async function listPresentationMoodboardComments(token: string, moodboardId: string): Promise<MoodboardComment[]> {
+  const res = await presentationFetch(token, `/moodboards/${moodboardId}/comments`);
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new PublicApiError(res.status, body?.error?.message ?? "Não foi possível carregar os comentários.");
+  }
+  return body.data;
+}
+
+export async function addPresentationMoodboardComment(token: string, moodboardId: string, body: string): Promise<MoodboardComment> {
+  const res = await presentationFetch(token, `/moodboards/${moodboardId}/comments`, {
+    method: "POST",
+    body: JSON.stringify({ body }),
+  });
+  const resBody = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new PublicApiError(res.status, resBody?.error?.message ?? "Não foi possível enviar o comentário.");
+  }
+  return resBody.data;
 }
 
 export async function updatePublicSpecification(

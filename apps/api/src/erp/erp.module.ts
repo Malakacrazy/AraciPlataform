@@ -35,6 +35,8 @@ import { StudioFixedCostsController } from './studio-fixed-costs.controller';
 import { StudioFixedCostsService } from './studio-fixed-costs.service';
 import { ProjectCollaboratorsController } from './collaborators.controller';
 import { CollaboratorsService } from './collaborators.service';
+import { RequiredDocumentTypesController } from './required-document-types.controller';
+import { RequiredDocumentTypesService } from './required-document-types.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
@@ -61,6 +63,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     RoleRatesController,
     StudioFixedCostsController,
     ProjectCollaboratorsController,
+    RequiredDocumentTypesController,
   ],
   providers: [
     ProjectsService,
@@ -80,6 +83,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     RoleRatesService,
     StudioFixedCostsService,
     CollaboratorsService,
+    RequiredDocumentTypesService,
   ],
   // ProjectsService/UsersService são usados por CrmModule (conversão de
   // oportunidade ganha em projeto) e por FfeModule (checkout do carrinho).

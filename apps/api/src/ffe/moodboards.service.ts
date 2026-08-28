@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotFoundError } from '../common/api-error';
 import { ProjectsService } from '../erp/projects.service';
-import { ProductsService } from './products.service';
 
 export const moodboardInputSchema = z.object({
   name: z.string().min(1), // ex.: "Sala de Estar — Conceito 1"
@@ -11,62 +10,47 @@ export const moodboardInputSchema = z.object({
 
 export type MoodboardInput = z.infer<typeof moodboardInputSchema>;
 
-// Um item é um Product real (kind="product", exige productId) ou uma
-// amostra de material/tecido sem produto nenhum no catálogo (kind=
-// "swatch", exige label + pelo menos uma forma de mostrar a amostra --
-// cor sólida ou foto). x/y/width são opcionais na criação -- o service
-// calcula um deslocamento em cascata quando ausentes, pra um item novo
-// não nascer exatamente empilhado sobre o anterior no canvas.
-export const moodboardItemInputSchema = z
-  .object({
-    kind: z.enum(['product', 'swatch']).default('product'),
-    productId: z.string().min(1).optional(),
-    label: z.string().min(1).optional(),
-    colorHex: z
-      .string()
-      .regex(/^#[0-9a-f]{6}$/i, 'Cor precisa ser hex no formato #rrggbb.')
-      .optional(),
-    swatchImageUrl: z.string().url().optional(),
-    x: z.number().optional(),
-    y: z.number().optional(),
-    width: z.number().positive().optional(),
-  })
-  .refine((v) => (v.kind === 'product' ? !!v.productId : !!v.label && (!!v.colorHex || !!v.swatchImageUrl)), {
-    message:
-      'Item "product" exige productId; item "swatch" exige label + (colorHex ou swatchImageUrl).',
-  });
-
-export type MoodboardItemInput = z.infer<typeof moodboardItemInputSchema>;
-
-// PATCH separado do create -- mover/redimensionar/trazer-pra-frente no
-// canvas é uma ação de layout, não uma edição de conteúdo (não faz
-// sentido reenviar kind/productId/label pra só mudar a posição).
-export const moodboardItemLayoutSchema = z.object({
-  x: z.number().optional(),
-  y: z.number().optional(),
-  width: z.number().positive().optional(),
-  bringToFront: z.boolean().optional(),
+// Corpo opaco de propósito -- é o TLStoreSnapshot inteiro do tldraw
+// (shapes + assets), formato interno da biblioteca que muda entre
+// versões. Validar a forma aqui acoplaria este service a uma versão
+// específica do tldraw; a única garantia que interessa é "é um JSON
+// válido", que o próprio parser HTTP já exige antes de chegar aqui.
+export const moodboardSnapshotInputSchema = z.object({
+  snapshot: z.unknown(),
 });
 
-export type MoodboardItemLayoutInput = z.infer<typeof moodboardItemLayoutSchema>;
+export type MoodboardSnapshotInput = z.infer<typeof moodboardSnapshotInputSchema>;
 
-const withItems = {
-  items: { include: { product: true }, orderBy: { order: 'asc' as const } },
-};
+export const moodboardCommentInputSchema = z.object({
+  body: z.string().min(1).max(2000),
+});
 
+export type MoodboardCommentInput = z.infer<typeof moodboardCommentInputSchema>;
+
+// "user" | "client" | "guest" -- os três surfaces que embutem o quadro
+// (tela do projeto, link de apresentação, portal do convidado). Sem
+// enum no Prisma de propósito, mesmo espírito de AuditActor.actorType
+// (string literal, não um tipo de banco): é rótulo de exibição, nunca
+// usado em filtro/índice que precisasse de enum de verdade.
+export type MoodboardCommentAuthorType = 'user' | 'client' | 'guest';
+
+// Correção "moodboard vira quadro tldraw": o canvas livre próprio
+// (posição/tamanho de produto/amostra, ver MoodboardItem no histórico
+// do git) foi trocado por um quadro tldraw embutido de verdade. Este
+// service não sabe desenhar nada -- só guarda o snapshot que o cliente
+// manda (debounce no frontend, ver TldrawBoard) e devolve pra quem
+// reabre a prancha depois.
 @Injectable()
 export class MoodboardsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly projectsService: ProjectsService,
-    private readonly productsService: ProductsService,
   ) {}
 
   async listMoodboards(accountId: string, projectId: string) {
     await this.projectsService.getProject(accountId, projectId);
     return this.prisma.db.moodboard.findMany({
       where: { projectId },
-      include: withItems,
       orderBy: { createdAt: 'asc' },
     });
   }
@@ -74,7 +58,6 @@ export class MoodboardsService {
   async getMoodboard(accountId: string, id: string) {
     const moodboard = await this.prisma.db.moodboard.findFirst({
       where: { id, project: { accountId } },
-      include: withItems,
     });
     if (!moodboard) {
       throw new NotFoundError('Prancha');
@@ -82,105 +65,66 @@ export class MoodboardsService {
     return moodboard;
   }
 
-  async createMoodboard(
-    accountId: string,
-    projectId: string,
-    input: MoodboardInput,
-  ) {
+  async createMoodboard(accountId: string, projectId: string, input: MoodboardInput) {
     await this.projectsService.getProject(accountId, projectId);
     return this.prisma.db.moodboard.create({
       data: { ...input, projectId },
-      include: withItems,
     });
   }
 
   async deleteMoodboard(accountId: string, id: string) {
     await this.getMoodboard(accountId, id);
-    // MoodboardItem cascade no schema — itens somem junto, produtos do
-    // catálogo não são afetados (FK de MoodboardItem para Product não é
-    // cascade, só a de MoodboardItem para Moodboard).
+    // WhiteboardGuestAccess não é cascade (mesmo padrão de
+    // CollaboratorProjectAccess) -- limpo explicitamente antes, senão o
+    // delete da prancha falha com P2003 pra qualquer convidado ainda
+    // vinculado a ela.
+    await this.prisma.db.whiteboardGuestAccess.deleteMany({ where: { moodboardId: id } });
     await this.prisma.db.moodboard.delete({ where: { id } });
   }
 
-  async addItem(
-    accountId: string,
+  // Chamado por quem tem acesso de escrita ao quadro -- staff (rota
+  // autenticada normal) ou um WhiteboardGuest com WhiteboardGuestAccess
+  // pra esta prancha (ver WhiteboardGuestPortalService), nunca
+  // diretamente pelo link de apresentação (esse é sempre leitura, ver
+  // PublicPresentationService).
+  async saveSnapshot(accountId: string, id: string, input: MoodboardSnapshotInput) {
+    await this.getMoodboard(accountId, id);
+    return this.prisma.db.moodboard.update({
+      where: { id },
+      data: { snapshot: input.snapshot as object },
+    });
+  }
+
+  // Sem accountId no parâmetro de propósito -- as três chamadoras (rota
+  // de staff, PublicPresentationService, WhiteboardGuestPortalService)
+  // já resolveram e verificaram o próprio escopo (accountId da sessão,
+  // token de apresentação, ou WhiteboardGuestAccess) antes de chegar
+  // aqui; repetir a checagem seria redundante, não mais seguro.
+  async listComments(moodboardId: string) {
+    return this.prisma.db.moodboardComment.findMany({
+      where: { moodboardId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  // Única chamadora que passa accountId+userId em vez de authorName
+  // pronto -- as outras duas (client/guest) já tem o nome de exibição em
+  // mãos (Client.name, WhiteboardGuest.name) sem precisar de outra
+  // consulta.
+  async addStaffComment(accountId: string, moodboardId: string, userId: string, body: string) {
+    await this.getMoodboard(accountId, moodboardId);
+    const user = await this.prisma.db.user.findUnique({ where: { id: userId }, select: { name: true } });
+    return this.addComment(moodboardId, 'user', user?.name ?? 'Equipe', body);
+  }
+
+  async addComment(
     moodboardId: string,
-    input: MoodboardItemInput,
+    authorType: MoodboardCommentAuthorType,
+    authorName: string,
+    body: string,
   ) {
-    const board = await this.getMoodboard(accountId, moodboardId);
-
-    const nextOrder = board.items.length > 0 ? Math.max(...board.items.map((i) => i.order)) + 1 : 0;
-    // Cascata de 24px repetindo a cada 8 itens, pra um item novo não
-    // nascer exatamente empilhado sobre o anterior sem sair do canvas
-    // visível indefinidamente.
-    const cascade = (board.items.length % 8) * 24;
-    const x = input.x ?? 24 + cascade;
-    const y = input.y ?? 24 + cascade;
-
-    if (input.kind === 'swatch') {
-      return this.prisma.db.moodboardItem.create({
-        data: {
-          moodboardId,
-          kind: 'swatch',
-          label: input.label,
-          colorHex: input.colorHex,
-          swatchImageUrl: input.swatchImageUrl,
-          x,
-          y,
-          width: input.width ?? 120,
-          order: nextOrder,
-        },
-        include: { product: true },
-      });
-    }
-
-    await this.productsService.getProduct(accountId, input.productId!); // 404 se o produto não é desta conta
-    return this.prisma.db.moodboardItem.create({
-      data: {
-        moodboardId,
-        kind: 'product',
-        productId: input.productId,
-        x,
-        y,
-        width: input.width ?? 180,
-        order: nextOrder,
-      },
-      include: { product: true },
+    return this.prisma.db.moodboardComment.create({
+      data: { moodboardId, authorType, authorName, body },
     });
-  }
-
-  async updateItemLayout(accountId: string, itemId: string, input: MoodboardItemLayoutInput) {
-    const item = await this.prisma.db.moodboardItem.findFirst({
-      where: { id: itemId, moodboard: { project: { accountId } } },
-      include: { moodboard: { include: { items: true } } },
-    });
-    if (!item) {
-      throw new NotFoundError('Item da prancha');
-    }
-
-    const order = input.bringToFront
-      ? Math.max(...item.moodboard.items.map((i) => i.order)) + 1
-      : item.order;
-
-    return this.prisma.db.moodboardItem.update({
-      where: { id: itemId },
-      data: {
-        x: input.x,
-        y: input.y,
-        width: input.width,
-        order,
-      },
-      include: { product: true },
-    });
-  }
-
-  async removeItem(accountId: string, itemId: string) {
-    const item = await this.prisma.db.moodboardItem.findFirst({
-      where: { id: itemId, moodboard: { project: { accountId } } },
-    });
-    if (!item) {
-      throw new NotFoundError('Item da prancha');
-    }
-    await this.prisma.db.moodboardItem.delete({ where: { id: itemId } });
   }
 }

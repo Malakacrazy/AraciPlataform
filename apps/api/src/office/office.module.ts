@@ -38,5 +38,8 @@ import { BrokenLinkCheckCron } from './broken-link-check.cron';
     // injeta uma fake no lugar deste provider, sem chamar o Google.
     { provide: DRIVE_CLIENT, useClass: GoogleDriveApiClient },
   ],
+  // GoogleDriveService pro PresentationModule -- documentos visíveis ao
+  // cliente no link de apresentação (ver PublicPresentationService).
+  exports: [GoogleDriveService],
 })
 export class OfficeModule {}

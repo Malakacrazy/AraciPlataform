@@ -1,5 +1,5 @@
 import { GoogleDriveService } from './google-drive.service';
-import type { DriveClient, DriveFolder, DriveFileMetadata } from './google-drive-client';
+import type { DriveClient, DriveFolder, DriveFileMetadata, DriveFileContent } from './google-drive-client';
 
 // Lacuna da matriz (gestão documental por projeto) -- "cobertura com uma
 // porta fake do Drive, sem chamar o Google no teste", pedido explícito da
@@ -23,6 +23,16 @@ class FakeDriveClient implements DriveClient {
   async getFile(_accessToken: string, fileId: string): Promise<DriveFileMetadata | null> {
     return this.files.has(fileId) ? this.files.get(fileId)! : null;
   }
+
+  public downloads = new Map<string, DriveFileContent>();
+
+  async downloadFile(_accessToken: string, fileId: string): Promise<DriveFileContent> {
+    const content = this.downloads.get(fileId);
+    if (!content) {
+      throw new Error(`Arquivo ${fileId} não está mais disponível no Drive.`);
+    }
+    return content;
+  }
 }
 
 interface FakeOfficeLink {
@@ -39,6 +49,18 @@ interface FakeOfficeLink {
   visibleToClient: boolean;
   brokenAt: Date | null;
   lastCheckedAt: Date | null;
+}
+
+function matchesOfficeLinkWhere(link: FakeOfficeLink, where: any): boolean {
+  if (where.id && link.id !== where.id) return false;
+  if (where.accountId && link.accountId !== where.accountId) return false;
+  if (where.entityType && link.entityType !== where.entityType) return false;
+  if (where.entityId && link.entityId !== where.entityId) return false;
+  if (where.provider && link.provider !== where.provider) return false;
+  if (where.documentType?.in && !where.documentType.in.includes(link.documentType)) return false;
+  if (where.visibleToClient !== undefined && link.visibleToClient !== where.visibleToClient) return false;
+  if (where.brokenAt === null && link.brokenAt !== null) return false;
+  return true;
 }
 
 // Só o recorte de PrismaService.db que GoogleDriveService de fato chama --
@@ -79,16 +101,8 @@ function createFakePrisma(seed: {
         },
       },
       officeLink: {
-        findMany: async ({ where }: any) => {
-          return officeLinks.filter((link) => {
-            if (where.accountId && link.accountId !== where.accountId) return false;
-            if (where.entityType && link.entityType !== where.entityType) return false;
-            if (where.entityId && link.entityId !== where.entityId) return false;
-            if (where.provider && link.provider !== where.provider) return false;
-            if (where.documentType?.in && !where.documentType.in.includes(link.documentType)) return false;
-            return true;
-          });
-        },
+        findMany: async ({ where }: any) => officeLinks.filter((link) => matchesOfficeLinkWhere(link, where)),
+        findFirst: async ({ where }: any) => officeLinks.find((link) => matchesOfficeLinkWhere(link, where)) ?? null,
         create: async ({ data }: any) => {
           const link: FakeOfficeLink = {
             id: `link-${nextLinkId++}`,
@@ -237,5 +251,72 @@ describe('GoogleDriveService.checkBrokenLinksForAccount', () => {
 
     expect(result.newlyBroken).toEqual([]); // já quebrado antes -- não é "novo"
     expect(officeLinks[0].brokenAt).toEqual(jaQuebradoDesde); // preserva a data original
+  });
+});
+
+describe('GoogleDriveService — documentos visíveis ao cliente (item "grande" adiado)', () => {
+  const admins = [{ id: 'user-1', accountId: 'acc-1' }];
+  const credentials = [{ userId: 'user-1', scope: DRIVE_FILE_SCOPE }];
+  const officeLinks: FakeOfficeLink[] = [
+    {
+      id: 'link-visivel', accountId: 'acc-1', entityType: 'PROJECT', entityId: 'proj-1',
+      provider: 'DRIVE', externalId: 'file-visivel', url: 'https://drive.example/file-visivel', title: 'Contrato.pdf',
+      documentType: 'contrato', phaseId: null, visibleToClient: true, brokenAt: null, lastCheckedAt: null,
+    },
+    {
+      id: 'link-nao-marcado', accountId: 'acc-1', entityType: 'PROJECT', entityId: 'proj-1',
+      provider: 'DRIVE', externalId: 'file-interno', url: 'https://drive.example/file-interno', title: 'Rascunho interno.pdf',
+      documentType: null, phaseId: null, visibleToClient: false, brokenAt: null, lastCheckedAt: null,
+    },
+    {
+      id: 'link-quebrado-visivel', accountId: 'acc-1', entityType: 'PROJECT', entityId: 'proj-1',
+      provider: 'DRIVE', externalId: 'file-quebrado', url: 'https://drive.example/file-quebrado', title: 'ART.pdf',
+      documentType: 'art', phaseId: null, visibleToClient: true, brokenAt: new Date('2026-01-01'), lastCheckedAt: null,
+    },
+  ];
+
+  it('lista só o vínculo marcado visível ao cliente e ainda não quebrado', async () => {
+    const drive = new FakeDriveClient();
+    const prisma = createFakePrisma({ admins, credentials, officeLinks: [...officeLinks] });
+    const credentialsService = { getAccessToken: async () => 'fake-access-token' } as any;
+    const service = new GoogleDriveService(prisma as any, credentialsService, drive);
+
+    const documents = await service.listClientVisibleDocuments('acc-1', 'proj-1');
+
+    expect(documents.map((d: any) => d.id)).toEqual(['link-visivel']);
+  });
+
+  it('baixa o conteúdo de um documento visível, com a credencial de um admin conectado', async () => {
+    const drive = new FakeDriveClient();
+    drive.downloads.set('file-visivel', { name: 'Contrato.pdf', mimeType: 'application/pdf', data: Buffer.from('pdf-bytes') });
+    const prisma = createFakePrisma({ admins, credentials, officeLinks: [...officeLinks] });
+    const credentialsService = { getAccessToken: async () => 'fake-access-token' } as any;
+    const service = new GoogleDriveService(prisma as any, credentialsService, drive);
+
+    const content = await service.downloadClientVisibleDocument('acc-1', 'proj-1', 'link-visivel');
+
+    expect(content).toEqual({ name: 'Contrato.pdf', mimeType: 'application/pdf', data: Buffer.from('pdf-bytes') });
+  });
+
+  it('recusa baixar um vínculo que a equipe nunca marcou visível ao cliente (404, não vaza que existe)', async () => {
+    const drive = new FakeDriveClient();
+    const prisma = createFakePrisma({ admins, credentials, officeLinks: [...officeLinks] });
+    const credentialsService = { getAccessToken: async () => 'fake-access-token' } as any;
+    const service = new GoogleDriveService(prisma as any, credentialsService, drive);
+
+    await expect(service.downloadClientVisibleDocument('acc-1', 'proj-1', 'link-nao-marcado')).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it('recusa baixar um vínculo visível mas já quebrado (404, mesmo escopo de listClientVisibleDocuments)', async () => {
+    const drive = new FakeDriveClient();
+    const prisma = createFakePrisma({ admins, credentials, officeLinks: [...officeLinks] });
+    const credentialsService = { getAccessToken: async () => 'fake-access-token' } as any;
+    const service = new GoogleDriveService(prisma as any, credentialsService, drive);
+
+    await expect(service.downloadClientVisibleDocument('acc-1', 'proj-1', 'link-quebrado-visivel')).rejects.toMatchObject({
+      status: 404,
+    });
   });
 });

@@ -3,12 +3,22 @@ import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet, ApiError } from "@/lib/api";
-import type { Project, Area, Product, ProductSpecification, Moodboard, PresentationLink } from "@/lib/types";
+import type {
+  Project,
+  Area,
+  Product,
+  ProductSpecification,
+  Moodboard,
+  MoodboardComment,
+  WhiteboardGuestAccess,
+  PresentationLink,
+} from "@/lib/types";
 import { FfeCart } from "@/components/ffe/ffe-cart";
 import { createArea, deleteArea, createSpecification, deleteSpecification } from "@/components/ffe/actions";
-import { createMoodboard, deleteMoodboard } from "@/components/moodboards/actions";
+import { createMoodboard, deleteMoodboard, saveMoodboardSnapshot, addMoodboardComment } from "@/components/moodboards/actions";
 import { PresentationLinkPanel } from "@/components/moodboards/presentation-link-panel";
-import { MoodboardCanvas } from "@/components/moodboards/moodboard-canvas";
+import { CollaborativeBoard } from "@/components/moodboards/collaborative-board";
+import { WhiteboardGuestsSection } from "@/components/whiteboard-guests/whiteboard-guests-section";
 import { ExportFfeCsv } from "@/components/ffe/export-ffe-csv";
 
 export default async function ProjectFfePage({ params }: { params: Promise<{ id: string }> }) {
@@ -43,6 +53,27 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
     areas.map((area) => apiGet<ProductSpecification[]>(`areas/${area.id}/specifications`)),
   );
   const allSpecs = specsByArea.flat();
+
+  const commentsByBoard = await Promise.all(
+    moodboards.map((board) => apiGet<MoodboardComment[]>(`moodboards/${board.id}/comments`)),
+  );
+
+  // Convidar alguém pra um quadro é @AdminOnly() do lado da API -- 403
+  // aqui só significa staff sem acesso a essa config; degrada pra seção
+  // vazia (esconde convite/lista pra quem não pode gerenciar), não
+  // quebra a tela.
+  const guestsByBoard = await Promise.all(
+    moodboards.map(async (board) => {
+      try {
+        return await apiGet<WhiteboardGuestAccess[]>(`moodboards/${board.id}/guests`);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 403) {
+          return null;
+        }
+        throw err;
+      }
+    }),
+  );
 
   // Mesma fórmula de linha do checkout real (ver
   // SpecificationsService.approveCartToInvoiceDraft) -- só reaplicada
@@ -265,7 +296,7 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
         </div>
       </section>
 
-      {moodboards.map((board) => (
+      {moodboards.map((board, i) => (
         <section
           key={board.id}
           className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950"
@@ -280,8 +311,18 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
           </div>
 
           <div className="mt-3">
-            <MoodboardCanvas projectId={id} moodboard={board} products={products} />
+            <CollaborativeBoard
+              boardId={board.id}
+              initialSnapshot={board.snapshot}
+              initialComments={commentsByBoard[i]}
+              onSaveSnapshot={saveMoodboardSnapshot.bind(null, board.id)}
+              onAddComment={addMoodboardComment.bind(null, board.id)}
+            />
           </div>
+
+          {guestsByBoard[i] !== null && (
+            <WhiteboardGuestsSection projectId={id} moodboardId={board.id} guests={guestsByBoard[i]!} />
+          )}
         </section>
       ))}
 
