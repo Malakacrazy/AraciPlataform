@@ -1856,6 +1856,109 @@ nesta sessão:
   mesma falha pré-existente de sempre (`ASAAS_API_KEY`); `verify-stalled-
   cron.ts` confirma o comportamento do cron reescrito contra dado real.
 
+## Correção — 11 dos 15 bloqueadores de publicação da mesma auditoria
+
+Os outros 4 (os 4 críticos de segurança/negócio) já tinham sido
+corrigidos antes — ver a seção própria mais acima. Escolhas de infra
+confirmadas com a Giulia antes de começar: **Render** como provedor de
+hospedagem (motivo documentado no topo do `render.yaml`, não preferência
+— o estúdio tem um segredo em arquivo, o `.pfx` do certificado A1, e
+precisa de um volume persistente pro XML fiscal, e Render atende os dois
+nativamente) e **Sentry** como ferramenta de rastreamento de erro.
+
+- **Magic link apontando pra localhost sem avisar**: `WEB_URL` ausente
+  virava um link inútil no e-mail do cliente, em silêncio. Agora avisa
+  alto (`Logger.warn`) sempre que cai no fallback, e `WEB_URL` entrou na
+  lista de configuração recomendada checada no boot (ver abaixo).
+- **Comando de migração de produção**: só existia `prisma migrate dev`
+  (interativo, pode propor reset do banco — nunca deveria rodar contra
+  produção). Adicionado `migrate:deploy` (`prisma migrate deploy`, não-
+  interativo) em `packages/db` e um atalho `db:migrate:deploy` na raiz;
+  é o que `render.yaml` chama como `preDeployCommand`.
+- **Log de erro 500 sem contexto nenhum**: `this.logger.error(exception)`
+  sozinho não registrava rota, método nem quem estava logado — um 500 de
+  produção era indiagnosticável. `HttpExceptionFilter` agora loga
+  método+rota+ator (via `getAuditActor()`, já existia pra outra coisa) e
+  também manda pro Sentry (`Sentry.captureException`, ver abaixo).
+- **`error.tsx`/`global-error.tsx`/`not-found.tsx` que faltavam**:
+  `(dashboard)/error.tsx` (achado A-01) só cobria o grupo do dashboard.
+  Adicionados `app/error.tsx` (cobre as 4 rotas públicas), `app/global-
+  error.tsx` (único jeito de capturar um throw dentro do próprio layout
+  raiz — precisa renderizar `<html>/<body>` própria) e `app/not-found.tsx`
+  com a cara do produto em vez da página 404 genérica do Next.
+- **Configuração nunca validada no boot, healthchecks sempre "ok"**:
+  `apps/api/src/main.ts` agora falha alto e cedo (`process.exit(1)`) se
+  `DATABASE_URL`/`INTERNAL_API_SECRET` faltarem, e avisa (sem derrubar o
+  boot) pras variáveis que só degradam uma feature específica.
+  `apps/web/src/instrumentation.ts` (hook oficial do Next.js, chamado uma
+  vez quando o servidor sobe) faz o mesmo do lado de lá. Os dois
+  `/health` agora checam de verdade: `apps/api` roda `SELECT 1` no
+  Postgres; `apps/web` checa se consegue alcançar o `/health` de
+  `apps/api` — nenhum dos dois mais responde "ok" sem tocar em nada.
+- **Nenhum artefato de empacotamento nem pipeline**: `Dockerfile` pra
+  `apps/api` (mantém as devDependencies na imagem final de propósito —
+  `prisma migrate deploy` precisa da árvore TypeScript, e rodar o Pre-
+  Deploy Command do Render contra a mesma imagem evita um job/init-
+  container separado) e pra `apps/web` (multi-stage com `output:
+  "standalone"` do Next, traçado a partir da raiz do monorepo). CI novo
+  em `.github/workflows/ci.yml` — instala, gera o Prisma Client, builda
+  os dois apps via turbo e roda typecheck; é a etapa 1 que a própria
+  auditoria pede antes de qualquer decisão de hospedagem ("provar que o
+  monorepo compila fora do Windows"). `turbo.json` ganhou a lista de
+  `NEXT_PUBLIC_*` na config de `env` do build (achado à parte da
+  auditoria: sem isso, um acerto de cache do turbo podia publicar o
+  bundle com o `NEXT_PUBLIC_GOOGLE_CLIENT_ID` de uma build anterior).
+  `.nvmrc`/`engines` alinhados pra Node 22 (decisão que a própria
+  auditoria pede — `libxmljs2`, dependência transitiva da integração de
+  NFS-e, exige `>=22`).
+- **Banco de produção**: `render.yaml` declara o Postgres gerenciado
+  (blueprint, não provisionado de verdade — precisa de uma conta Render
+  real, que esta sessão não tem acesso). `DATABASE_URL` já resolve certo
+  contra o formato de connection string do Render (mesmo formato
+  `postgresql://` de sempre, nada específico de provedor no código).
+- **Webhooks da Asaas/ZapSign sem caminho público**: um efeito colateral
+  direto de `apps/api` virar um serviço privado no Render (`pserv`, sem
+  domínio) — a própria Asaas/ZapSign não teria mais como chamar
+  `POST /v1/billing/asaas/webhook`/`POST /v1/zapsign/webhook` direto.
+  Adicionadas duas rotas "cano burro" em `apps/web`
+  (`api/webhooks/{asaas,zapsign}`) que só repassam método/header de
+  segredo/corpo pra rota `@Public()` correspondente em `apps/api` — a
+  autorização de verdade continua sendo o header de segredo, verificado
+  do lado de lá, inalterado. Configurar no painel de cada provedor como a
+  URL do webhook em produção.
+- **Zero rastreamento de erro**: Sentry (`@sentry/nestjs` em `apps/api`,
+  `@sentry/nextjs` em `apps/web`) — sem `SENTRY_DSN`/
+  `NEXT_PUBLIC_SENTRY_DSN` configurado, é inteiramente um no-op (dev
+  local continua idêntico a antes). Capturado nos 3 pontos que importam:
+  o branch de 500 do `HttpExceptionFilter`, e os 3 `error.tsx`/`global-
+  error.tsx` do apps/web (o `global-error.tsx` é o único jeito
+  recomendado pela própria documentação do Sentry de cobrir um throw no
+  layout raiz do App Router). Upload de source map (stack trace legível,
+  não código minificado) fica de fora por decisão — precisa de
+  `SENTRY_AUTH_TOKEN`/org/project como segredo extra de CI, e o
+  postinstall do `@sentry/cli` já veio bloqueado pelo `allowScripts`
+  existente no `package.json` raiz (comportamento correto — não
+  aprovado às pressas só porque instalou).
+- **Não corrigido nesta sessão, de propósito**: LGPD (bloqueador 05) —
+  a própria auditoria já enquadra isso como decisão da Giulia (quem é o
+  controlador, quem é o encarregado) mais revisão jurídica do aviso de
+  privacidade, não implementação; entra como o próprio "Correção — LGPD"
+  já mapeado no plano de 38 itens, não misturado aqui.
+- **Limitação desta sessão**: nada disto foi testado contra uma conta
+  Render de verdade (sem acesso a uma) — a lógica de build (comandos do
+  turbo, caminho de saída do `output: "standalone"`, `dist/main.js`) foi
+  confirmada rodando de verdade fora do Docker, mas o `docker build`
+  em si e os nomes de campo exatos do blueprint do Render não foram
+  validados contra a ferramenta real. O ponto mais provável de precisar
+  ajuste fino no dashboard na hora de configurar de verdade: como os
+  `NEXT_PUBLIC_*` chegam como build arg pro Docker.
+- Verificado: build+typecheck limpos (api e web) depois de cada mudança;
+  os dois `/health` testados de verdade contra os servidores de dev
+  rodando (Postgres real respondendo, apps/web alcançando apps/api); as
+  duas rotas de webhook testadas de verdade (token errado → 401
+  repassado, token certo → 200 repassado); smoke suite 256/257, mesma
+  falha pré-existente de sempre (`ASAAS_API_KEY`).
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

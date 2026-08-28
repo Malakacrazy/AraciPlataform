@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "packageManager": "npm@12.0.1",
   "workspaces": [
@@ -16,6 +16,7 @@
     "test": "turbo run test",
     "db:generate": "npm run generate --workspace=packages/db",
     "db:migrate": "npm run migrate:dev --workspace=packages/db",
+    "db:migrate:deploy": "npm run migrate:deploy --workspace=packages/db",
     "db:local": "npm run db:local:start --workspace=packages/db",
     "smoke-test:api": "npm run smoke-test --workspace=apps/api",
     "smoke-test:web": "npm run smoke-test --workspace=apps/web",

@@ -63,8 +63,17 @@ export class ClientPortalService {
       },
     });
 
-    const webUrl = process.env.WEB_URL ?? 'http://localhost:3000';
-    const link = `${webUrl}/portal/verify?token=${token}`;
+    // Achado (bloqueador 06 da auditoria): sem WEB_URL configurado, o
+    // cliente recebia um e-mail correto e bonito com um link pra
+    // localhost -- inútil fora da máquina de quem está desenvolvendo.
+    // O fallback continua existindo pro ambiente local (não travar dev
+    // sem .env), mas agora avisa alto o suficiente pra aparecer no boot
+    // de produção: ver validação de config obrigatória em main.ts.
+    const webUrl = process.env.WEB_URL;
+    if (!webUrl) {
+      this.logger.warn('WEB_URL não configurado -- magic link será gerado com http://localhost:3000, inútil fora de dev.');
+    }
+    const link = `${webUrl ?? 'http://localhost:3000'}/portal/verify?token=${token}`;
 
     try {
       await this.notificationsService.sendClientMagicLink(client.email, client.name, link);

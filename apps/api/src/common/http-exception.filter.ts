@@ -1,8 +1,10 @@
 import { ArgumentsHost, Catch, ExceptionFilter, Logger } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { ZodError } from 'zod';
 import { Prisma } from '@araci/db';
+import * as Sentry from '@sentry/nestjs';
 import { ApiError } from './api-error';
+import { getAuditActor } from '../audit/audit-context';
 
 // Portado de apps/web/src/lib/api.ts (errorResponse) — mesmo formato de
 // resposta em todo o backend: { error: { code, message } }.
@@ -75,8 +77,23 @@ export class HttpExceptionFilter implements ExceptionFilter {
       }
     }
 
-    // Não vaza detalhe de erro interno (stack, mensagem de driver) — só loga.
-    this.logger.error(exception);
+    // Não vaza detalhe de erro interno (stack, mensagem de driver) pro
+    // cliente -- mas precisa vazar pro PRÓPRIO log, senão um 500 de
+    // produção é indiagnosticável (bloqueador 10 da auditoria: antes,
+    // this.logger.error(exception) sozinho não registrava rota, método
+    // nem quem estava logado quando aconteceu).
+    const request = host.switchToHttp().getRequest<Request>();
+    const actor = getAuditActor();
+    this.logger.error(
+      `${request.method} ${request.originalUrl} — ator: ${actor.actorEmail ?? actor.actorType ?? 'desconhecido'}`,
+      exception instanceof Error ? exception.stack : String(exception),
+    );
+    // Sem SENTRY_DSN configurado, captureException é um no-op (bloqueador
+    // 09 da auditoria) -- ver src/instrument.ts.
+    Sentry.captureException(exception, {
+      tags: { route: request.originalUrl, method: request.method },
+      user: actor.actorEmail ? { email: actor.actorEmail, id: actor.actorId } : undefined,
+    });
     response
       .status(500)
       .json({ error: { code: 'INTERNAL_ERROR', message: 'Erro interno.' } });

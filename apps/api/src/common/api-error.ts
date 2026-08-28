@@ -28,3 +28,9 @@ export class ForbiddenError extends ApiError {
     super('FORBIDDEN', message, 403);
   }
 }
+
+export class ServiceUnavailableError extends ApiError {
+  constructor(message = 'Serviço indisponível.') {
+    super('SERVICE_UNAVAILABLE', message, 503);
+  }
+}

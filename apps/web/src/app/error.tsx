@@ -3,14 +3,17 @@
 import { useEffect } from "react";
 import * as Sentry from "@sentry/nextjs";
 
-// Achado A-01 da auditoria: não existia error.tsx em lugar nenhum de
-// src/app, então qualquer throw não tratado numa das 20 rotas do
-// dashboard caía na tela de erro genérica do Next (sem navegação, sem
-// forma de voltar). Este arquivo cobre as páginas do grupo (dashboard) --
-// não cobre um throw dentro do próprio (dashboard)/layout.tsx, que tem
-// seu próprio try/catch agora; um erro ali sobe pro boundary do layout
-// raiz. Reporta ao Sentry (bloqueador 09 da auditoria).
-export default function DashboardError({
+// Bloqueador 11 da auditoria: (dashboard)/error.tsx (achado A-01) só
+// cobre as rotas do grupo (dashboard) -- as 4 rotas públicas (portal,
+// present/[token], lead, projects/.../print) não tinham nenhum error.tsx
+// acima delas, então qualquer throw não tratado caía direto na tela de
+// erro genérica do Next. Mesmo texto/layout do (dashboard)/error.tsx,
+// duplicado (não importado de lá) porque cada error.tsx é isolado por
+// segmento de rota no App Router -- não dá pra reaproveitar um
+// Client Component de outro segmento como boundary. Reporta ao Sentry
+// (bloqueador 09) -- este é o boundary que a maioria dos erros reais
+// vai bater, bem mais frequente que global-error.tsx.
+export default function RootError({
   error,
   reset,
 }: {

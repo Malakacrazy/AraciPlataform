@@ -1,0 +1,49 @@
+name: CI
+
+# Bloqueador 07 da auditoria, etapa 1 da sequência recomendada: "provar
+# que o monorepo compila fora do Windows" antes de qualquer decisão de
+# hospedagem. Este código nunca tinha rodado em CI -- apps/web tem
+# strict: true e nunca desliga erro de build, então isso remove a maior
+# incógnita da lista de bloqueadores.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Instalar, gerar, buildar, typecheck
+    runs-on: ubuntu-latest
+    env:
+      # Só pra gerar o Prisma Client e satisfazer datasource.url em
+      # prisma.config.ts -- nenhum passo deste workflow conecta de
+      # verdade num banco.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Gerar Prisma Client
+        run: npm run db:generate
+
+      - name: Build (packages/db, apps/api, apps/web)
+        run: npx turbo run build
+
+      - name: Typecheck apps/api
+        run: npx tsc --noEmit
+        working-directory: apps/api
+
+      - name: Typecheck apps/web
+        run: npx tsc --noEmit
+        working-directory: apps/web
