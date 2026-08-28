@@ -64,8 +64,13 @@ export class ProjectsService {
     // ClientsService.deleteClient (esse sim alcançável hoje) e para não
     // deixar a limpeza faltando se um caminho de delete de fases for
     // aberto no futuro.
+    // Activity é o mesmo padrão polimórfico do OfficeLink (achado A-02 da
+    // auditoria) -- limpa junto, mesma razão.
     await this.prisma.db.$transaction([
       this.prisma.db.officeLink.deleteMany({
+        where: { accountId, entityType: 'PROJECT', entityId: id },
+      }),
+      this.prisma.db.activity.deleteMany({
         where: { accountId, entityType: 'PROJECT', entityId: id },
       }),
       this.prisma.db.project.delete({ where: { id } }),

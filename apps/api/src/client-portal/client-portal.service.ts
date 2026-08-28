@@ -38,8 +38,13 @@ export class ClientPortalService {
   // novo invalida qualquer link anterior ainda não consumido do mesmo
   // cliente.
   async requestMagicLink(input: RequestLinkInput): Promise<void> {
-    const client = await this.prisma.db.client.findFirst({
-      where: { email: { equals: input.email, mode: 'insensitive' } },
+    // findUnique em vez do findFirst+mode:'insensitive' de antes -- agora
+    // que Client.email é @unique e sempre gravado em minúsculas (ver
+    // ClientsService, achado A-05 da auditoria), a busca não precisa mais
+    // tolerar múltiplas linhas nem comparação case-insensitive no banco;
+    // é exatamente uma linha ou nenhuma.
+    const client = await this.prisma.db.client.findUnique({
+      where: { email: input.email.toLowerCase() },
     });
     if (!client || !client.email) {
       return;

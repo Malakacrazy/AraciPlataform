@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
+import { STATE_COOKIE } from "../state-cookie";
 
-function redirectToTeam(request: Request, params: Record<string, string>) {
+function redirectToTeam(request: NextRequest, params: Record<string, string>) {
   const url = new URL("/team", request.url);
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
@@ -19,7 +20,7 @@ function redirectToTeam(request: Request, params: Record<string, string>) {
 // lugar, sem duplicar o segredo em apps/api também. Só o refresh_token
 // resultante (o dado que realmente precisa ser guardado) segue adiante
 // pro apps/api, que criptografa e persiste (ver GoogleCredentialsService).
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     return NextResponse.redirect(new URL("/api/auth/signin", request.url));
@@ -28,14 +29,39 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const error = url.searchParams.get("error");
+  const state = url.searchParams.get("state");
+
+  // Achado A-04: exige que `state` bata com o cookie setado por
+  // authorize/route.ts para ESTE navegador -- sem isso, qualquer `code`
+  // que chegasse na query (inclusive de um consentimento que o atacante
+  // iniciou na própria conta dele) seria trocado e salvo como a
+  // credencial de quem estiver logado aqui. De uso único: toda resposta
+  // daqui pra frente passa por respond(), que apaga o cookie de estado
+  // esteja o fluxo indo pro sucesso ou pra qualquer erro.
+  const expectedState = request.cookies.get(STATE_COOKIE)?.value;
+  function respond(response: NextResponse) {
+    response.cookies.delete(STATE_COOKIE);
+    return response;
+  }
+
+  if (!state || !expectedState || state !== expectedState) {
+    return respond(
+      redirectToTeam(request, {
+        googleSyncError: "Não foi possível confirmar que esta autorização começou neste navegador. Tente conectar de novo.",
+      }),
+    );
+  }
+
   if (error || !code) {
-    return redirectToTeam(request, { googleSyncError: error ?? "O Google não devolveu um código de autorização." });
+    return respond(
+      redirectToTeam(request, { googleSyncError: error ?? "O Google não devolveu um código de autorização." }),
+    );
   }
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
-    return redirectToTeam(request, { googleSyncError: "GOOGLE_CLIENT_ID/SECRET não configurados." });
+    return respond(redirectToTeam(request, { googleSyncError: "GOOGLE_CLIENT_ID/SECRET não configurados." }));
   }
 
   const redirectUri = new URL("/api/google/callback", request.url).toString();
@@ -59,11 +85,13 @@ export async function GET(request: Request) {
     // Google emite um, a não ser que prompt=consent force de novo -- se
     // ainda assim não veio, algo na configuração do client OAuth está
     // errado, não é um erro transitório).
-    return redirectToTeam(request, {
-      googleSyncError:
-        tokenBody.error_description ??
-        "O Google não devolveu um refresh_token. Tente remover o acesso do app em myaccount.google.com/permissions e conectar de novo.",
-    });
+    return respond(
+      redirectToTeam(request, {
+        googleSyncError:
+          tokenBody.error_description ??
+          "O Google não devolveu um refresh_token. Tente remover o acesso do app em myaccount.google.com/permissions e conectar de novo.",
+      }),
+    );
   }
 
   const saveRes = await apiFetch("office/google-credential", {
@@ -71,8 +99,8 @@ export async function GET(request: Request) {
     body: JSON.stringify({ refreshToken: tokenBody.refresh_token, scope: tokenBody.scope ?? "" }),
   });
   if (!saveRes.ok) {
-    return redirectToTeam(request, { googleSyncError: "Falha ao salvar a credencial." });
+    return respond(redirectToTeam(request, { googleSyncError: "Falha ao salvar a credencial." }));
   }
 
-  return redirectToTeam(request, { googleSyncConnected: "1" });
+  return respond(redirectToTeam(request, { googleSyncConnected: "1" }));
 }

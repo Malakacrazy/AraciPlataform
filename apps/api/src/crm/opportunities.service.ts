@@ -117,7 +117,16 @@ export class OpportunitiesService {
 
   async deleteOpportunity(accountId: string, id: string) {
     await this.getOpportunity(accountId, id);
-    await this.prisma.db.opportunity.delete({ where: { id } });
+    // Mesmo achado A-02 (Activity é polimórfico, sem FK) que já valia pra
+    // Client/Project -- ActivityEntityType inclui OPPORTUNITY, então este
+    // delete tinha o mesmo risco de deixar nota órfã, só num caminho que
+    // a auditoria não citou por nome.
+    await this.prisma.db.$transaction([
+      this.prisma.db.activity.deleteMany({
+        where: { accountId, entityType: 'OPPORTUNITY', entityId: id },
+      }),
+      this.prisma.db.opportunity.delete({ where: { id } }),
+    ]);
   }
 
   // Fluxo automático #1 (especificacao-tecnica.md): marcar como ganha

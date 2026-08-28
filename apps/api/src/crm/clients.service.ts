@@ -36,8 +36,19 @@ export class ClientsService {
     return client;
   }
 
+  // Normaliza pra minúsculas aqui no service, não só no schema Zod --
+  // LeadsService.createClient chama este método direto (nunca passa pelo
+  // ZodValidationPipe de novo), então normalizar só no schema deixaria o
+  // formulário público de lead fora da proteção. @unique em Client.email
+  // (achado A-05 da auditoria) só barra "Foo@x.com" duplicado de
+  // "foo@x.com" se os dois sempre chegarem já em minúsculas -- Postgres
+  // compara case-sensitive por padrão.
+  private normalizeEmail<T extends { email?: string }>(input: T): T {
+    return input.email ? { ...input, email: input.email.toLowerCase() } : input;
+  }
+
   createClient(accountId: string, input: ClientInput) {
-    return this.prisma.db.client.create({ data: { ...input, accountId } });
+    return this.prisma.db.client.create({ data: { ...this.normalizeEmail(input), accountId } });
   }
 
   async updateClient(
@@ -46,16 +57,21 @@ export class ClientsService {
     input: Partial<ClientInput>,
   ) {
     await this.getClient(accountId, id); // 404 antes de tentar atualizar fora do escopo da conta
-    return this.prisma.db.client.update({ where: { id }, data: input });
+    return this.prisma.db.client.update({ where: { id }, data: this.normalizeEmail(input) });
   }
 
   async deleteClient(accountId: string, id: string) {
     await this.getClient(accountId, id);
-    // Mesmo raciocínio de ProjectsService.deleteProject: OfficeLink não
-    // tem FK para Client (polimórfico), então precisa de limpeza explícita
-    // para não deixar vínculo órfão e inacessível.
+    // Mesmo raciocínio de ProjectsService.deleteProject: OfficeLink e
+    // Activity não têm FK para Client (polimórficos), então precisam de
+    // limpeza explícita para não deixar vínculo/nota órfão e inacessível
+    // (achado A-02 da auditoria: Activity tinha o mesmo padrão do
+    // OfficeLink mas não era limpo em nenhum dos dois deletes).
     await this.prisma.db.$transaction([
       this.prisma.db.officeLink.deleteMany({
+        where: { accountId, entityType: 'CLIENT', entityId: id },
+      }),
+      this.prisma.db.activity.deleteMany({
         where: { accountId, entityType: 'CLIENT', entityId: id },
       }),
       this.prisma.db.client.delete({ where: { id } }),

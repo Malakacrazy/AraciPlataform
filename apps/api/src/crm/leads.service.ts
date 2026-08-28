@@ -26,23 +26,30 @@ export class LeadsService {
   // AuthService.ensureAccountAndUser resolve pro primeiro login: não tem
   // token nenhum pra tirar isso de dentro.
   //
-  // Sempre cria um Client novo, nunca tenta casar por e-mail com um já
-  // existente -- dedupe de contato é um problema à parte, já registrado
-  // como redline do próprio módulo Clients na auditoria; misturar essa
-  // lógica aqui só pra este formulário criaria dois caminhos diferentes
-  // de dedupe no futuro.
+  // Reaproveita o Client existente pelo e-mail em vez de sempre criar um
+  // novo -- Client.email agora é @unique (achado A-05 da auditoria:
+  // login do portal buscava por e-mail sem constraint nenhuma), então um
+  // segundo envio do formulário público com o mesmo e-mail (visitante
+  // manda de novo, ou já é cliente) violaria a constraint se tentasse
+  // criar outro Client. Um contato repetido é uma Opportunity nova pro
+  // mesmo Client, não um Client duplicado -- mais correto que a lacuna
+  // que isso substitui, não só um jeito de não quebrar.
   async submitLead(input: LeadInput) {
     const account = await this.prisma.db.account.findFirst();
     if (!account) {
       throw new NotFoundError('Conta do estúdio');
     }
 
-    const client = await this.clientsService.createClient(account.id, {
-      name: input.name,
-      email: input.email,
-      phone: input.phone,
-      source: 'site',
-    });
+    const email = input.email.toLowerCase();
+    const existingClient = await this.prisma.db.client.findUnique({ where: { email } });
+    const client =
+      existingClient ??
+      (await this.clientsService.createClient(account.id, {
+        name: input.name,
+        email: input.email,
+        phone: input.phone,
+        source: 'site',
+      }));
 
     // feeModel/stage não vêm do formulário -- um visitante anônimo não
     // tem como saber que "hora_tecnica" é o único modelo em uso real

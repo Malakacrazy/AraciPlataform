@@ -48,9 +48,9 @@ enum ActivityEntityType {
 // hangs off an Account so the schema supports multiple firms later
 // without a redesign, even though Giulia is the only tenant today.
 model Account {
-  id        String  @id @default(cuid())
-  name      String
-  cnpj      String?
+  id             String   @id @default(cuid())
+  name           String
+  cnpj           String?
   // "MEI" | "ME" — MEI tributa por valor fixo mensal (DAS-MEI), sem Fator
   // R; Fator R e Simples Nacional (Anexo III/V) só passam a valer quando
   // o estúdio migra pra ME. Ver docs/fase-0/decisoes-pos-descoberta.md #4
@@ -75,17 +75,17 @@ model Account {
   pricingBillableHoursPerDay  Decimal @default(8)
   pricingActiveStaffCount     Decimal @default(1)
 
-  users             User[]
-  clients           Client[]
-  projects          Project[]
-  products          Product[]
-  roleRates         RoleRate[]
-  officeLinks       OfficeLink[]
-  activities        Activity[]
-  notifications     Notification[]
-  auditLogs         AuditLog[]
-  expenses          Expense[]
-  studioFixedCosts  StudioFixedCost[]
+  users            User[]
+  clients          Client[]
+  projects         Project[]
+  products         Product[]
+  roleRates        RoleRate[]
+  officeLinks      OfficeLink[]
+  activities       Activity[]
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  expenses         Expense[]
+  studioFixedCosts StudioFixedCost[]
 }
 
 // Aba 01 ("Custos Fixos do Estúdio") -- item por item (aluguel, software,
@@ -175,6 +175,8 @@ model User {
   notifications     Notification[]
   assignedTasks     Task[]
   googleCredential  GoogleCredential?
+
+  @@index([accountId])
 }
 
 // Refresh token do Google por usuário -- fundação pra sincronização via
@@ -189,37 +191,49 @@ model User {
 // (nunca no login SSO normal, que continua sem escopo nenhum de
 // Drive/Calendar/Gmail, de propósito).
 model GoogleCredential {
-  id               String   @id @default(cuid())
-  userId           String   @unique
-  user             User     @relation(fields: [userId], references: [id])
-  refreshTokenEnc  String
-  refreshTokenIv   String
-  refreshTokenTag  String
-  scope            String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id])
+  refreshTokenEnc String
+  refreshTokenIv  String
+  refreshTokenTag String
+  scope           String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 // CRM: pessoa física/jurídica captada como lead ou já cliente
 model Client {
-  id        String   @id @default(cuid())
-  accountId String
-  account   Account  @relation(fields: [accountId], references: [id])
-  name      String
-  document  String? // CPF/CNPJ
-  email     String?
-  phone     String?
-  source    String? // site | whatsapp | instagram | indicacao | email | telefone
-  createdAt DateTime @default(now())
+  id              String   @id @default(cuid())
+  accountId       String
+  account         Account  @relation(fields: [accountId], references: [id])
+  name            String
+  document        String? // CPF/CNPJ
+  // Sempre gravado em minúsculas (ver ClientsService) -- @unique sozinho
+  // não pega "Foo@x.com" vs "foo@x.com" como duplicado, já que o
+  // Postgres compara case-sensitive por padrão; a normalização na
+  // escrita é o que fecha essa lacuna (achado A-05 da auditoria: o
+  // login do portal busca por e-mail com findFirst, mas não havia
+  // constraint nenhuma, então duas linhas com o mesmo e-mail tornavam o
+  // login não-determinístico). NULL continua permitido (cliente sem
+  // e-mail, ex.: só telefone) -- Postgres não considera dois NULLs
+  // duplicados entre si, então múltiplos clientes sem e-mail convivem
+  // normalmente.
+  email           String?  @unique
+  phone           String?
+  source          String? // site | whatsapp | instagram | indicacao | email | telefone
+  createdAt       DateTime @default(now())
   // Cliente correspondente criado na Asaas na primeira cobrança deste
   // Client (ver billing/asaas-client.ts) -- cacheado pra não recriar um
   // customer novo na Asaas a cada fatura do mesmo cliente.
-  asaasCustomerId String? @unique
+  asaasCustomerId String?  @unique
 
   opportunities Opportunity[]
   projects      Project[]
   magicLinks    ClientMagicLink[]
   sessions      ClientSession[]
+
+  @@index([accountId])
 }
 
 // Login de cliente por magic link -- pedido de acesso, curto e de uso
@@ -272,26 +286,28 @@ model Opportunity {
   // dá pra marcar perdida por um endpoint dedicado (não o PATCH genérico)
   // exatamente pra tornar essa exigência impossível de contornar, mesmo
   // padrão de approvalChannel em ProjectPhase.
-  lostReason String?
+  lostReason     String?
   // Preenchido só pelo formulário público de captação de lead
   // (LeadsService.submitLead) -- a mensagem que o próprio visitante
   // escreveu antes de qualquer contato humano. Nunca setado pelo
   // fluxo autenticado normal de criar/editar oportunidade (isso já tem
   // a timeline de Activity pra notas).
-  leadMessage String?
-  createdAt   DateTime  @default(now())
+  leadMessage    String?
+  createdAt      DateTime  @default(now())
 
   proposals Proposal[]
   project   Project?
+
+  @@index([clientId])
 }
 
 // Value is the final computed price (aba 05 "PREÇO FINAL DE PROPOSTA");
 // complexityMultiplier and packageDiscountPercent are carried alongside it
 // so the breakdown stays inspectable without recomputing from ProposalStage.
 model Proposal {
-  id                     String       @id @default(cuid())
+  id                     String      @id @default(cuid())
   opportunityId          String
-  opportunity            Opportunity  @relation(fields: [opportunityId], references: [id])
+  opportunity            Opportunity @relation(fields: [opportunityId], references: [id])
   value                  Decimal
   status                 String // draft | sent | signed | expired
   complexityMultiplier   Decimal? // 0.70x–1.50x, from the 5-dimension complexity score (aba 04)
@@ -305,10 +321,10 @@ model Proposal {
   // ainda assináveis ao mesmo tempo) -- uma já assinada nunca é tocada,
   // porque pode ser um aditivo/renegociação que convive com o contrato
   // aceito.
-  version           Int       @default(1)
-  previousVersionId String?   @unique
-  previousVersion   Proposal? @relation("ProposalVersion", fields: [previousVersionId], references: [id])
-  nextVersion       Proposal? @relation("ProposalVersion")
+  version                Int         @default(1)
+  previousVersionId      String?     @unique
+  previousVersion        Proposal?   @relation("ProposalVersion", fields: [previousVersionId], references: [id])
+  nextVersion            Proposal?   @relation("ProposalVersion")
   // Assinatura de verdade via ZapSign (não um botão "marcar como
   // assinada" clicado por alguém da equipe) -- zapsignDocToken correlaciona
   // o webhook (ver ZapSignWebhookController) de volta pra este registro;
@@ -317,11 +333,11 @@ model Proposal {
   // nunca hospeda a UI de assinatura em si). signerName/signedAt são
   // preenchidos só quando o webhook confirma doc_signed, nunca pelo
   // endpoint autenticado da equipe.
-  zapsignDocToken String?   @unique
-  zapsignSignUrl  String?
-  signerName      String?
-  sentAt          DateTime?
-  signedAt        DateTime?
+  zapsignDocToken        String?     @unique
+  zapsignSignUrl         String?
+  signerName             String?
+  sentAt                 DateTime?
+  signedAt               DateTime?
 
   stages ProposalStage[]
 }
@@ -367,6 +383,9 @@ model Project {
   presentationLink PresentationLink?
   allocations      Allocation[]
   expenses         Expense[]
+
+  @@index([accountId])
+  @@index([clientId])
 }
 
 // Lado da saída do caixa -- achado da auditoria: Financeiro só modelava
@@ -393,6 +412,9 @@ model Expense {
   dueDate     DateTime?
   paidAt      DateTime?
   createdAt   DateTime  @default(now())
+
+  @@index([accountId])
+  @@index([projectId])
 }
 
 // Planejamento de capacidade: quem está previsto para trabalhar em qual
@@ -411,6 +433,9 @@ model Allocation {
   startDate    DateTime
   endDate      DateTime
   createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([projectId])
 }
 
 // A stage of the PEP applied to a specific project. `approvedAt` /
@@ -440,15 +465,15 @@ model ProjectPhase {
 // code"). assigneeId já existia mas era uma coluna solta, sem
 // constraint de FK nenhuma (corrigido aqui, virou relação de verdade).
 model Task {
-  id         String       @id @default(cuid())
-  phaseId    String
-  phase      ProjectPhase @relation(fields: [phaseId], references: [id])
-  title      String
-  assigneeId String?
-  assignee   User?        @relation(fields: [assigneeId], references: [id])
-  status     String // a_fazer | em_andamento | concluida
-  order      Int          @default(0)
-  dueDate    DateTime?
+  id          String       @id @default(cuid())
+  phaseId     String
+  phase       ProjectPhase @relation(fields: [phaseId], references: [id])
+  title       String
+  assigneeId  String?
+  assignee    User?        @relation(fields: [assigneeId], references: [id])
+  status      String // a_fazer | em_andamento | concluida
+  order       Int          @default(0)
+  dueDate     DateTime?
   // Preenchido só como efeito de status virar "concluida" (mesmo padrão
   // de Invoice.paidAt/ProjectPhase.approvedAt) -- nunca aceito como input
   // direto.
@@ -463,6 +488,8 @@ model Task {
   // rótulo decorativo, não uma regra de verdade.
   dependsOn Task[] @relation("TaskDependency")
   blocks    Task[] @relation("TaskDependency")
+
+  @@index([phaseId])
 }
 
 model ProjectMember {
@@ -491,6 +518,10 @@ model TimeEntry {
   activityType String // projeto | administrativo | comercial
   approvedAt   DateTime?
   approvedById String?
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([phaseId])
 }
 
 // Billing is per stage completed and approved (PEP §0, "Forma de
@@ -531,6 +562,9 @@ model Invoice {
   cClassTrib String? // Código de Classificação Tributária
 
   lines InvoiceLine[]
+
+  @@index([projectId])
+  @@index([phaseId])
 }
 
 // Só existe para faturas de projeto hora_tecnica calculadas a partir de
@@ -555,9 +589,11 @@ model Area {
   id        String  @id @default(cuid())
   projectId String
   project   Project @relation(fields: [projectId], references: [id])
-  name String // ex.: Sala de estar, Quarto principal, Cozinha
+  name      String // ex.: Sala de estar, Quarto principal, Cozinha
 
   specifications ProductSpecification[]
+
+  @@index([projectId])
 }
 
 // FF&E: catálogo de produtos, populado manualmente ou via web scraper
@@ -597,6 +633,8 @@ model Product {
 
   specifications ProductSpecification[]
   moodboardItems MoodboardItem[]
+
+  @@index([accountId])
 }
 
 // Galeria de fotos extras do produto -- imageUrl continua sendo a capa
@@ -616,17 +654,20 @@ model ProductImage {
 // com preço/markup e aprovação do cliente. A soma das linhas aprovadas é
 // o orçamento final (planilha de itens e valores) que flui para o ERP.
 model ProductSpecification {
-  id            String   @id @default(cuid())
-  areaId        String
-  area          Area     @relation(fields: [areaId], references: [id])
-  productId     String
-  product       Product  @relation(fields: [productId], references: [id])
-  quantity      Int      @default(1)
-  unitPrice     Decimal?
-  markupPercent Decimal?
-  clientApproved Boolean @default(false)
-  clientComment String?
-  createdAt     DateTime @default(now())
+  id             String   @id @default(cuid())
+  areaId         String
+  area           Area     @relation(fields: [areaId], references: [id])
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id])
+  quantity       Int      @default(1)
+  unitPrice      Decimal?
+  markupPercent  Decimal?
+  clientApproved Boolean  @default(false)
+  clientComment  String?
+  createdAt      DateTime @default(now())
+
+  @@index([areaId])
+  @@index([productId])
 }
 
 // FF&E: prancha de apresentação — conjunto curado e ordenado de produtos
@@ -749,8 +790,8 @@ model Notification {
   body          String?
   projectId     String?
   opportunityId String?
-  readAt    DateTime?
-  createdAt DateTime  @default(now())
+  readAt        DateTime?
+  createdAt     DateTime  @default(now())
 
   @@index([userId, readAt])
 }
@@ -764,21 +805,21 @@ model Notification {
 // o id ainda não existe antes da escrita -- a extensão resolve isso
 // apontando pro id recém-criado, ver comentário lá.
 model AuditLog {
-  id        String   @id @default(cuid())
-  accountId String?
-  account   Account? @relation(fields: [accountId], references: [id])
+  id          String   @id @default(cuid())
+  accountId   String?
+  account     Account? @relation(fields: [accountId], references: [id])
   // "user" | "client" | "system" -- client quando quem agiu foi um
   // Client pelo link de apresentação (sem User próprio); system quando não
   // há ator humano identificável (webhook da Asaas, bootstrap da conta).
-  actorType String
-  actorId   String? // User.id quando actorType = "user"; id do Client quando "client"
+  actorType   String
+  actorId     String? // User.id quando actorType = "user"; id do Client quando "client"
   // Denormalizado no momento da escrita -- sobrevive mesmo se o User/Client
   // referenciado acima for removido depois, sem precisar de join nenhum
   // pra exibir "quem" na tela de log.
-  actorEmail String?
-  action     String // "create" | "update" | "delete"
-  entityType String // nome do model Prisma (ex.: "Project")
-  entityId   String
+  actorEmail  String?
+  action      String // "create" | "update" | "delete"
+  entityType  String // nome do model Prisma (ex.: "Project")
+  entityId    String
   // Campo de exibição (Project.name, Client.name, ...) capturado no
   // momento da escrita, só pros models onde existe um campo óbvio pra
   // isso -- null pro resto (ex.: ProjectPhase, TimeEntry), que a tela de
@@ -786,8 +827,8 @@ model AuditLog {
   entityLabel String?
   // update: { campo: { from, to } } só dos campos que de fato mudaram;
   // create/delete: snapshot completo no mesmo formato (from/to null).
-  changes   Json?
-  createdAt DateTime @default(now())
+  changes     Json?
+  createdAt   DateTime @default(now())
 
   @@index([accountId, entityType, entityId])
   @@index([accountId, createdAt])

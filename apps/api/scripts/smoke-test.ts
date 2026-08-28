@@ -76,9 +76,17 @@ async function main() {
     await intruderRes.json().catch(() => null)
   );
 
+  // Achado A-05: Client.email agora é @unique, e uma "Fernanda Ribeiro"
+  // com e-mail fernanda@example.com já existe permanentemente no banco de
+  // dev (KEEP_CLIENT_ID em cleanup-smoke-residue.ts, com asaasCustomerId
+  // real -- mantida entre sessões pra verificação do Asaas). Antes da
+  // constraint, cada execução deste script criava outra linha com o
+  // MESMO e-mail sem conflito nenhum; agora precisa de um e-mail próprio
+  // por execução, mesmo padrão já usado abaixo pra fernandaPortalEmail.
+  const fernandaEmail = `fernanda-${Date.now()}@example.com`;
   const clientRes = await api("/v1/clients", {
     method: "POST",
-    body: JSON.stringify({ name: "Fernanda Ribeiro", email: "fernanda@example.com", source: "indicacao" }),
+    body: JSON.stringify({ name: "Fernanda Ribeiro", email: fernandaEmail, source: "indicacao" }),
   });
   report("POST /clients → 201", clientRes.status === 201, clientRes.body);
   const clientId = clientRes.body?.data?.id;
@@ -482,6 +490,56 @@ async function main() {
       oppDoLead?.feeModel === "hora_tecnica" &&
       oppDoLead?.leadMessage?.includes("80m²"),
     oppDoLead
+  );
+
+  // Achado A-05: Client.email é @unique agora, então o mesmo visitante
+  // preenchendo o formulário uma segunda vez não pode mais virar um
+  // segundo Client com o e-mail repetido -- LeadsService passou a
+  // reaproveitar o Client existente e só criar uma Opportunity nova (um
+  // segundo contato do mesmo lead, não um cliente duplicado).
+  const leadOutraVezRes = await fetch(`${BASE_URL}/v1/leads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "Visitante do Site",
+      email: "VISITANTE-lead@example.com", // mesma pessoa, e-mail em outra caixa -- prova a normalização também
+      message: "Segunda mensagem, mesmo contato.",
+    }),
+  });
+  report(
+    "POST /v1/leads de novo com o mesmo e-mail (outra caixa) → 201, não 409",
+    leadOutraVezRes.status === 201,
+    await leadOutraVezRes.json().catch(() => null)
+  );
+
+  const clientesAposSegundoLeadRes = await api("/v1/clients");
+  const clientesDoLead = clientesAposSegundoLeadRes.body?.data?.filter(
+    (c: any) => c.email === "visitante-lead@example.com"
+  );
+  report(
+    "Segundo envio do formulário reaproveita o mesmo Client — não duplica (achado A-05)",
+    clientesDoLead?.length === 1 && clientesDoLead[0]?.id === clienteDoLead?.id,
+    clientesDoLead
+  );
+
+  const oppsAposSegundoLeadRes = await api("/v1/opportunities");
+  const oppsDoMesmoCliente = oppsAposSegundoLeadRes.body?.data?.filter(
+    (o: any) => o.clientId === clienteDoLead?.id
+  );
+  report(
+    "...mas cria uma segunda Opportunity para o mesmo Client, não descarta o contato novo",
+    oppsDoMesmoCliente?.length === 2,
+    oppsDoMesmoCliente
+  );
+
+  const duplicateEmailRes = await api("/v1/clients", {
+    method: "POST",
+    body: JSON.stringify({ name: "Outra Pessoa", email: fernandaEmail }),
+  });
+  report(
+    "POST /clients com e-mail já em uso → 409 CONFLICT, não 500 (achado A-05)",
+    duplicateEmailRes.status === 409 && duplicateEmailRes.body?.error?.code === "CONFLICT",
+    duplicateEmailRes.body
   );
 
   const projectId = wonOpportunity?.project?.id;
@@ -1635,14 +1693,11 @@ async function main() {
   // "antes de gerar → data null" logo acima se rodasse primeiro --
   // achado rodando o smoke suite de verdade, não hipotético.
   //
-  // Client.email não é único no schema -- e "fernanda@example.com" é
-  // reusado por toda execução deste script E pelo projeto real mantido
-  // entre sessões pra outras verificações (Asaas), então mais de uma
-  // "Fernanda Ribeiro" com o mesmo e-mail sempre vai coexistir no banco
-  // de dev, cleanup ou não. Um e-mail próprio e único pra este cliente
-  // (ainda em example.com, RFC 2606, nunca entrega de verdade) evita
-  // ambiguidade sem precisar mexer no clientId/e-mail compartilhado
-  // usado pelo resto do script.
+  // Client.email é @unique (achado A-05) -- clientId já nasceu com
+  // fernandaEmail, único por execução (ver POST /clients acima), mas o
+  // teste do portal quer testar login por e-mail com um valor próprio
+  // dele, sem reusar o que o resto do script já espera em clientId.email.
+  // Ainda em example.com (RFC 2606), nunca entrega de verdade.
   const portalTestEmail = `fernanda-portal-${Date.now()}@example.com`;
   await api(`/v1/clients/${clientId}`, {
     method: "PATCH",
@@ -1839,8 +1894,17 @@ async function main() {
       title: "Evento do cliente descartável",
     }),
   });
+  // Achado A-02: Activity é o mesmo padrão polimórfico do OfficeLink (sem
+  // FK real), então tinha o mesmo risco de nota órfã e inacessível.
+  await api(`/v1/clients/${throwawayClientId}/activities`, {
+    method: "POST",
+    body: JSON.stringify({ body: "Nota do cliente descartável" }),
+  });
+
   const orphanCountBefore = await prisma.officeLink.count({ where: { entityId: throwawayClientId } });
   report("Setup: OfficeLink criado para o cliente descartável antes do delete", orphanCountBefore === 1, orphanCountBefore);
+  const orphanActivityCountBefore = await prisma.activity.count({ where: { entityId: throwawayClientId } });
+  report("Setup: Activity criada para o cliente descartável antes do delete", orphanActivityCountBefore === 1, orphanActivityCountBefore);
 
   const deleteThrowawayClientRes = await api(`/v1/clients/${throwawayClientId}`, { method: "DELETE" });
   report(
@@ -1854,6 +1918,12 @@ async function main() {
     "Excluir o cliente limpa o OfficeLink junto — zero órfãos no banco (não só 404 na listagem)",
     orphanCountAfter === 0,
     orphanCountAfter
+  );
+  const orphanActivityCountAfter = await prisma.activity.count({ where: { entityId: throwawayClientId } });
+  report(
+    "Excluir o cliente limpa a Activity junto — zero notas órfãs (achado A-02)",
+    orphanActivityCountAfter === 0,
+    orphanActivityCountAfter
   );
 
   const deleteProductInUseRes = await api(`/v1/products/${product1Id}`, { method: "DELETE" });

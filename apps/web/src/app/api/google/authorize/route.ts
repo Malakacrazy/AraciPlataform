@@ -1,6 +1,8 @@
+import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { STATE_COOKIE } from "../state-cookie";
 
 // Fluxo separado do login SSO principal (NextAuth) de propósito -- o
 // login nunca pede escopo de Drive/Calendar/Gmail (ver auth.ts), e o
@@ -32,6 +34,17 @@ export async function GET(request: Request) {
     );
   }
 
+  // Achado A-04 da auditoria: sem `state`, o callback trocava qualquer
+  // `code` que aparecesse na query por um token e salvava como a
+  // credencial Google de quem estivesse logado -- um atacante conseguia
+  // iniciar o próprio consentimento, pegar um `code` ligado à conta dele,
+  // e induzir a vítima logada a abrir /api/google/callback?code=... com
+  // esse código, fazendo o refresh token do atacante virar a
+  // "Sincronização Google" da vítima. O cookie httpOnly amarra o
+  // callback a ESTE navegador/flow específico; só quem passou por aqui
+  // tem o valor certo pra bater no callback.
+  const state = randomBytes(32).toString("base64url");
+
   const redirectUri = new URL("/api/google/callback", request.url).toString();
   const params = new URLSearchParams({
     client_id: clientId,
@@ -41,7 +54,16 @@ export async function GET(request: Request) {
     prompt: "consent",
     scope: SYNC_SCOPES,
     login_hint: session.user.email,
+    state,
   });
 
-  return NextResponse.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+  const response = NextResponse.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+  response.cookies.set(STATE_COOKIE, state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/api/google",
+    maxAge: 600,
+  });
+  return response;
 }

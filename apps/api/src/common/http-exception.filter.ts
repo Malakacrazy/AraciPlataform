@@ -54,6 +54,25 @@ export class HttpExceptionFilter implements ExceptionFilter {
         });
         return;
       }
+      // Violação de @unique (ex.: Client.email desde o achado A-05 da
+      // auditoria) -- sem isso, criar/atualizar com um valor já em uso
+      // caía direto no 500 genérico abaixo, exatamente o tipo de erro que
+      // um humano digitando um e-mail repetido vai bater na prática, não
+      // um caso extremo. meta.target já vem do query engine com o(s)
+      // nome(s) do campo que colidiu, então a mensagem não precisa ser
+      // genérica.
+      if (exception.code === 'P2002') {
+        const target = Array.isArray(exception.meta?.target)
+          ? exception.meta.target.join(', ')
+          : 'valor';
+        response.status(409).json({
+          error: {
+            code: 'CONFLICT',
+            message: `Já existe um registro com o mesmo ${target}.`,
+          },
+        });
+        return;
+      }
     }
 
     // Não vaza detalhe de erro interno (stack, mensagem de driver) — só loga.

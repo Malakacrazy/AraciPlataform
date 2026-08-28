@@ -1740,15 +1740,77 @@ nesta sessão:
   achados críticos, e mexer no filtro global de exceção é uma mudança de
   raio maior do que o pedido); registrado pra não ser confundido com um
   efeito colateral desta correção.
-- **Ainda não corrigido desta mesma auditoria** (não críticos, não
-  pedidos nesta sessão): 5 achados "Altos" (sem error boundary no
-  dashboard; exclusão de cliente/projeto deixa `Activity` órfã, mesmo
-  padrão já corrigido pro `OfficeLink`; falta de índice em quase toda
-  FK; fluxo OAuth do Google sem `state`, CSRF de consentimento;
-  `Client.email` sem constraint de unicidade apesar do login do portal
-  buscar por e-mail) e a lista completa de bloqueadores de publicação
-  (empacotamento/deploy, banco de produção, observabilidade — 15 no
-  total, ver o documento da auditoria).
+- **Os 5 achados "Altos" foram corrigidos em seguida, mesma sessão** — ver
+  seção própria logo abaixo. O que segue em aberto desta auditoria é só a
+  lista de bloqueadores de publicação (empacotamento/deploy, banco de
+  produção, observabilidade — 15 no total, ver o documento da auditoria)
+  e os achados "Médios" (comparação de token de webhook não é de tempo
+  constante; cron de oportunidade parada sequencial sem limite; server
+  actions do portal/apresentação sem tratamento uniforme de erro; proxy
+  BFF sem `PUT`).
+
+## Correção — os 5 achados "Altos" da mesma auditoria externa
+
+- **A-01 — Sem fronteira de erro, `(dashboard)/layout.tsx` derrubava as 20
+  rotas do dashboard**: `apiGet("me")`/`apiGet("notifications")` sem
+  try/catch. Corrigido separando os dois: um 401/403 em `/me` (ex.:
+  colaborador desativado com JWT do NextAuth ainda válido) agora
+  redireciona pra `/api/auth/signout` em vez de propagar o throw —
+  recarregar a mesma sessão inválida só repetiria o erro, então encerrar
+  a sessão é a saída real. Falha em `/notifications` já não derruba mais
+  nada — sino vazio no lugar de crash, não é crítico pro shell renderizar.
+  Adicionado também `(dashboard)/error.tsx` (não existia `error.tsx` em
+  lugar nenhum de `src/app`), com botão "tentar de novo" e link de volta.
+- **A-02 — Excluir cliente/projeto deixava `Activity` órfã**: mesmo
+  padrão polimórfico do `OfficeLink` (sem FK real), mas só o `OfficeLink`
+  era limpo na transação de delete. Corrigido em `clients.service.ts` e
+  `projects.service.ts` (paridade com o padrão já existente) e também em
+  `opportunities.service.ts` — `ActivityEntityType` inclui `OPPORTUNITY`,
+  então `deleteOpportunity` tinha o mesmo risco por um caminho que a
+  auditoria não citou por nome, mas é a mesma classe de bug.
+- **A-03 — Quase nenhuma FK tinha índice**: adicionado `@@index` nos 12
+  campos exatos que a auditoria listou (`TimeEntry.userId/projectId/
+  phaseId`, `Allocation.userId/projectId`, `Invoice.projectId/phaseId`,
+  `Expense.accountId/projectId`, `Client.accountId`, `Project.accountId/
+  clientId`, `User.accountId`, `Product.accountId`, `Opportunity.
+  clientId`, `Area.projectId`, `ProductSpecification.areaId/productId`,
+  `Task.phaseId`) — 19 índices numa migration só, sem mudança de dado.
+- **A-04 — OAuth do Google sem `state` (CSRF de consentimento)**: um
+  atacante conseguia iniciar o próprio consentimento, pegar um `code`
+  ligado à conta dele, e induzir a vítima logada a abrir `/api/google/
+  callback?code=...`, fazendo o refresh token do atacante virar a
+  "Sincronização Google" da vítima. Corrigido com `state` aleatório
+  (32 bytes) gerado em `authorize/route.ts`, guardado num cookie httpOnly
+  de uso único (10 min, path `/api/google`) e conferido em `callback/
+  route.ts` antes de trocar qualquer `code` por token. Verificado contra
+  o servidor real: forjar a chamada ao callback com `state` incorreto
+  (sem nunca ter passado por `authorize`) é rejeitado antes de qualquer
+  chamada real à API do Google.
+- **A-05 — `Client.email` sem constraint, portal loga por e-mail com
+  `findFirst`**: adicionado `@unique` em `Client.email` (sem duplicata
+  real no banco hoje — checado antes de migrar), com normalização pra
+  minúsculas no `ClientsService` (não só no schema Zod, porque
+  `LeadsService` chama `createClient` direto, sem passar pelo
+  `ZodValidationPipe` de novo). Isso expôs uma tensão real: `LeadsService.
+  submitLead` sempre criava um `Client` novo por design ("dedupe é
+  problema à parte", comentário do próprio código) — com e-mail único,
+  reenviar o formulário público com o mesmo e-mail agora reaproveita o
+  `Client` existente e cria só uma `Opportunity` nova, em vez de tentar
+  (e falhar) duplicar o cliente. Também fechada uma lacuna que essa
+  mesma constraint teria aberto: violação de `@unique` (`P2002`) não
+  tinha tratamento no `HttpExceptionFilter` global e cairia num 500
+  genérico — agora mapeada pra 409 CONFLICT com o nome do campo que
+  colidiu, mesmo padrão já usado pra conflito de FK (P2003/P2039).
+- Verificado: build+typecheck limpos (api e web) depois de cada um dos 5;
+  9 casos novos no smoke suite (JWT forjado com e-mail fora do allowlist
+  → 403; cleanup de `Activity` órfã junto com `OfficeLink`; segundo envio
+  do formulário de lead com o mesmo e-mail em outra caixa → reaproveita
+  o `Client`, cria uma segunda `Opportunity`; e-mail duplicado em POST
+  /clients → 409 não 500) — 256/257, mesma falha pré-existente de sempre
+  (`ASAAS_API_KEY` real configurada no `.env` local, sem relação com
+  nenhum dos 5 achados). Dashboard e `/team` testados no navegador contra
+  dado real (projeto Apto Vila Madalena) depois das mudanças no layout,
+  sem regressão visual.
 
 ## Fase 5 — Beta & go-live
 
