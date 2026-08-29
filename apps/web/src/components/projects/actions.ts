@@ -66,6 +66,35 @@ export async function emitirNfse(projectId: string, invoiceId: string) {
   await call(`invoices/${invoiceId}/nfse`, { method: "POST" }, projectId);
 }
 
+// Lacuna da matriz (NFS-e: cancelamento/substituição) -- motivo é um
+// código fechado da SEFIN Nacional (1/2/9), lido do <select> como string
+// e convertido pra Number antes de mandar (o schema Zod do lado da API
+// espera o literal numérico, não a string do form).
+export async function cancelarNfse(projectId: string, invoiceId: string, formData: FormData) {
+  const motivo = Number(formData.get("motivo"));
+  const justificativa = String(formData.get("justificativa") ?? "").trim();
+  if (!justificativa) {
+    throw new Error("Justificativa é obrigatória para cancelar a NFS-e.");
+  }
+  await call(
+    `invoices/${invoiceId}/nfse/cancelar`,
+    { method: "POST", body: JSON.stringify({ motivo, justificativa }) },
+    projectId,
+  );
+}
+
+export async function substituirNfse(projectId: string, invoiceId: string, formData: FormData) {
+  const justificativa = String(formData.get("justificativa") ?? "").trim();
+  if (!justificativa) {
+    throw new Error("Justificativa é obrigatória para substituir a NFS-e.");
+  }
+  await call(
+    `invoices/${invoiceId}/nfse/substituir`,
+    { method: "POST", body: JSON.stringify({ justificativa }) },
+    projectId,
+  );
+}
+
 // currentStatus vem da própria tela (não relido aqui) só pra decidir se
 // muda o status -- uma fatura que a Asaas já marcou 'paga' via webhook
 // (pagamento confirmado antes de alguém emitir a NFS-e) continua 'paga'

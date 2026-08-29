@@ -6,7 +6,15 @@ import { apiGet, ApiError } from "@/lib/api";
 import type { Project, OfficeLink, Invoice, ProjectMember, User, Activity, Task, ProjectCollaborator, RequiredDocumentType, DocumentChecklistItem } from "@/lib/types";
 import { OfficeLinksSection } from "@/components/office-links/office-links-section";
 import { CronogramaViews } from "@/components/projects/cronograma-views";
-import { markInvoiceIssued, emitirNfse, chargeInvoice, addMember, removeMember } from "@/components/projects/actions";
+import {
+  markInvoiceIssued,
+  emitirNfse,
+  cancelarNfse,
+  substituirNfse,
+  chargeInvoice,
+  addMember,
+  removeMember,
+} from "@/components/projects/actions";
 import { ActivityTimeline } from "@/components/activities/activity-timeline";
 import { TaskList } from "@/components/tasks/task-list";
 import { CollaboratorSection } from "@/components/collaborators/collaborator-section";
@@ -15,6 +23,14 @@ const INVOICE_STATUS_LABELS: Record<string, string> = {
   pendente: "Pendente",
   emitida: "Emitida",
   paga: "Paga",
+};
+
+// Lacuna da matriz (NFS-e: cancelamento/substituição) -- código fechado
+// da SEFIN Nacional pro evento e101101, não texto livre.
+const NFSE_MOTIVO_LABELS: Record<number, string> = {
+  1: "Erro na emissão",
+  2: "Serviço não prestado",
+  9: "Outros",
 };
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
@@ -153,11 +169,12 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                     : inv.status === "paga"
                       ? " · aguardando emissão de NFS-e"
                       : ""}
+                  {inv.nfseCanceladaEm && " · NFS-e cancelada"}
                 </span>
-                {!inv.nfseChaveAcesso && (inv.status === "pendente" || inv.status === "paga") && (
+                {(!inv.nfseChaveAcesso || inv.nfseCanceladaEm) && (inv.status === "pendente" || inv.status === "paga") && (
                   <form action={emitirNfse.bind(null, id, inv.id)}>
                     <button type="submit" className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
-                      Emitir NFS-e
+                      {inv.nfseCanceladaEm ? "Emitir nova NFS-e" : "Emitir NFS-e"}
                     </button>
                   </form>
                 )}
@@ -176,10 +193,52 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                     </button>
                   </form>
                 )}
-                {inv.nfseRejectionReason && !inv.nfseChaveAcesso && (
+                {inv.nfseRejectionReason && (
                   <p className="w-full text-xs text-red-600 dark:text-red-400">
                     NFS-e rejeitada pela SEFIN: {inv.nfseRejectionReason}
                   </p>
+                )}
+                {inv.nfseCanceladaEm && (
+                  <p className="w-full text-xs text-zinc-500 dark:text-zinc-400">
+                    Cancelada em {new Date(inv.nfseCanceladaEm).toLocaleDateString("pt-BR")}
+                    {inv.nfseMotivoCancelamento && ` — ${NFSE_MOTIVO_LABELS[inv.nfseMotivoCancelamento]}`}
+                    {inv.nfseJustificativaCancelamento && `: ${inv.nfseJustificativaCancelamento}`}
+                  </p>
+                )}
+                {inv.nfseChaveAcesso && !inv.nfseCanceladaEm && (
+                  <>
+                    <form action={cancelarNfse.bind(null, id, inv.id)} className="flex w-full flex-wrap items-center gap-2">
+                      <select
+                        name="motivo"
+                        defaultValue={1}
+                        className="rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                      >
+                        <option value={1}>Erro na emissão</option>
+                        <option value={2}>Serviço não prestado</option>
+                        <option value={9}>Outros</option>
+                      </select>
+                      <input
+                        name="justificativa"
+                        placeholder="Justificativa"
+                        required
+                        className="w-40 rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                      />
+                      <button type="submit" className="text-xs text-zinc-500 hover:text-red-600 dark:text-zinc-400">
+                        Cancelar NFS-e
+                      </button>
+                    </form>
+                    <form action={substituirNfse.bind(null, id, inv.id)} className="flex w-full flex-wrap items-center gap-2">
+                      <input
+                        name="justificativa"
+                        placeholder="O que foi corrigido"
+                        required
+                        className="w-48 rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                      />
+                      <button type="submit" className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
+                        Substituir NFS-e (emite corrigida e cancela esta)
+                      </button>
+                    </form>
+                  </>
                 )}
                 {inv.status !== "paga" &&
                   (inv.asaasInvoiceUrl ? (

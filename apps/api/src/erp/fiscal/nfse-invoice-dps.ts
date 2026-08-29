@@ -25,6 +25,11 @@ export interface InvoiceDpsInput {
   invoiceId: string;
   valorServico: number;
   tomador: { documento: string; nome: string };
+  // Lacuna da matriz (NFS-e: substituição) -- a DPS da NFS-e substituta
+  // precisa de um nDPS DIFERENTE do original (mesma fatura, mas é uma
+  // autorização nova; reusar o nDPS faria a SEFIN rejeitar como
+  // duplicata da primeira). Omitido = emissão normal/reemissão do zero.
+  nDpsVariant?: string;
 }
 
 // Confirmado com a Giulia (decisoes-pos-descoberta.md #4): Arquitetura
@@ -58,10 +63,11 @@ function servicoPorRegime(taxRegime: 'MEI' | 'ME') {
 // Espaço de 32 bits é mais que suficiente pro volume de faturas de um
 // estúdio pequeno -- uma colisão rara só geraria uma rejeição de
 // duplicata a mais pra investigar manualmente, nunca uma emissão errada.
-export function stableNumeroDps(invoiceId: string): string {
+export function stableNumeroDps(invoiceId: string, variant?: string): string {
+  const seed = variant ? `${invoiceId}:${variant}` : invoiceId;
   let hash = 0;
-  for (let i = 0; i < invoiceId.length; i++) {
-    hash = (hash * 31 + invoiceId.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
   }
   return String(hash || 1);
 }
@@ -79,7 +85,7 @@ export function buildInvoiceDps(input: InvoiceDpsInput): LayoutDPS {
   const emBrasilia = new Date(agora.getTime() - BRASILIA_OFFSET_MS);
   const dhEmi = emBrasilia.toISOString().replace('Z', '-03:00');
   const dCompet = emBrasilia.toISOString().slice(0, 10);
-  const nDPS = stableNumeroDps(input.invoiceId);
+  const nDPS = stableNumeroDps(input.invoiceId, input.nDpsVariant);
   const servico = servicoPorRegime(input.taxRegime);
   const documento = apenasDigitos(input.tomador.documento);
   const toma = documento.length > 11 ? { CNPJ: documento } : { CPF: documento };

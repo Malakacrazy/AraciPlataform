@@ -15,7 +15,13 @@ import {
   type CreateInvoiceInput,
   type InvoiceStatusUpdate,
 } from './invoices.service';
-import { NfseService } from './fiscal/nfse.service';
+import {
+  NfseService,
+  cancelarNfseSchema,
+  substituirNfseSchema,
+  type CancelarNfseInput,
+  type SubstituirNfseInput,
+} from './fiscal/nfse.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -100,6 +106,34 @@ export class InvoicesController {
     @Param('id') id: string,
   ) {
     const data = await this.nfseService.emitirParaFatura(accountId, id);
+    return { data };
+  }
+
+  // Lacuna da matriz (NFS-e: cancelamento/substituição) -- ver
+  // NfseService.cancelarParaFatura pro evento e101101 e o que continua
+  // valendo (chaveAcesso histórica) depois do cancelamento.
+  @Post(':id/nfse/cancelar')
+  @HttpCode(200)
+  async cancelarNfse(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(cancelarNfseSchema)) input: CancelarNfseInput,
+  ) {
+    const data = await this.nfseService.cancelarParaFatura(accountId, id, input);
+    return { data };
+  }
+
+  // Ver NfseService.substituirParaFatura -- emite a NFS-e corrigida
+  // primeiro, só então cancela a antiga (evento e105102) referenciando a
+  // nova.
+  @Post(':id/nfse/substituir')
+  @HttpCode(200)
+  async substituirNfse(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(substituirNfseSchema)) input: SubstituirNfseInput,
+  ) {
+    const data = await this.nfseService.substituirParaFatura(accountId, id, input);
     return { data };
   }
 }

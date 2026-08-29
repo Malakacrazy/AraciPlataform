@@ -232,6 +232,19 @@ de teste mecânica ter funcionado contra a Homologação da SEFIN Nacional
     dois pode ser usado enquanto o regime for MEI.
 - **Alíquota de ISS**: 0% enquanto MEI (recolhido de forma fixa via
   DAS-MEI, não variável por nota); 5% depois de ME.
+- **IBS/CBS (Reforma Tributária)** — confirmado pelo usuário (2026-08-29):
+  **0% enquanto MEI** (isento, mesmo regime simplificado do DAS-MEI acima
+  — nenhum dos dois tributos novos incide). **Depois de ME**, serviços de
+  arquitetura/engenharia pagam IBS/CBS, mas com **redução de 30%** sobre a
+  alíquota, prevista na LC 214/2025. Ainda **não é um número pronto pra
+  codificar**: IBS/CBS têm cronograma de transição por ano (2026→2033,
+  alíquotas de teste/fase diferentes a cada ano), então "30% de redução"
+  sozinho não determina o `vTotTribFed`/`vTotTribEst`/`vTotTribMun` real
+  de uma nota emitida numa data específica — falta a alíquota efetiva
+  (CBS% + IBS%) que a consultoria contábil confirmar pra cada
+  ano/competência. Enquanto isso, `totTrib` continua zerado de propósito
+  em `nfse-invoice-dps.ts` (ver comentário lá) — decisão deliberada de
+  não adivinhar um número fiscal real, não uma lacuna esquecida.
 - Implementado em `nfse-test-dps.ts`: `cTribNac` trocado de um placeholder
   arbitrário (`110101`, código de outro serviço só usado pra passar da
   validação de schema) para o código real e correto do regime atual

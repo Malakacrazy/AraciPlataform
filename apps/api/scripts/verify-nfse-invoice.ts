@@ -73,6 +73,64 @@ async function main() {
           : `  ✗ Código inesperado: ${error?.code} — ${error?.message}`
       );
     }
+
+    // Lacuna da matriz (NFS-e: cancelamento/substituição) -- cancelamento
+    // simples primeiro: chaveAcesso original continua (histórico),
+    // nfseCanceladaEm passa a marcar que não vale mais.
+    console.log("Cancelando a NFS-e de verdade (evento e101101, Homologação)...");
+    const chaveOriginal = emitida.nfseChaveAcesso!;
+    const cancelada = await nfseService.cancelarParaFatura(account.id, invoiceComDocumento.id, {
+      motivo: 1,
+      justificativa: "Teste de cancelamento (verify-nfse-invoice)",
+    });
+    console.log(
+      cancelada.nfseCanceladaEm && cancelada.nfseChaveAcesso === chaveOriginal
+        ? `  ✓ Cancelada — chaveAcesso preservada (${cancelada.nfseChaveAcesso}), nfseCanceladaEm=${cancelada.nfseCanceladaEm}`
+        : `  ✗ Não persistiu como esperado: ${JSON.stringify(cancelada)}`
+    );
+
+    console.log("Cancelando de novo a MESMA NFS-e (esperado: 422 NFSE_ALREADY_CANCELED)...");
+    try {
+      await nfseService.cancelarParaFatura(account.id, invoiceComDocumento.id, { motivo: 1, justificativa: "x" });
+      console.log("  ✗ Deveria ter rejeitado — cancelou duas vezes");
+    } catch (error: any) {
+      console.log(
+        error?.code === "NFSE_ALREADY_CANCELED"
+          ? "  ✓ NFSE_ALREADY_CANCELED, como esperado"
+          : `  ✗ Código inesperado: ${error?.code} — ${error?.message}`
+      );
+    }
+
+    // Guard de emitirParaFatura mudou pra permitir reemissão pós-
+    // cancelamento -- verifica que a chave antiga migra pra
+    // nfseChaveAcessoAnterior e a nova NFS-e nasce sem cancelamento.
+    console.log("Reemitindo do zero pra MESMA fatura, agora que a NFS-e anterior foi cancelada...");
+    const reemitida = await nfseService.emitirParaFatura(account.id, invoiceComDocumento.id);
+    console.log(
+      reemitida.nfseChaveAcesso &&
+        reemitida.nfseChaveAcesso !== chaveOriginal &&
+        reemitida.nfseChaveAcessoAnterior === chaveOriginal &&
+        !reemitida.nfseCanceladaEm
+        ? `  ✓ Reemitida — nova chaveAcesso=${reemitida.nfseChaveAcesso}, anterior preservada em nfseChaveAcessoAnterior`
+        : `  ✗ Não persistiu como esperado: ${JSON.stringify(reemitida)}`
+    );
+
+    // Substituição: emite uma DPS corrigida nova e cancela a atual
+    // (chaveAntiga = a que acabou de ser reemitida acima) referenciando a
+    // nova (evento e105102).
+    console.log("Substituindo a NFS-e atual (emite corrigida nova + cancela a atual por substituição)...");
+    const chaveAntesDaSubstituicao = reemitida.nfseChaveAcesso!;
+    const substituida = await nfseService.substituirParaFatura(account.id, invoiceComDocumento.id, {
+      justificativa: "Teste de substituição (verify-nfse-invoice)",
+    });
+    console.log(
+      substituida.nfseChaveAcesso &&
+        substituida.nfseChaveAcesso !== chaveAntesDaSubstituicao &&
+        substituida.nfseChaveAcessoAnterior === chaveAntesDaSubstituicao &&
+        !substituida.nfseCanceladaEm
+        ? `  ✓ Substituída — nova chaveAcesso=${substituida.nfseChaveAcesso}, chave anterior (${chaveAntesDaSubstituicao}) cancelada por substituição`
+        : `  ✗ Não persistiu como esperado: ${JSON.stringify(substituida)}`
+    );
   } finally {
     await prisma.invoice.deleteMany({ where: { id: { in: [invoiceComDocumento.id, invoiceSemDocumento.id] } } });
     await prisma.project.deleteMany({ where: { id: { in: [projectComDocumento.id, projectSemDocumento.id] } } });

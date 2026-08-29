@@ -727,6 +727,22 @@ model Invoice {
   nfseAmbienteEmissao String?
   nfseRejectionReason String?
 
+  // Lacuna da matriz (NFS-e: cancelamento/substituição). Cancelamento
+  // simples (evento e101101 da SEFIN Nacional) não emite nada novo, só
+  // invalida a NFS-e atual -- nfseChaveAcesso continua com a chave
+  // cancelada (histórico), nfseCanceladaEm marca que ela não vale mais.
+  // Emitir de novo depois disso (NfseService.emitirParaFatura) é uma DPS
+  // nova do zero, que limpa estes três campos. Substituição
+  // (NfseService.substituirParaFatura) é diferente: emite a DPS corrigida
+  // PRIMEIRO (chaveAcesso/idDps/numeroDps acima passam a ser os da NOVA),
+  // só então cancela a antiga referenciando a nova (evento e105102,
+  // chNFSeSubst) -- nfseChaveAcessoAnterior guarda essa chave substituída
+  // pra auditoria, nunca fica null numa substituição concluída.
+  nfseCanceladaEm               DateTime?
+  nfseMotivoCancelamento        Int? // 1 (erro na emissão) | 2 (serviço não prestado) | 9 (outros) -- código da SEFIN Nacional
+  nfseJustificativaCancelamento String?
+  nfseChaveAcessoAnterior       String?
+
   // Cobrança (Boleto + Pix) via Asaas -- ver billing/. asaasPaymentId é o
   // id da cobrança na Asaas, usado pelo webhook pra achar de volta esta
   // Invoice quando o pagamento é confirmado. asaasInvoiceUrl é a página

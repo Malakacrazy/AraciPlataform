@@ -2027,7 +2027,10 @@ ficam de fora, de propósito (ver "Não corrigido" no fim desta seção).
   sobre a proposta — visível pro time em `/opportunities/:id`.
 - **Não corrigido nesta rodada, de propósito**: exportação CAD/Revit
   (a própria auditoria recomenda decidir o formato antes de qualquer
-  código — não é uma lacuna que dá pra fechar sem essa decisão); o texto
+  código — não é uma lacuna que dá pra fechar sem essa decisão; decidido
+  bem mais adiante nesta sessão que o fluxo real é SketchUp+LayOut
+  exportando PDF, não CAD/Revit — ver "Correção — Prévia inline de
+  documentos..." mais abaixo, já fechado); o texto
   jurídico real da página de privacidade (depende de revisão jurídica,
   não de código — automação de retenção/expurgo acabou saindo desta
   frase, ver seção própria logo abaixo); autorização de colaborador
@@ -2148,12 +2151,12 @@ de verdade. Faltava exatamente esse elo.
   operacional recorrente do estúdio", sem aviso nenhum hoje seria só
   descobrir numa emissão real falhando.
 - **Não corrigido nesta rodada, de propósito**: cancelamento/substituição
-  de NFS-e (item "grande" da lista de 9 — precisa de fluxo próprio,
-  `InfoSubstituicao`/`chNFSeRej`, fora do escopo de "ligar o que já
-  existe ao Invoice"); cálculo real de tributação federal/estadual/
-  municipal por nota (Reforma Tributária/IBS-CBS) — já documentado no
-  schema como "padrão ainda não estabilizado", não uma lacuna nova desta
-  emissão.
+  de NFS-e (item "grande" da lista de 9 — precisa de fluxo próprio, fora
+  do escopo de "ligar o que já existe ao Invoice" — ver "Correção —
+  Cancelamento e substituição de NFS-e" mais abaixo, já fechado); cálculo
+  real de tributação federal/estadual/municipal por nota (Reforma
+  Tributária/IBS-CBS) — já documentado no schema como "padrão ainda não
+  estabilizado", não uma lacuna nova desta emissão.
 - Verificado: build+typecheck limpos (api e web); script dedicado
   (`verify-nfse-invoice.ts`) emitiu uma NFS-e de verdade contra a
   Homologação real da SEFIN Nacional a partir de uma fatura de teste —
@@ -2432,10 +2435,15 @@ Google.
   uma credencial Drive real destrava; vínculo de verificação apagado no
   fim.
 - **Não corrigido nesta rodada, de propósito**: cancelamento/substituição
-  de NFS-e; exportação CAD/Revit (decisão de formato que só o usuário
-  pode tomar); cálculo real de IBS/CBS por nota (padrão da indústria
-  ainda não estabilizado); versionamento de documentos (expor revisões do
-  Drive).
+  de NFS-e (ver "Correção — Cancelamento e substituição de NFS-e" mais
+  abaixo, já fechado); exportação CAD/Revit (decisão de formato que só o
+  usuário pode tomar — decidido mais adiante que não é CAD/Revit, é
+  SketchUp+LayOut exportando PDF pelo pipeline de Drive já existente, ver
+  "Correção — Prévia inline de documentos..." mais abaixo, já fechado);
+  cálculo real de IBS/CBS por nota (padrão da
+  indústria ainda não estabilizado); versionamento de documentos (expor
+  revisões do Drive — ver "Correção — Versionamento de documentos do
+  Drive" mais abaixo, já fechado).
 
 ## Correção — Moodboard vira quadro tldraw colaborativo (com chat)
 
@@ -2581,6 +2589,119 @@ não implementa versionamento nenhum por conta própria.
   pra tudo que depende de credencial real do Drive (esta conta não tem
   ninguém conectado com escopo `drive.file`); vínculo de verificação
   apagado no fim.
+
+## Correção — Cancelamento e substituição de NFS-e
+
+Último item deixado explicitamente pendente desde a rodada de NFS-e na
+faturação real (Fase 3): emissão (`Autorizacao`) já existia, cancelamento
+e substituição não. A biblioteca (`@nfewizard/nfse`) já expõe os dois via
+`RegistrarEvento` — eventos e101101 (cancelamento simples) e e105102
+(cancelamento por substituição) da SEFIN Nacional, confirmado lendo o
+código-fonte instalado (`NFSeEventosService`/`LayoutPedRegEvento`), mesmo
+método já usado pra `nfe`/`versaoDF` em `nfse-client.ts`.
+
+- **Cancelamento simples** (`NfseService.cancelarParaFatura`) — evento
+  e101101, motivo fechado da SEFIN (`cMotivo`: 1 erro na emissão, 2
+  serviço não prestado, 9 outros) + justificativa livre. Não emite nada
+  novo: `nfseChaveAcesso` continua com a chave cancelada (histórico),
+  `nfseCanceladaEm` marca que ela não vale mais. `emitirParaFatura`
+  ganhou uma exceção no guard de idempotência: `nfseChaveAcesso &&
+  !nfseCanceladaEm` agora bloqueia reemissão (antes bastava
+  `nfseChaveAcesso`) — depois de cancelada, reemitir do zero é legítimo.
+- **Substituição** (`NfseService.substituirParaFatura`) — não é uma
+  chamada só: emite a DPS corrigida **primeiro** (nDPS diferente da
+  original, `stableNumeroDps` ganhou um parâmetro `variant` pra isso),
+  persiste a nova chave imediatamente (documento fiscal real, nunca pode
+  ficar só na memória), e só então cancela a antiga referenciando a nova
+  (evento e105102, `chNFSeSubst`). Se o segundo passo falhar, a nova
+  NFS-e já emitida não é perdida — fica registrada com
+  `nfseRejectionReason` explicando que a antiga continua tecnicamente
+  ativa até alguém repetir o cancelamento (fail loud, não esconde a
+  inconsistência atrás de um 200).
+- **`Invoice.nfseChaveAcessoAnterior`** — nova coluna, preenchida tanto
+  numa substituição quanto numa reemissão pós-cancelamento simples: nunca
+  deixa uma chave superada se perder, mesmo sobrescrevendo
+  `nfseChaveAcesso` com a nova.
+- **UI**: motivo (select) + justificativa (texto) pra cancelar, só
+  justificativa pra substituir (o evento e105102 não tem `cMotivo`/
+  `xMotivo` livre como o e101101 — a SEFIN trata "foi substituída" como
+  motivo suficiente por si só; a justificativa aqui é só pro nosso
+  próprio registro). "Emitir nova NFS-e" substitui "Emitir NFS-e" depois
+  de cancelada; linha de detalhe mostra data/motivo/justificativa do
+  cancelamento.
+- **Achado real em teste** (Homologação, SEFIN Nacional): `dhEvento`
+  (evento) é do tipo `TSDateTimeUTC` no schema, que rejeita fração de
+  segundo (E1235) — diferente de `dhEmi` na DPS de autorização, que
+  aceita milissegundos com o mesmo padrão `.toISOString()`. Só
+  descoberto rodando de verdade contra o webservice real; corrigido
+  truncando pra segundos inteiros antes de montar o evento.
+- Verificado: build+typecheck limpos (api e web); Jest 28/28 (sem
+  regressão, nenhum teste existente dependia do guard antigo de
+  `emitirParaFatura`); smoke suite 349/350 (5 novas asserções — guards
+  de `NFSE_NOT_ISSUED`/`NFSE_ALREADY_CANCELED`/validação de motivo, todas
+  curto-circuitando antes do certificado, mesmo precedente de sempre),
+  mesma falha pré-existente (`ASAAS_API_KEY`). **Verificado de ponta a
+  ponta contra a Homologação real da SEFIN Nacional** (certificado A1
+  real já configurado neste ambiente) via `verify-nfse-invoice.ts`
+  estendido: emitir → cancelar (evento aceito, "Processado com
+  sucesso") → tentar cancelar de novo (422) → reemitir do zero (nova
+  chave, antiga preservada em `nfseChaveAcessoAnterior`) → substituir
+  (nova DPS autorizada + antiga cancelada por substituição) — os 4
+  passos reais confirmados um a um, não só os guards; achado do
+  `dhEvento` só apareceu nessa verificação real, nunca apareceria com
+  fake de porta. UI verificada no navegador contra o projeto fixture
+  real com estado simulado via Prisma (nunca uma emissão de verdade na
+  fatura persistente): formulários de cancelar/substituir aparecendo
+  certo com NFS-e ativa, badge "NFS-e cancelada" + linha de detalhe +
+  botão "Emitir nova NFS-e" aparecendo certo depois de cancelada —
+  revertido ao estado original no fim.
+
+## Correção — Prévia inline de documentos no link de apresentação (plantas do SketchUp LayOut)
+
+Pedido direto do usuário: o estúdio abandonou exportação CAD/Revit —
+fluxo real é SketchUp + **LayOut**. Correção do próprio usuário depois da
+primeira rodada: o PDF exportado do LayOut é só um passo **interno**
+intermediário (editado no Illustrator em seguida — Photoshop não lida
+bem com PDF vetorial); o cliente nunca vê esse PDF, só a **imagem final**
+(PNG/JPEG) exportada do Illustrator. Perguntado se isso precisava de um
+pipeline novo (upload próprio, galeria dedicada) ou se reaproveitava o
+que já existe: reaproveita — a imagem final do Illustrator é só mais um
+arquivo no Drive do projeto, já coberto de ponta a ponta pelo item
+"documentos visíveis ao cliente" fechado antes nesta sessão (upload no
+Drive → classificar com `documentType` livre, ex. "planta" → marcar
+`visibleToClient`). Nenhum código de backend novo — só a apresentação
+ganhou prévia embutida em vez de exigir abrir em outra aba:
+
+- **`present/[token]/page.tsx`** — PDF (`<iframe>`) ou imagem (`<img>`)
+  renderizados inline pra cada documento visível, com "Abrir em nova aba"
+  ainda disponível ao lado. O ramo PDF continua existindo pra outros
+  documentos que legitimamente são PDF pro cliente (contrato, ART), não
+  pra planta. Sem `mimeType` guardado no `OfficeLink` (só existe no
+  momento do download, ver `GoogleDriveService.downloadFile`): a decisão
+  de qual prévia mostrar vem da extensão no título (`.pdf`/`.png`/`.jpg`/
+  etc.), sinal disponível sem baixar o arquivo inteiro só pra decidir
+  como exibir. Link puro (extensão desconhecida) cai no comportamento de
+  antes — só o link, sem prévia.
+- Verificado: build+typecheck limpos; ao vivo no navegador contra o
+  projeto fixture real, um vínculo Drive com título terminando em `.pdf`
+  rendeu o `<iframe>` corretamente, e um segundo vínculo com título
+  terminando em `.jpg` (simulando a imagem final do Illustrator) rendeu o
+  `<img>` corretamente — ambos com `src` apontando pro proxy de download
+  já existente; os dois vínculos de verificação apagados no fim.
+
+## Correção — IBS/CBS: regra de negócio registrada, cálculo ainda não
+
+Não é código -- é contexto de negócio confirmado pelo usuário que
+precisava ficar registrado antes de esquecer: **MEI paga 0% de IBS/CBS**
+(isento, mesmo espírito do DAS-MEI hoje); **depois de ME**, arquitetura/
+engenharia paga, mas com **redução de 30%** pela LC 214/2025. Isso
+sozinho ainda não é uma alíquota pronta pra codificar — IBS/CBS têm
+cronograma de transição por ano (2026→2033), então falta a alíquota
+efetiva (CBS%+IBS%) confirmada pela consultoria contábil pra cada
+competência antes de `totTrib` sair do zero deliberado em
+`nfse-invoice-dps.ts`. Registrado em
+`docs/fase-0/decisoes-pos-descoberta.md` §4 pra não se perder até esse
+número existir.
 
 ## Fase 5 — Beta & go-live
 

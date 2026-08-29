@@ -882,6 +882,29 @@ async function main() {
     nfseSemDocumentoRes.body
   );
 
+  // Lacuna da matriz (NFS-e: cancelamento/substituição) -- mesmo
+  // precedente do bloco acima: guardas testadas aqui curto-circuitam
+  // ANTES do certificado/webservice, sem nfseChaveAcesso nenhuma ainda.
+  const cancelarSemEmissaoRes = await api(`/v1/invoices/${invoiceId}/nfse/cancelar`, {
+    method: "POST",
+    body: JSON.stringify({ motivo: 1, justificativa: "Teste" }),
+  });
+  report(
+    "POST /invoices/:id/nfse/cancelar sem NFS-e emitida → 422 NFSE_NOT_ISSUED",
+    cancelarSemEmissaoRes.status === 422 && cancelarSemEmissaoRes.body?.error?.code === "NFSE_NOT_ISSUED",
+    cancelarSemEmissaoRes.body
+  );
+
+  const substituirSemEmissaoRes = await api(`/v1/invoices/${invoiceId}/nfse/substituir`, {
+    method: "POST",
+    body: JSON.stringify({ justificativa: "Teste" }),
+  });
+  report(
+    "POST /invoices/:id/nfse/substituir sem NFS-e emitida → 422 NFSE_NOT_ISSUED",
+    substituirSemEmissaoRes.status === 422 && substituirSemEmissaoRes.body?.error?.code === "NFSE_NOT_ISSUED",
+    substituirSemEmissaoRes.body
+  );
+
   const fakeChaveAcesso = `fake-chave-smoke-test-${Date.now()}`;
   await prisma.invoice.update({ where: { id: invoiceId }, data: { nfseChaveAcesso: fakeChaveAcesso } });
   const nfseJaEmitidaRes = await api(`/v1/invoices/${invoiceId}/nfse`, { method: "POST" });
@@ -890,7 +913,46 @@ async function main() {
     nfseJaEmitidaRes.status === 422 && nfseJaEmitidaRes.body?.error?.code === "NFSE_ALREADY_ISSUED",
     nfseJaEmitidaRes.body
   );
-  await prisma.invoice.update({ where: { id: invoiceId }, data: { nfseChaveAcesso: null } });
+
+  const cancelarMotivoInvalidoRes = await api(`/v1/invoices/${invoiceId}/nfse/cancelar`, {
+    method: "POST",
+    body: JSON.stringify({ motivo: 5, justificativa: "Motivo fora da lista fechada da SEFIN" }),
+  });
+  report(
+    "POST /invoices/:id/nfse/cancelar com motivo fora de {1,2,9} → 400 VALIDATION_ERROR",
+    cancelarMotivoInvalidoRes.status === 400,
+    cancelarMotivoInvalidoRes.body
+  );
+
+  // nfseCanceladaEm simulado direto no banco -- mesmo padrão de
+  // asaasPaymentId/nfseChaveAcesso acima, já que cancelar/substituir de
+  // verdade exige o certificado real (não configurado neste ambiente).
+  await prisma.invoice.update({ where: { id: invoiceId }, data: { nfseCanceladaEm: new Date() } });
+
+  const cancelarJaCanceladaRes = await api(`/v1/invoices/${invoiceId}/nfse/cancelar`, {
+    method: "POST",
+    body: JSON.stringify({ motivo: 1, justificativa: "Teste" }),
+  });
+  report(
+    "POST /invoices/:id/nfse/cancelar numa NFS-e já cancelada → 422 NFSE_ALREADY_CANCELED",
+    cancelarJaCanceladaRes.status === 422 && cancelarJaCanceladaRes.body?.error?.code === "NFSE_ALREADY_CANCELED",
+    cancelarJaCanceladaRes.body
+  );
+
+  const substituirJaCanceladaRes = await api(`/v1/invoices/${invoiceId}/nfse/substituir`, {
+    method: "POST",
+    body: JSON.stringify({ justificativa: "Teste" }),
+  });
+  report(
+    "POST /invoices/:id/nfse/substituir numa NFS-e já cancelada → 422 NFSE_ALREADY_CANCELED",
+    substituirJaCanceladaRes.status === 422 && substituirJaCanceladaRes.body?.error?.code === "NFSE_ALREADY_CANCELED",
+    substituirJaCanceladaRes.body
+  );
+
+  await prisma.invoice.update({
+    where: { id: invoiceId },
+    data: { nfseChaveAcesso: null, nfseCanceladaEm: null },
+  });
 
   const webhookTokenErrado = await fetch(`${BASE_URL}/v1/billing/asaas/webhook`, {
     method: "POST",

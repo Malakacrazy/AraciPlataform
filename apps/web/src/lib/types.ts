@@ -230,6 +230,14 @@ export interface Invoice {
   nfseIdDps?: string | null;
   nfseAmbienteEmissao?: string | null;
   nfseRejectionReason?: string | null;
+  // Lacuna da matriz (NFS-e: cancelamento/substituição) --
+  // nfseCanceladaEm presente = nfseChaveAcesso não vale mais (histórico,
+  // não apagado). nfseChaveAcessoAnterior só vem preenchido quando a
+  // chave atual veio de uma substituição ou reemissão pós-cancelamento.
+  nfseCanceladaEm?: string | null;
+  nfseMotivoCancelamento?: 1 | 2 | 9 | null;
+  nfseJustificativaCancelamento?: string | null;
+  nfseChaveAcessoAnterior?: string | null;
   lines: InvoiceLine[];
 }
 
