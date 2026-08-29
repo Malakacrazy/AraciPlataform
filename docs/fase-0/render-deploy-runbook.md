@@ -139,6 +139,36 @@ presentes.)
 
 ---
 
+## O que já foi provado localmente (não precisa descobrir no deploy)
+
+A topologia inteira foi executada em Docker antes deste runbook existir:
+Postgres + `araci-api` (privado, sem porta publicada, como o `pserv`) +
+`araci-web` (público), na mesma rede, com as **imagens de produção de
+verdade**. Resultado:
+
+- **Migrações rodam pela imagem**: `npm run db:migrate:deploy` (o mesmo
+  `preDeployCommand` do `render.yaml`) aplicou **36 migrations** e criou
+  **42 tabelas** num Postgres limpo. É a prova de que manter as
+  devDependencies na imagem final serve pra alguma coisa.
+- **`/health` do `araci-api` → `{"status":"ok"}`** — e ele faz
+  `SELECT 1` de verdade, ou seja, a conexão com o banco funciona (o que
+  também valida a correção do `openssl`/libssl no estágio final).
+- **`/api/health` do `araci-web` → `{"status":"ok"}`** — esse endpoint
+  só responde ok se alcançar o `araci-api`. É a prova de que o desenho
+  BFF funciona entre containers, com o api sem porta publicada.
+- **Autenticação ativa nas duas pontas**: `GET /api/v1/me` sem sessão →
+  401 no proxy do web; `GET /v1/me` direto no api sem Bearer → 401 pelo
+  AuthGuard. Ninguém alcança o api por fora.
+- **Rota pública de apresentação com token inválido → 404**, não 500.
+
+Ou seja: se algo falhar no Render, o suspeito **não** é o build das
+imagens, a conexão com o banco, a migração nem a comunicação entre os
+serviços — tudo isso já rodou. Olhe primeiro pro passo 3 (build args) e
+pro passo 4 (o que não viaja com o repositório: policy do Supabase, URIs
+de redirect, URLs de webhook).
+
+---
+
 ## Variante: banco externo (Prisma Postgres etc.)
 
 O `render.yaml` cria um Postgres do Render e injeta `DATABASE_URL` via
