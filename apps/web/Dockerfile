@@ -4,6 +4,23 @@
 FROM node:22-bookworm-slim AS builder
 WORKDIR /repo
 
+# JDK: o `npm ci` da RAIZ instala as dependências de TODOS os workspaces,
+# inclusive as do apps/api -- então o postinstall de xsd-schema-validator
+# (transitivo de @nfewizard/shared, integração de NFS-e) roda mesmo num
+# build que só quer o apps/web, e faz `npm ci` inteiro falhar sem JDK:
+#   [xsd-schema-validator] Compiling helper...
+#   Error: Java SDK required at JAVA_HOME or in path
+# Ver apps/api/Dockerfile pro raciocínio completo -- resumo: o helper
+# Java não é usado (o validador padrão é o JS-based, sem JDK), o JDK está
+# aqui só pra satisfazer o postinstall.
+#
+# Diferente do apps/api, aqui isto NÃO pesa na imagem final: este é o
+# estágio `builder`, e o estágio `runner` lá embaixo copia só a saída
+# standalone -- nem JDK nem node_modules de build sobrevivem.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends default-jdk-headless ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json

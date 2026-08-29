@@ -27,8 +27,24 @@ node_modules
 **/.next
 dist
 **/dist
+out
+**/out
+coverage
+**/coverage
 *.tsbuildinfo
 **/*.tsbuildinfo
+
+# Cache local do turbo -- 871MB nesta máquina, e ia inteiro pro contexto
+# de build. Não chegava a afetar o Render (é gitignored, e lá o build sai
+# de um clone limpo), mas inflava a imagem local em quase 1GB e escondia
+# o tamanho real. Achado comparando .gitignore com .dockerignore: tudo
+# que é artefato ignorado pelo git também não tem o que fazer no contexto
+# de build.
+.turbo
+**/.turbo
+
+# Banco local de desenvolvimento (docker compose do packages/db).
+.pgdata
 
 # Segredos e credenciais -- nunca entram numa imagem. Em produção eles
 # chegam como variável de ambiente do serviço (ver render.yaml) e o .pfx
@@ -50,6 +66,11 @@ dist
 .github
 .claude
 **/.DS_Store
+Thumbs.db
+npm-debug.log*
+# Arquivos temporários que o Office deixa ao abrir .docx/.xlsx da Fase 0.
+~$*.docx
+~$*.xlsx
 
 # Documentação e planilhas da Fase 0: pesadas e irrelevantes pro runtime.
 docs
