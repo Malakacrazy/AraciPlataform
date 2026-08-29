@@ -90,6 +90,28 @@ COPY . .
 RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" \
     npx turbo run build --filter=api...
 
+# Poda: reinstala node_modules só com os workspaces que o api precisa,
+# DEPOIS de compilar. Medido dentro da imagem anterior: o `npm ci` da
+# raiz instala TODOS os workspaces, então a imagem do api carregava o
+# apps/web inteiro junto -- `next` 201MB, `@next` 94MB, `@img` (sharp)
+# 27MB, mais react/tldraw. Nada disso roda aqui.
+#
+# `--omit=dev` NÃO resolveria: `next`/`react`/`tldraw` são dependências
+# de PRODUÇÃO do apps/web (só somem excluindo o workspace), e o `prisma`
+# -- que o Pre-Deploy Command precisa -- é devDependency do packages/db,
+# então seria removido junto. Selecionar workspace é o corte certo.
+#
+# Feito AQUI, e não no estágio final, porque este `npm ci` também dispara
+# o postinstall do xsd-schema-validator, que exige o JDK. No estágio
+# final isso obrigaria a reinstalar 590MB de JDK e anularia a economia
+# inteira (tentado, falhou exatamente assim).
+RUN npm ci --include-workspace-root --workspace=apps/api --workspace=packages/db
+
+# `npm ci` apaga o node_modules, e com ele o client gerado do Prisma
+# (node_modules/.prisma) -- precisa gerar de novo depois da poda.
+RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" \
+    npm run generate --workspace=packages/db
+
 # ---------------------------------------------------------------------
 # Imagem final: mesma base, SEM o toolchain de compilação nem o JDK.
 # ---------------------------------------------------------------------
@@ -115,11 +137,8 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-# Árvore inteira já construída. Precisa vir completa (não só
-# apps/api/dist) porque o Pre-Deploy Command do Render roda
-# `npm run db:migrate:deploy` contra ESTA imagem, e isso exige o CLI do
-# Prisma, o packages/db/prisma.config.ts e as migrations -- ver o
-# comentário no topo do arquivo.
+# Árvore já construída E já podada (ver o passo de poda no builder). O
+# toolchain fica pra trás sozinho porque é pacote do SO, fora de /repo.
 COPY --from=builder /repo ./
 
 ENV NODE_ENV=production

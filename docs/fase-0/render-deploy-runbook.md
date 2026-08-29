@@ -182,11 +182,20 @@ referência `fromDatabase` no `araci-api`, e declare `DATABASE_URL` como
 ## Pendências conhecidas
 
 - **Tamanho das imagens: resolvido.** O `araci-api` era 1,9GB; hoje é
-  **412MB**. Duas correções: excluir o `.turbo` do contexto de build
-  (1,92GB → 1,01GB) e passar a imagem pra multi-stage, largando a camada
-  de apt que sozinha era 590MB dos 960MB (59%). O `araci-web` é 94MB.
-  As devDependencies **continuam** na imagem final de propósito — o
-  Pre-Deploy roda `prisma migrate deploy` contra ela.
+  **293MB** — 85% menor. Três correções, cada uma medida:
+  1. `.turbo` fora do contexto de build (1,92GB → 1,01GB);
+  2. multi-stage, largando a camada de apt que sozinha era 590MB de
+     960MB (→ 412MB);
+  3. poda por workspace no builder: o `npm ci` da raiz instala TODOS os
+     workspaces, então a imagem do api carregava `next` (201MB),
+     `@next` (94MB), `sharp`, react e tldraw — nada disso roda ali
+     (→ 293MB).
+  O `araci-web` é 94MB. As devDependencies **continuam** na imagem final
+  de propósito — o Pre-Deploy roda `prisma migrate deploy` contra ela.
+  Por isso a poda seleciona *workspaces* em vez de usar `--omit=dev`:
+  `next`/`react`/`tldraw` são dependências de PRODUÇÃO do apps/web (não
+  sairiam), e o `prisma` é devDependency do packages/db (sairia junto,
+  quebrando a migração).
 - **JDK só existe pra satisfazer um postinstall** (`xsd-schema-validator`,
   transitivo da NFS-e) de código que não executamos — o validador padrão
   é o JS-based. Hoje ele fica só no estágio de build, fora da imagem
