@@ -27,6 +27,11 @@ export const accountUpdateSchema = z.object({
   // schema.prisma (Account.nfseAmbiente) para o porquê de "producao" ser
   // uma decisão explícita e não uma env var.
   nfseAmbiente: z.enum(['homologacao', 'producao']).optional(),
+  // Lacuna da matriz (Reforma Tributária/IBS-CBS) -- fração (0.007 = 0,70%),
+  // mesmo padrão de pricingTaxBurdenPercent. Teto 0.5 é só sanidade de
+  // input (cronograma real não passa de ~26,5%/~18,55% com redução, ver
+  // schema.prisma), não uma regra fiscal.
+  cbsIbsEffectiveRatePercent: z.number().min(0).max(0.5).optional(),
 });
 
 export type AccountUpdateInput = z.infer<typeof accountUpdateSchema>;

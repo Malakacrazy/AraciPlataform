@@ -236,15 +236,23 @@ de teste mecânica ter funcionado contra a Homologação da SEFIN Nacional
   **0% enquanto MEI** (isento, mesmo regime simplificado do DAS-MEI acima
   — nenhum dos dois tributos novos incide). **Depois de ME**, serviços de
   arquitetura/engenharia pagam IBS/CBS, mas com **redução de 30%** sobre a
-  alíquota, prevista na LC 214/2025. Ainda **não é um número pronto pra
-  codificar**: IBS/CBS têm cronograma de transição por ano (2026→2033,
-  alíquotas de teste/fase diferentes a cada ano), então "30% de redução"
-  sozinho não determina o `vTotTribFed`/`vTotTribEst`/`vTotTribMun` real
-  de uma nota emitida numa data específica — falta a alíquota efetiva
-  (CBS% + IBS%) que a consultoria contábil confirmar pra cada
-  ano/competência. Enquanto isso, `totTrib` continua zerado de propósito
-  em `nfse-invoice-dps.ts` (ver comentário lá) — decisão deliberada de
-  não adivinhar um número fiscal real, não uma lacuna esquecida.
+  alíquota, prevista na LC 214/2025. IBS/CBS têm cronograma de transição
+  por ano (2026→2033, alíquotas de teste/fase diferentes a cada ano), e
+  "30% de redução" sozinho não determina o número — falta a alíquota
+  efetiva (CBS% + IBS%) confirmada pela consultoria contábil pra cada
+  ano/competência.
+  - **Atualizado (2026-08-29, mesmo dia)**: como `totTrib` na NFS-e é só
+    disclosure (Lei da Transparência Fiscal 12.741/2012 — não muda `vServ`
+    nem o que é de fato recolhido), o usuário decidiu explicitamente
+    ligar o campo já usando uma estimativa (tabela trazida pelo usuário,
+    fonte AI Overview do Google, **não confirmada por contador**) em vez
+    de esperar a consultoria: fase de teste 2026 = 0,70% efetivo (0,9%
+    CBS + 0,1% IBS, já com a redução de 30%). Guardado em
+    `Account.cbsIbsEffectiveRatePercent`, editável em `/financeiro` sem
+    deploy, pra o próprio estúdio avançar o valor a cada ano do
+    cronograma (2027/2029/2030/2033) conforme a consultoria (ou uma nova
+    estimativa) confirmar o número. Ver "Correção — Alíquota efetiva de
+    CBS/IBS..." em `roadmap-atualizado.md` pro detalhe técnico.
 - Implementado em `nfse-test-dps.ts`: `cTribNac` trocado de um placeholder
   arbitrário (`110101`, código de outro serviço só usado pra passar da
   validação de schema) para o código real e correto do regime atual

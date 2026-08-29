@@ -519,6 +519,7 @@ export interface Account {
   pricingActiveStaffCount: string;
   dataRetentionMonths?: number | null;
   nfseAmbiente: "homologacao" | "producao";
+  cbsIbsEffectiveRatePercent: string;
 }
 
 export interface FatorRResult {

@@ -183,6 +183,7 @@ export class NfseService {
       invoiceId: invoice.id,
       valorServico: Number(invoice.amount),
       tomador: { documento: invoice.project.client.document, nome: invoice.project.client.name },
+      cbsIbsEffectiveRatePercent: Number(account.cbsIbsEffectiveRatePercent),
       // nDPS variante quando reemitindo após cancelamento -- reusar o nDPS
       // original arriscaria a SEFIN rejeitar como duplicata da DPS já
       // registrada (cancelada ou não, o par CNPJ+série+nDPS já existe lá).
@@ -331,6 +332,7 @@ export class NfseService {
       invoiceId: invoice.id,
       valorServico: Number(invoice.amount),
       tomador: { documento: invoice.project.client.document, nome: invoice.project.client.name },
+      cbsIbsEffectiveRatePercent: Number(account.cbsIbsEffectiveRatePercent),
       nDpsVariant: `substituicao-${Date.now()}`,
     });
 

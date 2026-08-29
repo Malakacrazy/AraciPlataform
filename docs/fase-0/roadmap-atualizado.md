@@ -662,9 +662,12 @@ da correção resolve os dois:
     de Client podem compartilhar o mesmo e-mail, e o login busca por
     e-mail (`findFirst`), então qual cliente loga fica não-determinístico
     nesse caso. Estúdio único hoje torna isso improvável na prática, mas
-    é uma lacuna de verdade — registrada aqui, não corrigida agora
-    (adicionar a constraint é decisão de produto: o que fazer com
-    e-mails duplicados já existentes antes de migrar).
+    é uma lacuna de verdade — registrada aqui na época, depois fechada
+    (achado A-05 da auditoria externa, mesma lacuna) na rodada "Correção —
+    os 5 achados 'Altos' da mesma auditoria externa" mais abaixo: sem
+    duplicata real no banco checado antes de migrar, então a constraint
+    entrou sem precisar de decisão de produto nenhuma sobre e-mails
+    duplicados existentes.
   - **Quatro bugs reais achados rodando o fluxo de verdade** (não em
     revisão de código):
     1. Teste do magic link buscava o link por e-mail em vez de por
@@ -2702,6 +2705,48 @@ competência antes de `totTrib` sair do zero deliberado em
 `nfse-invoice-dps.ts`. Registrado em
 `docs/fase-0/decisoes-pos-descoberta.md` §4 pra não se perder até esse
 número existir.
+
+## Correção — Alíquota efetiva de CBS/IBS: campo de disclosure ligado (2026)
+
+Continuação direta do item acima, mesma sessão: o usuário trouxe uma
+tabela do cronograma de transição da LC 214/2025 (fonte: AI Overview do
+Google, não confirmada por contador) e decidiu explicitamente usar o
+valor da fase de teste 2026 desde já, dado que `totTrib` é só disclosure
+(Lei da Transparência Fiscal 12.741/2012) — não muda `vServ` nem o que é
+de fato recolhido, então o risco de uma estimativa aqui é bem menor do
+que seria num campo que afeta cobrança/arrecadação real.
+
+- **`Account.cbsIbsEffectiveRatePercent`** (`Decimal`, default `0.0070` =
+  0,70% = 0,9% CBS + 0,1% IBS da fase de teste 2026, já com a redução de
+  30%) — campo de conta (não constante no código), pra o próprio estúdio
+  atualizar ano a ano (2027/2029/2030/2033) sem precisar de deploy, mesmo
+  espírito do `nfseAmbiente` já existente. Editável em `/financeiro`
+  (`updateCbsIbsRate`), input em pontos percentuais convertido pra fração
+  no server action.
+- **`buildInvoiceDps`** (`nfse-invoice-dps.ts`) agora recebe
+  `cbsIbsEffectiveRatePercent` e calcula `vTotTribFed = vServ × alíquota`
+  (arredondado a 2 casas). Reportado inteiro em `vTotTribFed`: CBS é
+  federal e é o componente dominante da fase de teste (0,9 dos 1,0 p.p.
+  antes da redução); a divisão exata entre IBS estadual e municipal
+  depende de Resolução do Senado ainda não definida, então não inventamos
+  esse split — mesmo espírito de "não confiável" que já valia pro zero
+  total antes desta correção.
+- **Achado real ao construir a UI**: `defaultValue={Number(...) * 100}`
+  produzia `0.7000000000000001` (erro de ponto flutuante de
+  `0.007 * 100`) em vez de `0.7` no input — visível só testando no
+  navegador contra a conta real, não no build/typecheck. Corrigido
+  arredondando a 2 casas antes de exibir.
+- Verificado: build+typecheck limpos (api e web); Jest 28/28; smoke suite
+  348/349 passaram (mesmas duas falhas pré-existentes de sempre —
+  `ASAAS_API_KEY` real configurada localmente, e um teste de dedupe de
+  Opportunity sensível ao volume acumulado de dados de teste no banco de
+  dev — nenhuma das duas relacionada a esta mudança); **script real
+  contra a Homologação da SEFIN Nacional** (`verify-nfse-invoice.ts`)
+  emitiu, cancelou, reemitiu e substituiu uma NFS-e de verdade com
+  `vTotTribFed` calculado (não mais zero) — SEFIN aceitou normalmente;
+  testado ao vivo no navegador contra a conta real: campo mostra `0,7`,
+  salvar `1,55` persiste e volta corretamente no reload, revertido pra
+  `0,7` (valor real da fase de teste 2026) ao final da verificação.
 
 ## Fase 5 — Beta & go-live
 

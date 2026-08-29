@@ -7,6 +7,7 @@ import type { Account, Expense, Project } from "@/lib/types";
 import {
   updateTaxRegime,
   updateNfseAmbiente,
+  updateCbsIbsRate,
   updateDataRetention,
   simulateFatorR,
   createExpense,
@@ -249,6 +250,36 @@ export default async function FinanceiroPage({
               <option value="homologacao">Homologação (testes)</option>
               <option value="producao">Produção</option>
             </select>
+          </label>
+          <button
+            type="submit"
+            className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
+          >
+            Salvar
+          </button>
+        </form>
+      </section>
+
+      <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+        <h2 className="font-medium text-zinc-900 dark:text-zinc-50">Alíquota efetiva de CBS/IBS</h2>
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          Só aparece como disclosure na NFS-e (não muda o valor cobrado do cliente nem o que é recolhido) — a Reforma
+          Tributária tem cronograma de transição até 2033, então essa alíquota efetiva vai mudando ano a ano. Sem
+          deploy: atualize aqui direto quando o valor confirmado do próximo período sair.
+        </p>
+        <form action={updateCbsIbsRate} className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-500 dark:text-zinc-400">Alíquota efetiva (%)</span>
+            <input
+              key={account.cbsIbsEffectiveRatePercent}
+              name="cbsIbsEffectiveRatePercent"
+              type="number"
+              min="0"
+              max="50"
+              step="0.01"
+              defaultValue={Math.round(Number(account.cbsIbsEffectiveRatePercent) * 10000) / 100}
+              className="w-48 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+            />
           </label>
           <button
             type="submit"

@@ -1,10 +1,10 @@
 // DPS a partir de uma fatura REAL do estúdio -- contraparte de
 // nfse-test-dps.ts (dado 100% fictício, só valida a mecânica). Mesma
 // estrutura verificada contra a Homologação da SEFIN Nacional (mesma
-// correção de fuso, mesmo totTrib zerado com sub-elementos -- ver
-// comentários lá para o porquê de cada um), variando só o que precisa
-// variar por fatura: tomador, valor e o código de serviço do regime
-// tributário real da conta.
+// correção de fuso, mesmo formato de totTrib com sub-elementos -- ver
+// comentários lá para o porquê de cada um), variando o que precisa
+// variar por fatura: tomador, valor, o código de serviço do regime
+// tributário real da conta, e a alíquota efetiva de CBS/IBS da conta.
 import type { LayoutDPS } from '@nfewizard/types';
 
 // Mesmo município usado no DPS de teste -- o estúdio presta o serviço de
@@ -25,6 +25,9 @@ export interface InvoiceDpsInput {
   invoiceId: string;
   valorServico: number;
   tomador: { documento: string; nome: string };
+  // Account.cbsIbsEffectiveRatePercent -- fração (0.007 = 0,70%), ver
+  // schema.prisma para a origem e o porquê de ser configurável por conta.
+  cbsIbsEffectiveRatePercent: number;
   // Lacuna da matriz (NFS-e: substituição) -- a DPS da NFS-e substituta
   // precisa de um nDPS DIFERENTE do original (mesma fatura, mas é uma
   // autorização nova; reusar o nDPS faria a SEFIN rejeitar como
@@ -135,17 +138,19 @@ export function buildInvoiceDps(input: InvoiceDpsInput): LayoutDPS {
             tribISSQN: 1, // operação tributável
             tpRetISSQN: 1, // não retido
           },
-          // totTrib zerado por decisão já registrada em Invoice.cstIbs/
-          // cstCbs/cClassTrib: o cálculo real de carga tributária federal/
-          // estadual/municipal por nota (via tabela IBPT ou similar) "ainda
-          // não estabilizou" no ecossistema da Reforma Tributária -- não é
-          // uma lacuna nova desta emissão, é a mesma simplificação já
-          // documentada no schema. totTrib vazio (sem nenhum sub-elemento)
-          // é rejeitado pela SEFIN Nacional (E1235); zerado é o mínimo que
-          // passa da validação sem inventar um cálculo não confiável.
+          // totTrib é só disclosure (Lei da Transparência Fiscal
+          // 12.741/2012 -- não muda vServ nem o que é recolhido), calculado
+          // a partir de Account.cbsIbsEffectiveRatePercent (ver
+          // schema.prisma pro cronograma/fonte). Reportado inteiro em
+          // vTotTribFed: CBS é federal e é o componente dominante da fase
+          // de teste 2026 (0,9 dos 1,0 p.p. do cronograma, antes da
+          // redução); IBS (estadual+municipal) é uma fração pequena do
+          // total e a divisão exata Est/Mun depende de Resolução do
+          // Senado ainda não definida -- não inventamos esse split aqui,
+          // mesmo espírito de "não confiável" que já valia pro zero total.
           totTrib: {
             vTotTrib: {
-              vTotTribFed: 0,
+              vTotTribFed: Math.round(input.valorServico * input.cbsIbsEffectiveRatePercent * 100) / 100,
               vTotTribEst: 0,
               vTotTribMun: 0,
             },

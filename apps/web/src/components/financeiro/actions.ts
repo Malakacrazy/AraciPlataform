@@ -61,6 +61,29 @@ export async function updateNfseAmbiente(formData: FormData) {
   revalidatePath("/financeiro");
 }
 
+// Lacuna da matriz (Reforma Tributária/IBS-CBS) -- só disclosure na NFS-e
+// (ver Account.cbsIbsEffectiveRatePercent no schema), mas configurável
+// aqui pra o estúdio atualizar ano a ano sem depender de deploy. Input em
+// pontos percentuais (0,70 = 0,70%), convertido pra fração antes do PATCH
+// (mesmo padrão de pricingTaxBurdenPercent).
+export async function updateCbsIbsRate(formData: FormData) {
+  const raw = String(formData.get("cbsIbsEffectiveRatePercent") ?? "").trim();
+  const pontosPercentuais = Number(raw.replace(",", "."));
+  if (!raw || !Number.isFinite(pontosPercentuais) || pontosPercentuais < 0 || pontosPercentuais > 50) {
+    throw new Error("Alíquota precisa ser um número entre 0 e 50 (pontos percentuais).");
+  }
+
+  const res = await apiFetch("account", {
+    method: "PATCH",
+    body: JSON.stringify({ cbsIbsEffectiveRatePercent: pontosPercentuais / 100 }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error?.message ?? "Não foi possível atualizar a alíquota de CBS/IBS.");
+  }
+  revalidatePath("/financeiro");
+}
+
 // O resultado (fatorR + anexo recomendado) é persistido pelo backend na
 // própria Account -- não precisa devolver nada aqui, revalidar a página
 // já mostra o valor atualizado (mesmo padrão de upsertRoleRate).

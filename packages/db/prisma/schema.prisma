@@ -81,6 +81,19 @@ model Account {
   // lá -- ver NfseService.emitirParaFatura.
   nfseAmbiente String @default("homologacao") // "homologacao" | "producao"
 
+  // Lacuna da matriz (Reforma Tributária/IBS-CBS) -- totTrib da NFS-e é só
+  // disclosure (Lei da Transparência Fiscal 12.741/2012, não muda o valor
+  // cobrado/recolhido), mas ficava zerado porque não havia alíquota
+  // efetiva confirmada (ver decisoes-pos-descoberta.md #4). Default
+  // 0,70% = fase de teste 2026 da LC 214/2025 (0,9% CBS + 0,1% IBS) já com
+  // a redução de 30% pra arquitetura/engenharia (ME) -- fonte é uma
+  // estimativa (AI Overview do Google, não confirmada por contador),
+  // aprovada explicitamente pelo usuário como suficiente pra um campo só
+  // de disclosure. Cronograma sobe até 2033 (ver LayoutDPS totTrib em
+  // nfse-invoice-dps.ts) -- campo de conta, não constante no código, pra
+  // o próprio estúdio atualizar ano a ano sem precisar de deploy.
+  cbsIbsEffectiveRatePercent Decimal @default(0.0070)
+
   // Abas 01/02 da planilha de precificação (docs/fase-0/Base_Precificacao
   // (fazer cópia).xlsx) -- inputs compartilhados pela fórmula de
   // tarifa/hora (crm/pricing.ts: calcularOverheadPorHora/
