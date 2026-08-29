@@ -62,10 +62,12 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // /oidc/userinfo em vez de decodificar o id_token manualmente -- devolve
-  // as claims já verificadas pelo próprio Logto, sem precisar de uma
-  // biblioteca de verificação de JWT/JWKS só pra isto.
-  const userInfoRes = await fetch(`${endpoint}/oidc/userinfo`, {
+  // /oidc/me (não /oidc/userinfo, nome que o resto do mundo OIDC usa --
+  // Logto expõe o userinfo endpoint sob esse path próprio) em vez de
+  // decodificar o id_token manualmente -- devolve as claims já
+  // verificadas pelo próprio Logto, sem precisar de uma biblioteca de
+  // verificação de JWT/JWKS só pra isto.
+  const userInfoRes = await fetch(`${endpoint}/oidc/me`, {
     headers: { Authorization: `Bearer ${tokenBody.access_token}` },
   });
   const userInfo: { sub?: string; email?: string; name?: string } = await userInfoRes.json();
