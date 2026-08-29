@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { apiFetch } from "@/lib/api";
-import type { OfficeLinkProvider } from "@/lib/types";
+import type { OfficeLinkProvider, DriveRevision } from "@/lib/types";
 
 export interface CreateOfficeLinkInput {
   provider: OfficeLinkProvider;
@@ -75,6 +75,18 @@ export async function provisionDriveFolders(projectId: string) {
     throw new Error(body?.error?.message ?? "Não foi possível provisionar as pastas no Drive.");
   }
   revalidatePath(`/projects/${projectId}`);
+}
+
+// Lacuna da matriz (gestão documental por projeto, "versionamento") --
+// leitura, sem revalidatePath: não muda nada no vínculo em si, só
+// consulta o histórico que o Drive já guarda.
+export async function listOfficeLinkRevisions(id: string): Promise<DriveRevision[]> {
+  const res = await apiFetch(`office-links/${id}/revisions`);
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(body?.error?.message ?? "Não foi possível carregar as versões.");
+  }
+  return body.data;
 }
 
 // Lacuna da matriz (gestão documental por projeto, "vínculos quebrados")

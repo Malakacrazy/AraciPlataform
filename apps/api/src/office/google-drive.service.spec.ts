@@ -1,5 +1,5 @@
 import { GoogleDriveService } from './google-drive.service';
-import type { DriveClient, DriveFolder, DriveFileMetadata, DriveFileContent } from './google-drive-client';
+import type { DriveClient, DriveFolder, DriveFileMetadata, DriveFileContent, DriveRevision } from './google-drive-client';
 
 // Lacuna da matriz (gestão documental por projeto) -- "cobertura com uma
 // porta fake do Drive, sem chamar o Google no teste", pedido explícito da
@@ -32,6 +32,12 @@ class FakeDriveClient implements DriveClient {
       throw new Error(`Arquivo ${fileId} não está mais disponível no Drive.`);
     }
     return content;
+  }
+
+  public revisions = new Map<string, DriveRevision[]>();
+
+  async listRevisions(_accessToken: string, fileId: string): Promise<DriveRevision[]> {
+    return this.revisions.get(fileId) ?? [];
   }
 }
 
@@ -317,6 +323,58 @@ describe('GoogleDriveService — documentos visíveis ao cliente (item "grande" 
 
     await expect(service.downloadClientVisibleDocument('acc-1', 'proj-1', 'link-quebrado-visivel')).rejects.toMatchObject({
       status: 404,
+    });
+  });
+});
+
+describe('GoogleDriveService.listRevisions (item "versionamento" adiado na rodada de gestão documental)', () => {
+  const admins = [{ id: 'user-1', accountId: 'acc-1' }];
+  const credentials = [{ userId: 'user-1', scope: DRIVE_FILE_SCOPE }];
+  const officeLinks: FakeOfficeLink[] = [
+    {
+      id: 'link-drive', accountId: 'acc-1', entityType: 'PROJECT', entityId: 'proj-1',
+      provider: 'DRIVE', externalId: 'file-com-historico', url: 'https://drive.example/file-com-historico', title: 'Contrato.pdf',
+      documentType: null, phaseId: null, visibleToClient: false, brokenAt: null, lastCheckedAt: null,
+    },
+    {
+      id: 'link-calendar', accountId: 'acc-1', entityType: 'PROJECT', entityId: 'proj-1',
+      provider: 'CALENDAR', externalId: 'evt-1', url: 'https://calendar.example/evt-1', title: 'Reunião',
+      documentType: null, phaseId: null, visibleToClient: false, brokenAt: null, lastCheckedAt: null,
+    },
+  ];
+
+  it('lista as revisões mais recentes primeiro, mesmo a API do Drive devolvendo em ordem crescente', async () => {
+    const drive = new FakeDriveClient();
+    drive.revisions.set('file-com-historico', [
+      { id: 'rev-1', modifiedTime: '2026-01-01T00:00:00.000Z', size: '1000', lastModifyingUserName: 'Ana', keepForever: false },
+      { id: 'rev-2', modifiedTime: '2026-03-01T00:00:00.000Z', size: '1200', lastModifyingUserName: 'Beto', keepForever: true },
+    ]);
+    const prisma = createFakePrisma({ admins, credentials, officeLinks: [...officeLinks] });
+    const credentialsService = { getAccessToken: async () => 'fake-access-token' } as any;
+    const service = new GoogleDriveService(prisma as any, credentialsService, drive);
+
+    const revisions = await service.listRevisions('acc-1', 'link-drive');
+
+    expect(revisions.map((r) => r.id)).toEqual(['rev-2', 'rev-1']);
+  });
+
+  it('recusa listar revisões de um vínculo que não é do Drive (Calendar não tem revisão) -- 404', async () => {
+    const drive = new FakeDriveClient();
+    const prisma = createFakePrisma({ admins, credentials, officeLinks: [...officeLinks] });
+    const credentialsService = { getAccessToken: async () => 'fake-access-token' } as any;
+    const service = new GoogleDriveService(prisma as any, credentialsService, drive);
+
+    await expect(service.listRevisions('acc-1', 'link-calendar')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('recusa sem nenhum admin com o Drive conectado', async () => {
+    const drive = new FakeDriveClient();
+    const prisma = createFakePrisma({ admins, credentials: [], officeLinks: [...officeLinks] });
+    const credentialsService = { getAccessToken: async () => 'fake-access-token' } as any;
+    const service = new GoogleDriveService(prisma as any, credentialsService, drive);
+
+    await expect(service.listRevisions('acc-1', 'link-drive')).rejects.toMatchObject({
+      code: 'GOOGLE_DRIVE_NOT_CONNECTED',
     });
   });
 });

@@ -1,9 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import type { OfficeLink, OfficeLinkProvider } from "@/lib/types";
+import type { OfficeLink, OfficeLinkProvider, DriveRevision } from "@/lib/types";
 import { STAGE_LABELS } from "@/lib/pep-stages";
-import { createOfficeLink, deleteOfficeLink, updateOfficeLink, provisionDriveFolders, checkBrokenLinks } from "./actions";
+import {
+  createOfficeLink,
+  deleteOfficeLink,
+  updateOfficeLink,
+  provisionDriveFolders,
+  checkBrokenLinks,
+  listOfficeLinkRevisions,
+} from "./actions";
 import {
   DRIVE_SCOPE,
   CALENDAR_SCOPE,
@@ -50,6 +57,16 @@ function toDateTimeLocalValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+// null pra Google Doc/Sheet/Slide nativo (sem bytes, ver DriveRevision).
+function formatBytes(size: string | null): string {
+  if (!size) return "";
+  const bytes = Number(size);
+  if (!Number.isFinite(bytes)) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function OfficeLinksSection({
   entityType,
   entityId,
@@ -70,6 +87,14 @@ export function OfficeLinksSection({
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [gmailMessages, setGmailMessages] = useState<GmailMessageSummary[] | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  // Lacuna da matriz (gestão documental por projeto, "versionamento") --
+  // revisionsByLinkId dobra como cache (não recarrega ao reabrir o
+  // mesmo painel) e como "já tentou carregar" (chave presente, mesmo
+  // que a lista venha vazia).
+  const [revisionsOpenId, setRevisionsOpenId] = useState<string | null>(null);
+  const [revisionsByLinkId, setRevisionsByLinkId] = useState<Record<string, DriveRevision[]>>({});
+  const [isLoadingRevisions, setIsLoadingRevisions] = useState(false);
 
   const [showComposeForm, setShowComposeForm] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -205,6 +230,26 @@ export function OfficeLinksSection({
     }
   }
 
+  async function handleToggleRevisions(id: string) {
+    if (revisionsOpenId === id) {
+      setRevisionsOpenId(null);
+      return;
+    }
+    setRevisionsOpenId(id);
+    if (revisionsByLinkId[id]) return; // já carregado, só reabrir o painel
+    setError(null);
+    setIsLoadingRevisions(true);
+    try {
+      const revisions = await listOfficeLinkRevisions(id);
+      setRevisionsByLinkId((prev) => ({ ...prev, [id]: revisions }));
+    } catch (err) {
+      setError(errorMessage(err, "Falha ao carregar as versões."));
+      setRevisionsOpenId(null);
+    } finally {
+      setIsLoadingRevisions(false);
+    }
+  }
+
   // Lacuna da matriz (gestão documental por projeto, "árvore de pastas")
   // -- só existe pra PROJECT (Client não tem fase do PEP nenhuma).
   async function handleProvisionFolders() {
@@ -286,6 +331,19 @@ export function OfficeLinksSection({
                       quebrado
                     </span>
                   )}
+                  {link.provider === "DRIVE" && (
+                    <button
+                      type="button"
+                      onClick={() => handleToggleRevisions(link.id)}
+                      className="text-xs text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+                    >
+                      {revisionsOpenId !== link.id
+                        ? "Ver versões"
+                        : isLoadingRevisions
+                          ? "Carregando…"
+                          : "Fechar"}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setEditingId((v) => (v === link.id ? null : link.id))}
@@ -355,6 +413,30 @@ export function OfficeLinksSection({
                     {isSavingEdit ? "Salvando…" : "Salvar"}
                   </button>
                 </form>
+              )}
+              {revisionsOpenId === link.id && (
+                <div className="mt-2 border-t border-zinc-100 pt-2 dark:border-zinc-900">
+                  {isLoadingRevisions && !revisionsByLinkId[link.id] ? (
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">Carregando versões…</p>
+                  ) : (revisionsByLinkId[link.id] ?? []).length === 0 ? (
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      Nenhum histórico de versão disponível pra este arquivo.
+                    </p>
+                  ) : (
+                    <ul className="flex flex-col gap-1">
+                      {revisionsByLinkId[link.id].map((revision) => (
+                        <li key={revision.id} className="flex items-center justify-between gap-3 text-xs text-zinc-600 dark:text-zinc-400">
+                          <span>
+                            {new Date(revision.modifiedTime).toLocaleString("pt-BR")}
+                            {revision.lastModifyingUserName && ` · ${revision.lastModifyingUserName}`}
+                            {revision.keepForever && " · fixada"}
+                          </span>
+                          {revision.size && <span className="font-mono">{formatBytes(revision.size)}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               )}
             </li>
           ))}

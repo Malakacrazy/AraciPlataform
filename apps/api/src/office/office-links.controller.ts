@@ -15,6 +15,7 @@ import {
   type OfficeLinkInput,
   type OfficeLinkUpdateInput,
 } from './office-links.service';
+import { GoogleDriveService } from './google-drive.service';
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -85,7 +86,21 @@ export class ClientOfficeLinksController {
 
 @Controller('v1/office-links')
 export class OfficeLinksController {
-  constructor(private readonly officeLinksService: OfficeLinksService) {}
+  constructor(
+    private readonly officeLinksService: OfficeLinksService,
+    private readonly googleDriveService: GoogleDriveService,
+  ) {}
+
+  // Lacuna da matriz (gestão documental por projeto, "versionamento")
+  // -- histórico de revisões que o Drive já guarda, exposto aqui.
+  @Get(':id/revisions')
+  async listRevisions(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
+    const data = await this.googleDriveService.listRevisions(accountId, id);
+    return { data };
+  }
 
   @Patch(':id')
   async update(

@@ -2351,6 +2351,25 @@ async function main() {
     }),
   });
   report("POST /projects/:id/office-links (CALENDAR) → 201", calendarLinkRes.status === 201, calendarLinkRes.body);
+  const calendarLinkId = calendarLinkRes.body?.data?.id;
+
+  // Lacuna da matriz (gestão documental por projeto, "versionamento") --
+  // sem ninguém conectado ao Drive ainda neste run (só acontece bem mais
+  // adiante), então só o caminho de falha é testável aqui, mesmo padrão
+  // de sempre pra tudo que depende de credencial real do Drive.
+  const revisionsSemConexaoRes = await api(`/v1/office-links/${driveLinkId}/revisions`);
+  report(
+    "GET /office-links/:id/revisions sem ninguém conectado ao Drive → 422 GOOGLE_DRIVE_NOT_CONNECTED",
+    revisionsSemConexaoRes.status === 422 && revisionsSemConexaoRes.body?.error?.code === "GOOGLE_DRIVE_NOT_CONNECTED",
+    revisionsSemConexaoRes.body
+  );
+
+  const revisionsProviderErradoRes = await api(`/v1/office-links/${calendarLinkId}/revisions`);
+  report(
+    "GET /office-links/:id/revisions de um vínculo CALENDAR (sem revisão nenhuma) → 404",
+    revisionsProviderErradoRes.status === 404,
+    revisionsProviderErradoRes.body
+  );
 
   const gmailLinkRes = await api(`/v1/projects/${projectId}/office-links`, {
     method: "POST",

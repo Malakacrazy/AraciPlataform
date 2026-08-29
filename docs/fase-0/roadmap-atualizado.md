@@ -2218,10 +2218,11 @@ foram resolvidas antes de qualquer código.
   obrigatórios amarrado ao gate do PEP (faz mais sentido depois que a
   taxonomia estiver em uso real — sequenciamento, não só falta de tempo,
   ver "Correção — Checklist de documentos obrigatórios..." mais abaixo,
-  já fechado); versionamento (expor revisões do Drive); e o item "grande"
-  da lista — documentos visíveis ao cliente no portal/link de
-  apresentação sem exigir conta Google (precisa de uma rota de proxy de
-  leitura nova, escopo maior que o resto deste grupo — ver "Correção —
+  já fechado); versionamento (expor revisões do Drive — ver "Correção —
+  Versionamento de documentos do Drive" mais abaixo, já fechado); e o
+  item "grande" da lista — documentos visíveis ao cliente no portal/link
+  de apresentação sem exigir conta Google (precisa de uma rota de proxy
+  de leitura nova, escopo maior que o resto deste grupo — ver "Correção —
   Documentos visíveis ao cliente no link de apresentação" mais abaixo,
   já fechado).
 - Verificado: build+typecheck limpos (api e web); **porta fake do Drive**
@@ -2534,6 +2535,52 @@ sem perda de dado real.
   "Made with tldraw" via plano pago/programa de startup) é decisão de
   negócio do usuário, não deste código — confirmado que a Studio Araci
   se qualifica pro uso sem marca d'água como empresa de 2 pessoas.
+
+## Correção — Versionamento de documentos do Drive
+
+Último item deliberadamente adiado da rodada de gestão documental
+("versionamento -- expor revisões do Drive"). Escopo bem mais estreito
+que os outros dois itens adiados da mesma lista (documentos visíveis ao
+cliente, já fechado; checklist de documentos obrigatórios, já fechado):
+o Drive já guarda o histórico de revisões de qualquer arquivo (edição
+colaborativa nativa do Google Docs/Sheets, ou alguém subindo uma versão
+nova por cima do mesmo arquivo) — isto só expõe o que já existe lá,
+não implementa versionamento nenhum por conta própria.
+
+- **`DriveClient.listRevisions`** — nova operação na porta (mesmo padrão
+  de `getFile`/`downloadFile`), chamando `files/:id/revisions` da Drive
+  API v3. `size` vem como `null` pra Google Doc/Sheet/Slide nativo (sem
+  bytes, mesma característica que já existia em `downloadFile` pra
+  esses tipos).
+- **`GoogleDriveService.listRevisions(accountId, officeLinkId)`** —
+  mesmo escopo de sempre (conta + `provider: 'DRIVE'`); um vínculo
+  Calendar/Gmail ou de outra conta cai no mesmo 404 de "vínculo do Drive
+  não encontrado", não um 422 à parte — Calendar/Gmail não tem revisão
+  nenhuma pra listar. Devolve mais recente primeiro (a API do Drive não
+  garante essa ordem).
+- **`GET /v1/office-links/:id/revisions`** — staff-only, sem
+  `@AdminOnly()` (ver histórico das outras rotas de OfficeLink: consultar
+  taxonomia/metadado é tarefa operacional comum, diferente de convidar
+  terceiro ou mexer em fiscal/financeiro).
+- **UI**: botão "Ver versões" ao lado de "Classificar"/"Remover", só nos
+  vínculos `provider === "DRIVE"` (Calendar/Gmail nunca mostram o botão).
+  Carrega sob demanda (cache em memória — reabrir não recarrega),
+  mostra data/hora, quem modificou por último e tamanho formatado
+  (B/KB/MB), com um selo "fixada" pra revisão marcada `keepForever` no
+  Drive.
+- Verificado: build+typecheck limpos (api e web); Jest 13/13 no
+  `google-drive.service.spec.ts` (3 novos: ordena mais recente primeiro
+  mesmo a API devolvendo crescente, recusa vínculo que não é do Drive,
+  recusa sem admin conectado); smoke suite 344/345 (2 novas asserções:
+  422 `GOOGLE_DRIVE_NOT_CONNECTED` sem ninguém conectado, 404 pra um
+  vínculo Calendar), mesma falha pré-existente de sempre
+  (`ASAAS_API_KEY`). Fluxo completo testado ao vivo no navegador contra
+  o projeto fixture real: botão "Ver versões" aparecendo só no vínculo
+  Drive (nunca no Calendar ao lado), clique devolvendo e exibindo o erro
+  `GOOGLE_DRIVE_NOT_CONNECTED` de ponta a ponta — mesma borda de sempre
+  pra tudo que depende de credencial real do Drive (esta conta não tem
+  ninguém conectado com escopo `drive.file`); vínculo de verificação
+  apagado no fim.
 
 ## Fase 5 — Beta & go-live
 

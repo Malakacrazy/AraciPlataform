@@ -22,6 +22,19 @@ export interface DriveFileContent {
   data: Buffer;
 }
 
+// Lacuna da matriz (gestão documental por projeto, item adiado da rodada
+// de gestão documental) -- "hoje não dá pra ver quem mudou o quê" numa
+// ART/contrato/planta linkada. size vem como string na API do Drive
+// (pode passar de Number.MAX_SAFE_INTEGER em teoria) e é ausente pra
+// Google Doc/Sheet/Slide nativo (não tem bytes, ver downloadFile).
+export interface DriveRevision {
+  id: string;
+  modifiedTime: string;
+  size: string | null;
+  lastModifyingUserName: string | null;
+  keepForever: boolean;
+}
+
 // Token de injeção do Nest -- DriveClient é uma interface (não existe em
 // runtime), então precisa de um token explícito pra @Inject(). Mesmo
 // espírito de qualquer outra porta/adapter: GoogleDriveService depende da
@@ -57,6 +70,11 @@ export interface DriveClient {
   // produto implícita de "o cliente só precisa visualizar", nunca
   // editar pelo portal.
   downloadFile(accessToken: string, fileId: string): Promise<DriveFileContent>;
+  // O Drive já guarda o histórico de revisões de qualquer jeito (edição
+  // colaborativa nativa do Google Docs/Sheets, ou upload de uma versão
+  // nova por cima do mesmo arquivo) -- isto só expõe o que o Drive já
+  // sabe, não implementa versionamento nenhum por conta própria.
+  listRevisions(accessToken: string, fileId: string): Promise<DriveRevision[]>;
 }
 
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
@@ -122,5 +140,32 @@ export class GoogleDriveApiClient implements DriveClient {
       mimeType: isGoogleNative ? 'application/pdf' : (meta.mimeType ?? 'application/octet-stream'),
       data: Buffer.from(await contentRes.arrayBuffer()),
     };
+  }
+
+  async listRevisions(accessToken: string, fileId: string): Promise<DriveRevision[]> {
+    const res = await fetch(
+      `${DRIVE_API_BASE}/files/${fileId}/revisions?fields=revisions(id,modifiedTime,size,keepForever,lastModifyingUser(displayName))`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const body: {
+      revisions?: Array<{
+        id: string;
+        modifiedTime?: string;
+        size?: string;
+        keepForever?: boolean;
+        lastModifyingUser?: { displayName?: string };
+      }>;
+      error?: { message?: string };
+    } = await res.json();
+    if (!res.ok) {
+      throw new Error(body.error?.message ?? `Falha ao listar versões do arquivo ${fileId} no Drive.`);
+    }
+    return (body.revisions ?? []).map((r) => ({
+      id: r.id,
+      modifiedTime: r.modifiedTime ?? '',
+      size: r.size ?? null,
+      lastModifyingUserName: r.lastModifyingUser?.displayName ?? null,
+      keepForever: r.keepForever ?? false,
+    }));
   }
 }

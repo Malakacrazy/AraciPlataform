@@ -203,4 +203,24 @@ export class GoogleDriveService {
     const accessToken = await this.resolveDriveAccessToken(accountId);
     return this.driveClient.downloadFile(accessToken, link.externalId);
   }
+
+  // Item deixado de fora deliberadamente na rodada de gestão documental
+  // ("versionamento -- expor revisões do Drive"), agora fechado: staff
+  // só, escopado por conta (mesmo padrão de getFile/downloadFile) --
+  // provider != DRIVE (Calendar/Gmail não tem revisão nenhuma) cai no
+  // mesmo 404 de um vínculo que não existe, não um 422 à parte.
+  async listRevisions(accountId: string, officeLinkId: string) {
+    const link = await this.prisma.db.officeLink.findFirst({
+      where: { id: officeLinkId, accountId, provider: 'DRIVE' },
+    });
+    if (!link) {
+      throw new NotFoundError('Vínculo do Drive');
+    }
+
+    const accessToken = await this.resolveDriveAccessToken(accountId);
+    const revisions = await this.driveClient.listRevisions(accessToken, link.externalId);
+    // Mais recente primeiro -- é o que interessa de cara ("o que mudou
+    // por último"), não a ordem cronológica crescente que a API devolve.
+    return [...revisions].sort((a, b) => (a.modifiedTime < b.modifiedTime ? 1 : -1));
+  }
 }

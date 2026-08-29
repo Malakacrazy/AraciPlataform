@@ -483,6 +483,18 @@ export interface OfficeLink {
   lastCheckedAt?: string | null;
 }
 
+// Lacuna da matriz (gestão documental por projeto, "versionamento") --
+// histórico de revisões que o próprio Drive já guarda, só exposto aqui.
+// size vem como string (convenção da API do Drive), ausente pra Google
+// Doc/Sheet/Slide nativo (não tem bytes).
+export interface DriveRevision {
+  id: string;
+  modifiedTime: string;
+  size: string | null;
+  lastModifyingUserName: string | null;
+  keepForever: boolean;
+}
+
 export type TaxRegime = "MEI" | "ME";
 
 export interface Account {
