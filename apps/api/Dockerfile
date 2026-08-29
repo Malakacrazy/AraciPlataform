@@ -10,8 +10,20 @@
 # achado da própria auditoria ("uma imagem npm ci --omit=dev não
 # consegue migrar"). Rodar o Pre-Deploy Command do Render contra esta
 # MESMA imagem, sem um job/init-container separado, é a troca deliberada
-# aqui: imagem um pouco maior, zero infraestrutura extra pra manter.
-FROM node:22-bookworm-slim AS base
+# aqui: zero infraestrutura extra pra manter.
+#
+# Multi-stage: o que sai da imagem final NÃO são as devDependencies (essas
+# continuam, pelo motivo acima) -- é o TOOLCHAIN DE SISTEMA. A camada de
+# apt (JDK + python3/make/g++) media 590MB numa imagem de 1,01GB, ou seja
+# 59% do total, pra compilar coisas que ninguém executa em runtime.
+# Medido, não estimado: 1,01GB antes deste estágio, ver commit.
+#
+# O `COPY --from=builder /repo ./` leva a árvore inteira já construída
+# (node_modules com devDependencies, dist, prisma/schema+migrations,
+# prisma.config.ts). O toolchain fica pra trás sozinho porque são pacotes
+# do SO, instalados FORA de /repo -- não precisa listar o que excluir,
+# que é justamente o tipo de lista que envelhece mal.
+FROM node:22-bookworm-slim AS builder
 WORKDIR /repo
 
 # Toolchain de build nativo -- rede de segurança caso não exista binário
@@ -77,6 +89,38 @@ COPY . .
 # imagem. Corrigir o vazamento expôs a dependência real.
 RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" \
     npx turbo run build --filter=api...
+
+# ---------------------------------------------------------------------
+# Imagem final: mesma base, SEM o toolchain de compilação nem o JDK.
+# ---------------------------------------------------------------------
+FROM node:22-bookworm-slim AS runner
+WORKDIR /repo
+
+# openssl + ca-certificates: NÃO é excesso de zelo, é regressão real que
+# este estágio introduziu e que só apareceu testando a imagem pronta.
+# No estágio único o libssl.so.3 vinha de carona junto do toolchain
+# (ca-certificates/JDK); ao largar aquela camada, a imagem final ficou
+# SEM libssl nenhum, e o motor do Prisma (Rust) reclamava:
+#   prisma:warn Prisma failed to detect the libssl/openssl version to
+#   use... Defaulting to "openssl-1.1.x"
+# em Debian 12, que é openssl 3.x. Medido: `clean` 0 avisos e
+# libssl.so.3 presente; `multi` sem a linha abaixo, 2 avisos e nenhum
+# libssl. O Postgres do Render exige SSL, então isso tinha chance real
+# de quebrar a conexão em produção.
+#
+# ca-certificates junto porque o motor do Prisma e as chamadas de saída
+# (SEFIN, Asaas, ZapSign, Resend, Google) validam TLS contra a store do
+# SISTEMA -- o Node traz CAs próprias embutidas, o resto não.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+# Árvore inteira já construída. Precisa vir completa (não só
+# apps/api/dist) porque o Pre-Deploy Command do Render roda
+# `npm run db:migrate:deploy` contra ESTA imagem, e isso exige o CLI do
+# Prisma, o packages/db/prisma.config.ts e as migrations -- ver o
+# comentário no topo do arquivo.
+COPY --from=builder /repo ./
 
 ENV NODE_ENV=production
 EXPOSE 3001
