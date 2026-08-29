@@ -18,6 +18,7 @@
     "db:migrate": "npm run migrate:dev --workspace=packages/db",
     "db:migrate:deploy": "npm run migrate:deploy --workspace=packages/db",
     "db:local": "npm run db:local:start --workspace=packages/db",
+    "check:deploy-config": "node scripts/check-deploy-config.mjs",
     "smoke-test:api": "npm run smoke-test --workspace=apps/api",
     "smoke-test:web": "npm run smoke-test --workspace=apps/web",
     "smoke-test": "npm run smoke-test:api && npm run smoke-test:web"

@@ -57,6 +57,18 @@ services:
         sync: false
       - key: GOOGLE_CREDENTIAL_ENCRYPTION_KEY
         generateValue: true
+      # MESMO par OAuth declarado no serviço araci-web -- não é
+      # duplicação por engano: GoogleCredentialsService.getAccessToken
+      # troca o refresh_token guardado por um access_token pra chamar a
+      # Drive API do servidor, sem depender do navegador estar aberto.
+      # Estavam declaradas só no araci-web (achado do
+      # scripts/check-deploy-config.mjs, que confere POR SERVIÇO -- uma
+      # comparação contra o arquivo inteiro passa batido nisto). Sem elas
+      # aqui, tudo que toca o Drive falha em produção.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
       # Certificado, Asaas, ZapSign, Resend -- segredos reais, nunca um
       # valor aqui. sync:false = "configurar manualmente no dashboard",
       # nunca commitado neste arquivo (mesma disciplina de .env.example).

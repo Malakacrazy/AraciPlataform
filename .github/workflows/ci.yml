@@ -47,3 +47,11 @@ jobs:
       - name: Typecheck apps/web
         run: npx tsc --noEmit
         working-directory: apps/web
+
+      # Deriva entre código e manifesto de deploy não quebra build nem
+      # typecheck -- o deploy sobe e a feature só não funciona. Já
+      # aconteceu: o render.yaml ficou 7 variáveis atrás do código sem
+      # nada acusar. Roda depois do build porque é barato e o sinal
+      # interessa mesmo quando o build passa.
+      - name: Conferir manifestos de deploy contra o código
+        run: npm run check:deploy-config
