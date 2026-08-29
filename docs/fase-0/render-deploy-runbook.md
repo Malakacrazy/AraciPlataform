@@ -151,14 +151,23 @@ referência `fromDatabase` no `araci-api`, e declare `DATABASE_URL` como
 
 ## Pendências conhecidas
 
-- **Imagem do `araci-api` ~1,9GB.** É estágio único de propósito (o
-  Pre-Deploy roda `prisma migrate deploy` contra a mesma imagem) e carrega
-  JDK + toolchain + devDependencies. Funciona, mas o pull é lento a cada
-  deploy. Melhoria mapeada: multi-stage, como o `apps/web` já faz (imagem
-  final de 411MB, sem JDK).
+- **Tamanho das imagens: resolvido.** O `araci-api` era 1,9GB; hoje é
+  **412MB**. Duas correções: excluir o `.turbo` do contexto de build
+  (1,92GB → 1,01GB) e passar a imagem pra multi-stage, largando a camada
+  de apt que sozinha era 590MB dos 960MB (59%). O `araci-web` é 94MB.
+  As devDependencies **continuam** na imagem final de propósito — o
+  Pre-Deploy roda `prisma migrate deploy` contra ela.
 - **JDK só existe pra satisfazer um postinstall** (`xsd-schema-validator`,
   transitivo da NFS-e) de código que não executamos — o validador padrão
-  é o JS-based. Se a lib um dia tornar isso opcional, o JDK sai.
+  é o JS-based. Hoje ele fica só no estágio de build, fora da imagem
+  final. Se a lib um dia tornar isso opcional, sai de vez.
+- **Cuidado ao mexer no estágio final**: `openssl`/`ca-certificates` são
+  instalados explicitamente ali. No estágio único o `libssl.so.3` vinha
+  de carona com o toolchain; sem ele o motor do Prisma cai pra
+  `openssl-1.1.x` em Debian 12 e a conexão com o Postgres do Render (que
+  exige SSL) pode quebrar — e isso NÃO aparece em build, boot nem
+  smoke test, só comparando os avisos do `prisma migrate` entre as duas
+  imagens. Não remova aquelas duas linhas achando que são supérfluas.
 - **Nada aqui foi executado contra o Render de verdade** — as duas
   imagens constroem localmente e estão sem segredos dentro, mas o
   blueprint em si (nomes de campo, `fromService`, `secretFiles`) só é
