@@ -2,7 +2,12 @@
 
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
-import { requestCollaboratorLink, CollaboratorPortalApiError, SESSION_COOKIE } from "@/lib/collaboratorPortalApi";
+import {
+  requestCollaboratorLink,
+  logoutCollaboratorSession,
+  CollaboratorPortalApiError,
+  SESSION_COOKIE,
+} from "@/lib/collaboratorPortalApi";
 
 export async function requestLink(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim();
@@ -22,6 +27,12 @@ export async function requestLink(formData: FormData) {
 }
 
 export async function logoutCollaborator() {
+  // Revoga no servidor antes de apagar o cookie -- mesmo achado/racional
+  // de portal/actions.ts#logoutPortal.
+  const sessionToken = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (sessionToken) {
+    await logoutCollaboratorSession(sessionToken);
+  }
   (await cookies()).delete({ name: SESSION_COOKIE, path: "/colaborador" });
   redirect("/colaborador/login");
 }

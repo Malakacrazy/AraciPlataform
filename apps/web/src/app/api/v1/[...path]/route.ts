@@ -19,6 +19,19 @@ async function proxy(request: NextRequest, { params }: { params: Promise<{ path:
   }
 
   const { path } = await params;
+  // Achado de revisão de segurança: os segmentos chegam já decodificados,
+  // então um ".." (ou "%2e%2e") viajaria pra dentro da string e o fetch
+  // normalizaria o caminho DEPOIS, escapando do prefixo /v1/. Hoje isso
+  // não alcança nada perigoso (fora de /v1 só existe /health, e o
+  // AuthGuard do apps/api é global), mas é uma armadilha esperando a
+  // primeira rota nova fora de /v1 -- recusar aqui é mais barato que
+  // lembrar disso depois.
+  if (!path.every((segment) => /^[A-Za-z0-9._~-]+$/.test(segment) && segment !== ".." && segment !== ".")) {
+    return NextResponse.json(
+      { error: { code: "BAD_REQUEST", message: "Caminho inválido." } },
+      { status: 400 }
+    );
+  }
   const targetUrl = `${API_URL}/v1/${path.join("/")}${request.nextUrl.search}`;
 
   const hasBody = !["GET", "HEAD", "DELETE"].includes(request.method);

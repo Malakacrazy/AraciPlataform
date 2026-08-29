@@ -18,11 +18,29 @@ interface Props {
   // a função aqui; este componente não sabe nem precisa saber qual é.
   onSaveSnapshot: (snapshot: TLStoreSnapshot) => Promise<void>;
   onAddComment: (body: string) => Promise<MoodboardComment>;
+  // Recarrega os comentários da fonte de verdade (apps/api). Chamado
+  // quando o canal avisa que ALGUÉM comentou -- ver o porquê de não
+  // confiar no conteúdo do aviso em BroadcastPayload abaixo.
+  onRefreshComments: () => Promise<MoodboardComment[]>;
+  // JWT curto, escopado a este quadro, emitido pelo servidor só depois de
+  // autorizar a pessoa (ver lib/supabaseBoardToken.ts). null = Supabase
+  // não configurado -> quadro funciona sem sincronização ao vivo.
+  realtimeToken: string | null;
 }
 
+// O canal é um relay entre navegadores: mesmo com canal privado (só quem
+// foi autorizado naquele quadro entra), qualquer participante legítimo
+// ainda pode montar a mensagem que quiser. Por isso "comment" carrega só
+// um AVISO de que houve comentário novo, nunca o comentário em si -- se
+// carregasse, um participante conseguiria exibir um comentário com o nome
+// de outra pessoa pra todo mundo, sem nunca tocar no banco (achado de
+// revisão de segurança). O conteúdo sempre vem do apps/api.
+// "patch" continua carregando o dado porque é o traço em andamento, que
+// por definição ainda não existe no banco -- e ali o estrago possível é
+// desenhar coisa errada num quadro que a pessoa já podia editar mesmo.
 type BroadcastPayload =
   | { kind: "patch"; put: unknown[]; remove: string[] }
-  | { kind: "comment"; comment: MoodboardComment };
+  | { kind: "comment" };
 
 // Correção "moodboard vira quadro tldraw", colaboração ao vivo pedida
 // junto: canvas livre de verdade (tldraw) + chat, sincronizados entre
@@ -32,7 +50,15 @@ type BroadcastPayload =
 // registro: o canvas é salvo com debounce (não a cada traço) e os
 // comentários são persistidos a cada envio; o canal só acelera a entrega
 // pra quem já está com a página aberta, nunca é a única cópia do dado.
-export function CollaborativeBoard({ boardId, initialSnapshot, initialComments, onSaveSnapshot, onAddComment }: Props) {
+export function CollaborativeBoard({
+  boardId,
+  initialSnapshot,
+  initialComments,
+  onSaveSnapshot,
+  onAddComment,
+  onRefreshComments,
+  realtimeToken,
+}: Props) {
   const store = useMemo(() => createTLStore({ shapeUtils: defaultShapeUtils }), []);
   const [comments, setComments] = useState(initialComments);
   const [commentBody, setCommentBody] = useState("");
@@ -47,13 +73,16 @@ export function CollaborativeBoard({ boardId, initialSnapshot, initialComments, 
   const channelRef = useRef<ReturnType<typeof createBoardChannel> | null>(null);
 
   useEffect(() => {
+    // Sem token não há canal privado -- degrada pra "sem sincronização ao
+    // vivo", não quebra o canvas/chat em si (salvar/enviar continuam
+    // funcionando, só sem retransmissão instantânea pra outra aba).
+    if (!realtimeToken) {
+      return;
+    }
     let channel: ReturnType<typeof createBoardChannel>;
     try {
-      channel = createBoardChannel(boardId);
+      channel = createBoardChannel(boardId, realtimeToken);
     } catch (err) {
-      // Supabase não configurado -- degrada pra "sem sincronização ao
-      // vivo", não quebra o canvas/chat em si (salvar/enviar continuam
-      // funcionando, só sem retransmissão instantânea pra outra aba).
       console.warn((err as Error).message);
       return;
     }
@@ -66,16 +95,34 @@ export function CollaborativeBoard({ boardId, initialSnapshot, initialComments, 
           if (payload.remove.length > 0) store.remove(payload.remove as Parameters<typeof store.remove>[0]);
         });
       } else if (payload.kind === "comment") {
-        setComments((prev) => (prev.some((c) => c.id === payload.comment.id) ? prev : [...prev, payload.comment]));
+        // Só o aviso chega pelo canal -- o conteúdo vem do apps/api, que
+        // é quem sabe quem de fato escreveu (ver BroadcastPayload).
+        onRefreshComments()
+          .then(setComments)
+          .catch((err) => console.warn((err as Error).message));
       }
     });
-    channel.subscribe();
+    // Sem este callback, falhar em entrar no canal era 100% silencioso --
+    // o quadro seguia funcionando (salvar/comentar vão pelo apps/api,
+    // não pelo canal), mas "não atualiza pro outro em tempo real" não
+    // deixava nenhuma pista de por quê. O motivo mais provável em
+    // produção é a policy de realtime.messages não estar aplicada no
+    // projeto Supabase (ver docs/fase-0/supabase-realtime-policy.sql):
+    // sem ela o canal privado recusa todo mundo, que é o padrão seguro,
+    // mas precisa ser diagnosticável.
+    channel.subscribe((status, err) => {
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        console.warn(
+          `[quadro] sincronização ao vivo indisponível (${status}): ${err?.message ?? "sem detalhe"} -- o quadro continua salvando normalmente.`,
+        );
+      }
+    });
 
     return () => {
       channel.unsubscribe();
       channelRef.current = null;
     };
-  }, [store, boardId]);
+  }, [store, boardId, realtimeToken, onRefreshComments]);
 
   useEffect(() => {
     let saveTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -130,7 +177,9 @@ export function CollaborativeBoard({ boardId, initialSnapshot, initialComments, 
       const comment = await onAddComment(body);
       setComments((prev) => [...prev, comment]);
       setCommentBody("");
-      channelRef.current?.send({ type: "broadcast", event: "board", payload: { kind: "comment", comment } });
+      // Só avisa que houve comentário -- quem recebe busca o conteúdo no
+      // apps/api (ver BroadcastPayload).
+      channelRef.current?.send({ type: "broadcast", event: "board", payload: { kind: "comment" } });
     } catch (err) {
       console.error((err as Error).message);
     } finally {

@@ -59,6 +59,18 @@ export async function listGuestBoards(
   return body.data;
 }
 
+// Mesmo racional de logoutPortal em portalApi.ts.
+export async function logoutGuestSession(sessionToken: string): Promise<void> {
+  try {
+    await portalFetch("/logout", {
+      method: "POST",
+      headers: { "X-Whiteboard-Guest-Session": sessionToken },
+    });
+  } catch {
+    // silencioso de propósito -- "sair" não pode falhar por causa do apps/api
+  }
+}
+
 export async function getGuestBoard(
   sessionToken: string,
   boardId: string,

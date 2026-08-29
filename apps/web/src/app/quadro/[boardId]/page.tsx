@@ -8,8 +8,9 @@ import {
   WhiteboardGuestPortalApiError,
   SESSION_COOKIE,
 } from "@/lib/whiteboardGuestPortalApi";
-import { saveGuestSnapshot, addGuestComment } from "@/components/whiteboard-guest-portal/actions";
+import { saveGuestSnapshot, addGuestComment, listGuestComments } from "@/components/whiteboard-guest-portal/actions";
 import { CollaborativeBoard } from "@/components/moodboards/collaborative-board";
+import { mintBoardRealtimeToken } from "@/lib/supabaseBoardToken";
 
 export default async function QuadroBoardPage({ params }: { params: Promise<{ boardId: string }> }) {
   const { boardId } = await params;
@@ -38,6 +39,11 @@ export default async function QuadroBoardPage({ params }: { params: Promise<{ bo
     throw err;
   }
 
+  // Só depois de getGuestBoard passar (sessão válida E acesso a ESTE
+  // quadro, ver WhiteboardGuestPortalService.requireAccess) -- o token do
+  // canal privado nunca é emitido antes da autorização.
+  const realtimeToken = await mintBoardRealtimeToken(board.id);
+
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-12">
       <div className="flex items-center justify-between">
@@ -55,6 +61,8 @@ export default async function QuadroBoardPage({ params }: { params: Promise<{ bo
         initialComments={comments}
         onSaveSnapshot={saveGuestSnapshot.bind(null, board.id)}
         onAddComment={addGuestComment.bind(null, board.id)}
+        onRefreshComments={listGuestComments.bind(null, board.id)}
+        realtimeToken={realtimeToken}
       />
     </main>
   );

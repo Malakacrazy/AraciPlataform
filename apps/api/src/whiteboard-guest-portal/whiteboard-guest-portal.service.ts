@@ -82,6 +82,12 @@ export class WhiteboardGuestPortalService {
     return session;
   }
 
+  // Mesmo achado/racional de ClientPortalService.logout -- apagar o
+  // cookie não invalidava o token do lado do servidor.
+  async logout(sessionToken: string): Promise<void> {
+    await this.prisma.db.whiteboardGuestSession.deleteMany({ where: { token: sessionToken } });
+  }
+
   async listBoards(sessionToken: string) {
     const session = await this.resolveSession(sessionToken);
     const guest = await this.prisma.db.whiteboardGuest.findUnique({

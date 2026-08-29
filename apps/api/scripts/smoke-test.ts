@@ -2265,6 +2265,61 @@ async function main() {
     portalProjectsBody
   );
 
+  // --- Portal do cliente: logout revoga a sessão NO SERVIDOR -----------
+  // Achado de revisão de segurança: "sair" só apagava o cookie, então o
+  // token seguia válido por até 7 dias -- quem tivesse copiado ele antes
+  // continuava dentro. O que importa testar aqui não é "o endpoint
+  // responde 200", é que o token PARA de funcionar depois. Sessão nova e
+  // separada de propósito, pra não derrubar `clientSessionToken`, que os
+  // testes seguintes ainda usam (e provar, de quebra, que revogar uma
+  // sessão não afeta as outras do mesmo cliente).
+  await api("/v1/client-portal/request-link", {
+    method: "POST",
+    body: JSON.stringify({ email: portalTestEmail }),
+  });
+  const logoutMagicLink = await prisma.clientMagicLink.findFirst({
+    where: { clientId, consumedAt: null },
+    orderBy: { createdAt: "desc" },
+  });
+  const throwawaySessionRes = await api("/v1/client-portal/consume", {
+    method: "POST",
+    body: JSON.stringify({ token: logoutMagicLink?.token }),
+  });
+  const throwawaySession = throwawaySessionRes.body?.data?.sessionToken;
+
+  const beforeLogoutRes = await fetch(`${BASE_URL}/v1/client-portal/projects`, {
+    headers: { "X-Client-Session": throwawaySession },
+  });
+  report(
+    "Sessão nova do portal funciona antes do logout → 200",
+    beforeLogoutRes.status === 200,
+    beforeLogoutRes.status
+  );
+
+  const logoutRes = await fetch(`${BASE_URL}/v1/client-portal/logout`, {
+    method: "POST",
+    headers: { "X-Client-Session": throwawaySession },
+  });
+  report("POST /client-portal/logout → 200", logoutRes.status === 200, logoutRes.status);
+
+  const afterLogoutRes = await fetch(`${BASE_URL}/v1/client-portal/projects`, {
+    headers: { "X-Client-Session": throwawaySession },
+  });
+  report(
+    "Mesmo token DEPOIS do logout → 401 (sessão revogada no servidor, não só o cookie apagado)",
+    afterLogoutRes.status === 401,
+    afterLogoutRes.status
+  );
+
+  const otherSessionStillRes = await fetch(`${BASE_URL}/v1/client-portal/projects`, {
+    headers: { "X-Client-Session": clientSessionToken },
+  });
+  report(
+    "Revogar uma sessão não derruba as outras sessões do mesmo cliente → 200",
+    otherSessionStillRes.status === 200,
+    otherSessionStillRes.status
+  );
+
   // --- Portal do cliente: pré-venda (lacuna da matriz) -----------------
   // Opportunity sem Project ainda, com proposta enviada -- precisa ser
   // uma nova (não reaproveitar `opportunityId`, que a esta altura já foi

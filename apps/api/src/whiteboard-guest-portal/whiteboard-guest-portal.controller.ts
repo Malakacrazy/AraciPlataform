@@ -29,6 +29,16 @@ export class WhiteboardGuestPortalController {
     return { data };
   }
 
+  // Mesmo racional de ClientPortalController.logout.
+  @Post('logout')
+  @HttpCode(200)
+  async logout(@Headers('x-whiteboard-guest-session') sessionToken?: string) {
+    if (sessionToken) {
+      await this.whiteboardGuestPortalService.logout(sessionToken);
+    }
+    return { data: { message: 'Sessão encerrada.' } };
+  }
+
   @Get('boards')
   async listBoards(@Headers('x-whiteboard-guest-session') sessionToken?: string) {
     if (!sessionToken) {

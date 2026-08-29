@@ -61,6 +61,18 @@ export async function listCollaboratorProjects(
   return body.data;
 }
 
+// Mesmo racional de logoutPortal em portalApi.ts.
+export async function logoutCollaboratorSession(sessionToken: string): Promise<void> {
+  try {
+    await portalFetch("/logout", {
+      method: "POST",
+      headers: { "X-Collaborator-Session": sessionToken },
+    });
+  } catch {
+    // silencioso de propósito -- "sair" não pode falhar por causa do apps/api
+  }
+}
+
 export async function getCollaboratorProject(sessionToken: string, projectId: string): Promise<CollaboratorProjectDetail> {
   const res = await portalFetch(`/projects/${projectId}`, {
     headers: { "X-Collaborator-Session": sessionToken },

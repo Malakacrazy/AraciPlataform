@@ -7,7 +7,12 @@
 // inicializado quando SENTRY_DSN estiver configurado (ver
 // sentry.server.config.ts).
 const REQUIRED_ENV = ['NEXTAUTH_SECRET', 'API_URL', 'INTERNAL_API_SECRET'];
-const RECOMMENDED_ENV = ['GOOGLE_CLIENT_ID', 'ALLOWED_EMAIL_DOMAINS'];
+// SUPABASE_JWT_SECRET: sem ele o canal do quadro não sincroniza ao vivo
+// (degrada, não quebra -- ver lib/supabaseBoardToken.ts). Fica em
+// "recomendado" e não em "obrigatório" por isso, mas avisar no boot evita
+// o modo de falha chato: quadro que "não atualiza pro outro" sem nenhuma
+// pista do motivo.
+const RECOMMENDED_ENV = ['GOOGLE_CLIENT_ID', 'ALLOWED_EMAIL_DOMAINS', 'SUPABASE_JWT_SECRET'];
 
 export async function register() {
   // Edge runtime: só inicializa o Sentry (config própria, nunca teria

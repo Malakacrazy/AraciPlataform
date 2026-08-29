@@ -7,9 +7,19 @@ import { createClient, type RealtimeChannel } from "@supabase/supabase-js";
 // retransmite ao vivo entre quem está olhando o mesmo quadro ao mesmo
 // tempo, nunca persiste nada sozinho. NEXT_PUBLIC_* de propósito: roda
 // inteiro no navegador (canvas colaborativo), a "chave anônima" do
-// Supabase é feita pra ser pública -- o Realtime Broadcast usado aqui
-// não toca em nenhuma tabela do Supabase, só relay de mensagem entre
-// clientes no mesmo canal.
+// Supabase é feita pra ser pública.
+//
+// Achado de revisão de segurança: a anon key ser pública era justamente o
+// problema, porque o canal era PÚBLICO -- canal público não aplica
+// autorização nenhuma, então a anon key (que qualquer um extrai do
+// bundle) + um Moodboard.id (que não é segredo) bastavam pra escutar e
+// pra INJETAR patches/comentários forjados em todo mundo com o quadro
+// aberto. Agora o canal é privado: o Supabase aplica RLS sobre
+// realtime.messages, e o acesso vem de um JWT curto assinado no servidor
+// (ver lib/supabaseBoardToken.ts) só depois que a superfície que chamou
+// já autorizou aquela pessoa naquele quadro. A anon key continua sendo o
+// que identifica o PROJETO Supabase; ela deixou de ser o que concede
+// acesso ao canal.
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -29,7 +39,15 @@ function getSupabaseClient() {
 
 // Um canal por prancha -- todo mundo olhando o mesmo Moodboard.id entra
 // no mesmo canal, independente de ser staff (tela do projeto), cliente
-// (link de apresentação) ou convidado (portal do quadro via Logto).
-export function createBoardChannel(moodboardId: string): RealtimeChannel {
-  return getSupabaseClient().channel(`moodboard:${moodboardId}`);
+// (link de apresentação) ou convidado (portal do quadro via Logto). A
+// diferença agora é que cada um chega com um token que prova que pode
+// estar ali, emitido pela própria superfície depois de checar o acesso.
+export function createBoardChannel(moodboardId: string, realtimeToken: string): RealtimeChannel {
+  const supabase = getSupabaseClient();
+  // setAuth troca a anon key pelo JWT em TODA conexão realtime deste
+  // client -- é a API que o supabase-js expõe pra isso; como o
+  // componente abre um quadro por vez, não há sobreposição de tokens de
+  // quadros diferentes na mesma página.
+  supabase.realtime.setAuth(realtimeToken);
+  return supabase.channel(`moodboard:${moodboardId}`, { config: { private: true } });
 }

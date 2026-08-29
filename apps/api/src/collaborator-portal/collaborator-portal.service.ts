@@ -104,6 +104,12 @@ export class CollaboratorPortalService {
     return session;
   }
 
+  // Mesmo achado/racional de ClientPortalService.logout -- apagar o
+  // cookie não invalidava o token do lado do servidor.
+  async logout(sessionToken: string): Promise<void> {
+    await this.prisma.db.collaboratorSession.deleteMany({ where: { token: sessionToken } });
+  }
+
   async listProjects(sessionToken: string) {
     const session = await this.resolveSession(sessionToken);
     const collaborator = await this.prisma.db.externalCollaborator.findUnique({

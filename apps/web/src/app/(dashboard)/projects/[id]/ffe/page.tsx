@@ -15,7 +15,14 @@ import type {
 } from "@/lib/types";
 import { FfeCart } from "@/components/ffe/ffe-cart";
 import { createArea, deleteArea, createSpecification, deleteSpecification } from "@/components/ffe/actions";
-import { createMoodboard, deleteMoodboard, saveMoodboardSnapshot, addMoodboardComment } from "@/components/moodboards/actions";
+import {
+  createMoodboard,
+  deleteMoodboard,
+  saveMoodboardSnapshot,
+  addMoodboardComment,
+  listMoodboardComments,
+} from "@/components/moodboards/actions";
+import { mintBoardRealtimeToken } from "@/lib/supabaseBoardToken";
 import { PresentationLinkPanel } from "@/components/moodboards/presentation-link-panel";
 import { CollaborativeBoard } from "@/components/moodboards/collaborative-board";
 import { WhiteboardGuestsSection } from "@/components/whiteboard-guests/whiteboard-guests-section";
@@ -56,6 +63,13 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
 
   const commentsByBoard = await Promise.all(
     moodboards.map((board) => apiGet<MoodboardComment[]>(`moodboards/${board.id}/comments`)),
+  );
+
+  // Token do canal privado do Realtime -- emitido só aqui, depois da
+  // sessão de staff já ter sido validada e o projeto/prancha carregados
+  // pelo apps/api com o escopo da conta (ver lib/supabaseBoardToken.ts).
+  const realtimeTokensByBoard = await Promise.all(
+    moodboards.map((board) => mintBoardRealtimeToken(board.id)),
   );
 
   // Convidar alguém pra um quadro é @AdminOnly() do lado da API -- 403
@@ -317,6 +331,8 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
               initialComments={commentsByBoard[i]}
               onSaveSnapshot={saveMoodboardSnapshot.bind(null, board.id)}
               onAddComment={addMoodboardComment.bind(null, board.id)}
+              onRefreshComments={listMoodboardComments.bind(null, board.id)}
+              realtimeToken={realtimeTokensByBoard[i]}
             />
           </div>
 

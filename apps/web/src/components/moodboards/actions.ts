@@ -53,6 +53,19 @@ export async function addMoodboardComment(moodboardId: string, body: string): Pr
   return resBody.data;
 }
 
+// Fonte de verdade dos comentários pro CollaborativeBoard: o canal
+// Realtime só avisa que houve comentário novo, o conteúdo vem daqui (ver
+// BroadcastPayload em collaborative-board.tsx -- não dá pra confiar no
+// autor que outro participante do canal declarar).
+export async function listMoodboardComments(moodboardId: string): Promise<MoodboardComment[]> {
+  const res = await apiFetch(`moodboards/${moodboardId}/comments`);
+  const resBody = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(resBody?.error?.message ?? "Não foi possível carregar os comentários.");
+  }
+  return resBody.data;
+}
+
 export async function regeneratePresentationLink(projectId: string) {
   await call(`projects/${projectId}/presentation-link`, { method: "POST" }, projectId);
 }

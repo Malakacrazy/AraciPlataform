@@ -2815,6 +2815,131 @@ reais, mais um achado real separado no moodboard:
   cobertura ficou na leitura do mecanismo do guard, não numa chamada real
   negada.
 
+## Correção — revisão de segurança própria (boas práticas), 3 achados + endurecimento
+
+Pedido do usuário depois das auditorias externas fecharem: passada de
+segurança sobre o que existe hoje. Lido de verdade (não por amostragem):
+`auth.guard.ts`, todas as rotas `@Public()`, os dois proxies do apps/web,
+a criptografia de credencial, e o ciclo de vida de token/sessão dos três
+portais. Revisão estática — nada foi explorado de fato.
+
+- **ALTO — o canal Realtime do quadro era PÚBLICO.** Canal público no
+  Supabase não aplica autorização nenhuma, e a anon key é pública por
+  desenho (vai no bundle). Com a anon key + um `Moodboard.id` (que não é
+  segredo: aparece em `/quadro/{id}` e na resposta da API pública de
+  apresentação), qualquer pessoa conseguia (a) escutar todo traço e todo
+  comentário ao vivo sem convite/token/login e (b) transmitir patches e
+  comentários forjados pra todo mundo com o quadro aberto — inclusive
+  assinando comentário com o nome de outra pessoa. Detalhe que importa
+  pra dimensionar: shape injetado não era salvo direto (o listener de
+  auto-save é `source: "user"` e `mergeRemoteChanges` marca como remoto),
+  mas virava permanente no instante em que alguém legítimo desenhasse
+  qualquer coisa, porque `getSnapshot(store)` captura a store inteira.
+  Corrigido em duas frentes: **canal privado** (`config: { private: true }`)
+  com JWT curto (2h) escopado a UM quadro, assinado no servidor
+  (`lib/supabaseBoardToken.ts`) só DEPOIS que a superfície já autorizou a
+  pessoa naquele quadro — staff pela sessão NextAuth, cliente pelo token
+  do link, convidado pela sessão do Logto; e **o canal deixou de carregar
+  conteúdo de comentário**, só avisa que houve um (`{kind:"comment"}` sem
+  payload) e quem recebe busca no apps/api, que é quem sabe de fato quem
+  escreveu. Mesmo com canal privado isso importa: participante legítimo
+  ainda pode montar a mensagem que quiser.
+- **MÉDIO — `email_verified` nunca era checado no login do convidado
+  (Logto).** O convite é casado POR E-MAIL na primeira entrada, e a
+  partir daí `logtoSubjectId` fica gravado de forma permanente. Se o
+  tenant do Logto permitir cadastro sem verificar e-mail, alguém que
+  registrasse o e-mail de um convidado assumiria o acesso ao quadro dele
+  — e ainda o trancaria pra fora pra sempre ("já vinculado a outra conta
+  de login"). Corrigido exigindo `email_verified === true`.
+- **MÉDIO — o limite de taxa era um balde único, não por chamador.** O
+  `ThrottlerGuard` do apps/api chaveia por IP de origem, mas só o
+  apps/web chama lá (servidor-a-servidor): todo request vem do mesmo IP.
+  Ou seja, nunca limitou atacante nenhum (o IP dele nem aparecia) e ainda
+  era risco de disponibilidade — 300/min era um teto do estúdio inteiro,
+  um laço numa página daria 429 pra todo mundo. E a superfície que um
+  estranho de fato alcança (rotas do apps/web) não tinha limite nenhum.
+  Corrigido movendo o limite pra onde o IP é real: `apps/web/src/proxy.ts`
+  (por IP, por rota — formulário de lead e pedido de magic link em 10/min,
+  troca de token em 30/min, webhooks em 120/min pra não derrubar retry
+  legítimo de Asaas/ZapSign). O teto do apps/api virou sanidade (3000/min).
+  Em memória de propósito: o apps/web no Render é instância única
+  (`render.yaml`, plan starter) — se um dia escalar horizontalmente isso
+  vira "por instância" e precisa de contador compartilhado, registrado no
+  próprio arquivo. O `x-forwarded-for` é lido do FIM da lista (o que o
+  proxy do Render anexou), não do começo, senão o cliente trocaria de
+  "IP" a cada request e escaparia do limite.
+- **Endurecimento (baixo, nenhum explorável hoje)**: allowlist de
+  segmentos no proxy BFF (`..` codificado escaparia do prefixo `/v1/`;
+  inofensivo hoje porque fora de `/v1` só existe `/health`, mas é
+  armadilha pra próxima rota nova); `state` do OAuth agora comparado em
+  tempo constante nos dois callbacks (Google e Logto), alinhando com o que
+  os webhooks do apps/api já faziam; e **logout passou a revogar a sessão
+  no servidor** nos três portais — antes só apagava o cookie, o token
+  seguia válido por até 7 dias, então quem tivesse copiado ele antes
+  continuava dentro.
+- **Registrado, não corrigido**: `snapshot: z.unknown()` é guardado e
+  reproduzido na store do tldraw de todo mundo sem validação de forma. Se
+  isso alcança um sink que executa script depende da sanitização do
+  próprio tldraw (URL de asset/bookmark são os suspeitos de sempre) —
+  **não conferi contra o código do tldraw**, então fica como "vale
+  investigar", não como vulnerabilidade confirmada. E a prévia de imagem
+  em `present/[token]/page.tsx` continua sem `onError` (link do Drive
+  morto vira ícone quebrado sem contexto).
+- **Auditado e sem achado** (registrado pra não reauditar à toa):
+  negação por padrão no `AuthGuard` (`APP_GUARD` global, `@Public()` como
+  única saída, e cada rota pública reconferindo o próprio token no
+  service); nenhum IDOR — `downloadClientVisibleDocument` escopa por
+  accountId + entityType + entityId + `visibleToClient` + `brokenAt`, e
+  `getOwnMoodboardAccountId`/`getOwnOpportunityAccountId`/`requireAccess`
+  fazem o equivalente; criptografia do refresh token correta (AES-256-GCM,
+  IV aleatório por operação, authTag verificado, tamanho da chave
+  validado); magic link de uso único, TTL de 15min, sem enumeração, token
+  de 122 bits; cookies httpOnly + secure em prod + SameSite=Lax + path
+  escopado; os dois proxies repassam allowlist explícita de header (não dá
+  pra contrabandear `x-api-key` pelo navegador); escalação de privilégio
+  barrada (`accessLevel`/`costPerHour` removidos do PATCH de não-admin,
+  `costPerHour` redigido na leitura); segredo de webhook comparado em
+  tempo constante; SQL cru só um `SELECT 1` estático; sem
+  `dangerouslySetInnerHTML`/`eval`; nenhum segredo versionado.
+- Verificado: build+typecheck limpos (api e web); Jest 28/28; smoke suite
+  **352/349→352 passaram, 2 falharam** (as mesmas duas pré-existentes de
+  sempre), com **4 asserções novas que provam a revogação de sessão**:
+  sessão nova funciona → logout → **mesmo token passa a dar 401** →
+  e as outras sessões do mesmo cliente continuam valendo. Limite de taxa
+  testado ao vivo contra o servidor real: 36 requisições em
+  `/portal/verify` deram exatamente **30× 307 e 6× 429**, o corte no
+  número certo.
+- **Canal privado verificado de ponta a ponta contra o Supabase real**
+  (o usuário configurou `SUPABASE_JWT_SECRET` e aplicou a policy):
+  - **Codificação do segredo confirmada por experimento, não por
+    suposição**: a anon key existente foi verificada contra o segredo nas
+    duas interpretações possíveis — como UTF-8 cru **valida**, como
+    base64 decodificado não. Ou seja `TextEncoder().encode(secret)` em
+    `mintBoardRealtimeToken` já estava certo (e, de quebra, confirma que
+    o segredo é mesmo deste projeto: o `ref` da anon key bate com a URL).
+  - **Antes da policy**: os dois tópicos (autorizado e não autorizado)
+    recusados — `Unauthorized: You do not have permissions to read from
+    this Channel topic`. Fail-closed, a direção segura: modo privado já
+    valendo, JWT aceito como bem assinado, e nada passando ainda.
+  - **Depois da policy**: tópico que o token autoriza → `SUBSCRIBED`;
+    **outro tópico com o mesmo token → continua `Unauthorized`**. Os dois
+    lados importam: o primeiro prova que a policy não ficou apertada
+    demais, o segundo que não ficou frouxa. Escopo por quadro é real,
+    não presumido.
+  - **Na aplicação de verdade** (não só no script): página de
+    apresentação recarregada, canal do quadro real entra sem erro —
+    antes da policy ela reclamava a cada ~15s, depois ficou limpa.
+  - `alter table realtime.messages enable row level security` **não pode**
+    entrar no arquivo de policy: a tabela é do papel
+    `supabase_realtime_admin`, então o SQL Editor devolve
+    `42501: must be owner of table messages` (achado rodando de verdade).
+    Também é desnecessário — o Supabase já entrega RLS habilitado ali.
+  - Achado colateral: falhar em entrar no canal era **100% silencioso**.
+    O quadro seguia salvando (isso vai pelo apps/api, não pelo canal),
+    mas "não sincroniza pro outro" não deixava pista nenhuma. Agora o
+    `subscribe` tem callback que avisa no console apontando a causa mais
+    provável (policy não aplicada).
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

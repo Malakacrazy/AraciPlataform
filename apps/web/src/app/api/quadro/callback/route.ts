@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { STATE_COOKIE, REDIRECT_BOARD_COOKIE } from "../state-cookie";
 import { verifyLogtoLogin, WhiteboardGuestPortalApiError, SESSION_COOKIE } from "@/lib/whiteboardGuestPortalApi";
+import { timingSafeStringEqual } from "@/lib/timingSafeEqual";
 
 function redirectToLogin(request: NextRequest, error: string) {
   return NextResponse.redirect(new URL(`/quadro/login?error=${encodeURIComponent(error)}`, request.url));
@@ -27,7 +28,7 @@ export async function GET(request: NextRequest) {
     return response;
   }
 
-  if (!state || !expectedState || state !== expectedState) {
+  if (!state || !expectedState || !timingSafeStringEqual(state, expectedState)) {
     return respond(
       redirectToLogin(request, "Não foi possível confirmar que este login começou neste navegador. Tente de novo."),
     );
@@ -70,9 +71,26 @@ export async function GET(request: NextRequest) {
   const userInfoRes = await fetch(`${endpoint}/oidc/me`, {
     headers: { Authorization: `Bearer ${tokenBody.access_token}` },
   });
-  const userInfo: { sub?: string; email?: string; name?: string } = await userInfoRes.json();
+  const userInfo: { sub?: string; email?: string; name?: string; email_verified?: boolean } =
+    await userInfoRes.json();
   if (!userInfoRes.ok || !userInfo.sub || !userInfo.email) {
     return respond(redirectToLogin(request, "O Logto não devolveu e-mail/identidade pra esta conta."));
+  }
+  // Achado de revisão de segurança: o convite é casado POR E-MAIL na
+  // primeira entrada (ver WhiteboardGuestPortalService.verifyLogtoLogin,
+  // que a partir daí grava logtoSubjectId de forma permanente). Sem
+  // exigir e-mail verificado, alguém que criasse uma conta Logto
+  // declarando o e-mail de um convidado assumiria o acesso ao quadro
+  // dele -- e ainda o trancaria pra fora pra sempre ("já vinculado a
+  // outra conta de login"). Confiar no e-mail exige que o Logto tenha
+  // provado que ele é da pessoa.
+  if (userInfo.email_verified !== true) {
+    return respond(
+      redirectToLogin(
+        request,
+        "Este e-mail ainda não foi verificado no seu login. Confirme o e-mail e tente de novo.",
+      ),
+    );
   }
 
   let sessionToken: string;

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { STATE_COOKIE } from "../state-cookie";
+import { timingSafeStringEqual } from "@/lib/timingSafeEqual";
 
 function redirectToTeam(request: NextRequest, params: Record<string, string>) {
   const url = new URL("/team", request.url);
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
     return response;
   }
 
-  if (!state || !expectedState || state !== expectedState) {
+  if (!state || !expectedState || !timingSafeStringEqual(state, expectedState)) {
     return respond(
       redirectToTeam(request, {
         googleSyncError: "Não foi possível confirmar que esta autorização começou neste navegador. Tente conectar de novo.",

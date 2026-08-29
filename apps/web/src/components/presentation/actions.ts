@@ -6,6 +6,7 @@ import {
   updatePublicSpecification,
   savePresentationMoodboardSnapshot,
   addPresentationMoodboardComment,
+  listPresentationMoodboardComments,
   PublicApiError,
 } from "@/lib/publicApi";
 import type { MoodboardComment } from "@/lib/types";
@@ -51,4 +52,10 @@ export async function saveMoodboardSnapshot(token: string, moodboardId: string, 
 
 export async function addMoodboardComment(token: string, moodboardId: string, body: string): Promise<MoodboardComment> {
   return addPresentationMoodboardComment(token, moodboardId, body);
+}
+
+// Ver comentário equivalente em components/moodboards/actions.ts: o canal
+// Realtime só avisa, o conteúdo do comentário vem sempre do apps/api.
+export async function listMoodboardComments(token: string, moodboardId: string): Promise<MoodboardComment[]> {
+  return listPresentationMoodboardComments(token, moodboardId);
 }

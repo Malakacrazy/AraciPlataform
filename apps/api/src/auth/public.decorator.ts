@@ -14,9 +14,11 @@ import { SetMetadata } from '@nestjs/common';
 // primeiras cinco só liam ou escreviam algo já autorizado por posse de
 // um token/sessão; v1/leads é a primeira rota de escrita sem NENHUMA
 // credencial — mitigado por ser write-only (nunca devolve id nem dado
-// da conta), pela resposta genérica, e pelo ThrottlerGuard global
-// (app.module.ts), mas isso não é CAPTCHA: risco de spam de baixo volume
-// aceito e registrado no roadmap, não ignorado.
+// da conta), pela resposta genérica, e pelo limite de taxa por IP em
+// apps/web/src/middleware.ts (o ThrottlerGuard do apps/api não serve pra
+// isso: chaveia pelo IP do apps/web, igual pra todo mundo -- achado de
+// revisão de segurança). Nada disso é CAPTCHA: risco de spam de baixo
+// volume aceito e registrado no roadmap, não ignorado.
 // AuthGuard é global (aplicado a toda rota por padrão) exatamente para
 // que "esquecer de proteger uma rota" seja impossível por omissão —
 // @Public() só pula a checagem de token interno, nunca autorização de

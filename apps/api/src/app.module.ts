@@ -38,7 +38,17 @@ import { HttpExceptionFilter } from './common/http-exception.filter';
     // Defesa em profundidade — este serviço não é exposto ao navegador,
     // mas um limite de taxa custa pouco e ajuda contra um chamador
     // comprometido/com bug no lado do apps/web.
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
+    //
+    // Achado de revisão de segurança: isto chaveia por IP de origem, e
+    // como só o apps/web chama aqui (servidor-a-servidor), TODO request
+    // vem do mesmo IP -- ou seja, este número nunca foi "por cliente",
+    // sempre foi um teto global do estúdio inteiro. Em 300/min ele era
+    // um risco de disponibilidade maior que a proteção que dava (uma
+    // tela pesada ou um laço derrubaria todo mundo com 429). O limite
+    // que de fato defende o formulário de lead e o pedido de magic link
+    // agora vive em apps/web/src/middleware.ts, onde o IP do chamador é
+    // o IP real de quem está abusando. Aqui fica só o teto de sanidade.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 3_000 }]),
     // Primeiro job em background da plataforma (ver
     // activities/stalled-opportunities.cron.ts) — antes disso não havia
     // nenhum processo rodando fora do ciclo request/response do Nest.

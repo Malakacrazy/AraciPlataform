@@ -33,6 +33,16 @@ export class CollaboratorPortalController {
     return { data };
   }
 
+  // Mesmo racional de ClientPortalController.logout.
+  @Post('logout')
+  @HttpCode(200)
+  async logout(@Headers('x-collaborator-session') sessionToken?: string) {
+    if (sessionToken) {
+      await this.collaboratorPortalService.logout(sessionToken);
+    }
+    return { data: { message: 'Sessão encerrada.' } };
+  }
+
   @Get('projects')
   async listProjects(@Headers('x-collaborator-session') sessionToken?: string) {
     if (!sessionToken) {

@@ -6,11 +6,19 @@ import {
   SESSION_COOKIE,
   saveGuestBoardSnapshot,
   addGuestBoardComment,
+  listGuestBoardComments,
+  logoutGuestSession,
   WhiteboardGuestPortalApiError,
 } from "@/lib/whiteboardGuestPortalApi";
 import type { MoodboardComment } from "@/lib/types";
 
 export async function logoutGuest() {
+  // Revoga no servidor antes de apagar o cookie -- mesmo achado/racional
+  // de portal/actions.ts#logoutPortal.
+  const sessionToken = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (sessionToken) {
+    await logoutGuestSession(sessionToken);
+  }
   (await cookies()).delete({ name: SESSION_COOKIE, path: "/quadro" });
   redirect("/quadro/login");
 }
@@ -40,4 +48,14 @@ export async function addGuestComment(boardId: string, body: string): Promise<Mo
   } catch (err) {
     throw new Error(err instanceof WhiteboardGuestPortalApiError ? err.message : "Não foi possível enviar o comentário.");
   }
+}
+
+// Ver comentário equivalente em components/moodboards/actions.ts: o canal
+// Realtime só avisa, o conteúdo do comentário vem sempre do apps/api.
+export async function listGuestComments(boardId: string): Promise<MoodboardComment[]> {
+  const sessionToken = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (!sessionToken) {
+    throw new Error("Sessão de convidado ausente.");
+  }
+  return listGuestBoardComments(sessionToken, boardId);
 }

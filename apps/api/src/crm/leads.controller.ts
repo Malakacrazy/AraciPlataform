@@ -7,10 +7,13 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 // (cria Client+Opportunity), nunca lê nada de volta: a resposta é
 // genérica de propósito (nenhum id, nenhum dado da conta), mesmo
 // espírito de "sem enumeração" do ClientPortalController. O
-// ThrottlerGuard global (ver app.module.ts, 300 req/min) se aplica aqui
-// como a toda rota, mas isso é defesa genérica contra abuso de volume,
-// não CAPTCHA -- nada impede um script de mandar poucas dezenas de leads
-// falsos por minuto. Risco aceito, registrado no roadmap.
+// O limite de taxa que protege esta rota é o de apps/web/src/
+// middleware.ts (POST /lead, por IP real do chamador), não o
+// ThrottlerGuard global do apps/api -- aquele chaveia pelo IP do apps/web
+// e é o mesmo pra todo mundo, então nunca limitou atacante nenhum aqui
+// (achado de revisão de segurança). Mesmo com o limite certo no lugar
+// certo, isto não é CAPTCHA: nada impede um script de mandar alguns
+// leads falsos por minuto de IPs diferentes. Risco aceito, no roadmap.
 @Public()
 @Controller('v1/leads')
 export class LeadsController {

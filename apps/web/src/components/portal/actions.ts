@@ -7,6 +7,7 @@ import {
   requestPortalLink,
   declineProposal,
   submitProspectComment,
+  logoutPortal as revokePortalSession,
   PortalApiError,
   SESSION_COOKIE,
 } from "@/lib/portalApi";
@@ -65,6 +66,14 @@ export async function submitProspectCommentAction(opportunityId: string, formDat
 }
 
 export async function logoutPortal() {
+  // Invalida no servidor ANTES de apagar o cookie -- depois do delete o
+  // token não estaria mais acessível aqui pra revogar (achado de revisão
+  // de segurança: antes disto, "sair" só escondia o token do navegador e
+  // ele seguia válido por até 7 dias).
+  const sessionToken = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (sessionToken) {
+    await revokePortalSession(sessionToken);
+  }
   // path precisa bater com o usado no set (route.ts de /portal/verify) --
   // sem isso o delete() vira um cookie diferente e não some (achado
   // testando o fluxo de verdade no navegador).

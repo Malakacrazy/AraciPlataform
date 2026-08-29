@@ -71,6 +71,21 @@ export async function listPortalProjects(sessionToken: string): Promise<{ client
   return body.data;
 }
 
+// Invalida a sessão no servidor (achado de revisão de segurança: apagar
+// só o cookie deixava o token válido por até 7 dias). Nunca lança -- se
+// o apps/api estiver fora do ar, "sair" ainda tem que limpar o cookie e
+// tirar a pessoa da tela; falhar aqui seria pior que o risco residual.
+export async function logoutPortal(sessionToken: string): Promise<void> {
+  try {
+    await portalFetch("/logout", {
+      method: "POST",
+      headers: { "X-Client-Session": sessionToken },
+    });
+  } catch {
+    // silencioso de propósito, ver comentário acima
+  }
+}
+
 // Lacuna da matriz (portal pré-venda) -- Opportunity ainda sem Project,
 // com proposta enviada.
 export async function listPendingProposals(sessionToken: string): Promise<PortalPendingProposal[]> {

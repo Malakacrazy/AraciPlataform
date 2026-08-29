@@ -132,6 +132,16 @@ export class ClientPortalService {
     return session;
   }
 
+  // Achado de revisão de segurança: "sair" só apagava o cookie do
+  // navegador -- o token continuava válido no banco por até 7 dias, então
+  // quem tivesse copiado ele antes (log, histórico, máquina
+  // compartilhada) seguia dentro mesmo depois do logout. deleteMany em
+  // vez de delete pra sair sem erro quando o token já não existe (clique
+  // duplo em "sair", sessão já expirada e limpa).
+  async logout(sessionToken: string): Promise<void> {
+    await this.prisma.db.clientSession.deleteMany({ where: { token: sessionToken } });
+  }
+
   // Lacuna da matriz (LGPD, "seção 'Meus dados' no portal do titular") --
   // reaproveita ClientsService.exportClientData, só autorizado pela
   // sessão do portal (posse do token) em vez de accountId/accessLevel de

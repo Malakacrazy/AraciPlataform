@@ -11,7 +11,9 @@ import {
   submitSpecificationComment,
   saveMoodboardSnapshot,
   addMoodboardComment,
+  listMoodboardComments,
 } from "@/components/presentation/actions";
+import { mintBoardRealtimeToken } from "@/lib/supabaseBoardToken";
 import { STAGE_LABELS } from "@/lib/pep-stages";
 import { CollaborativeBoard } from "@/components/moodboards/collaborative-board";
 
@@ -58,10 +60,15 @@ export default async function PresentationPage({
     throw err;
   }
 
+  // getPresentation acima já provou que este token vale pra este projeto,
+  // e getPresentationMoodboardBoard reconfere que a prancha é dele (ver
+  // PublicPresentationService.getOwnMoodboardAccountId) -- só então o
+  // token do canal privado é emitido.
   const boards = await Promise.all(
     data.moodboards.map(async (board) => ({
       board: await getPresentationMoodboardBoard(token, board.id),
       comments: await listPresentationMoodboardComments(token, board.id),
+      realtimeToken: await mintBoardRealtimeToken(board.id),
     })),
   );
 
@@ -138,7 +145,7 @@ export default async function PresentationPage({
       {boards.length > 0 && (
         <section className="flex flex-col gap-4">
           <h2 className="text-lg font-medium text-zinc-900 dark:text-zinc-50">Pranchas</h2>
-          {boards.map(({ board, comments }) => (
+          {boards.map(({ board, comments, realtimeToken }) => (
             <div
               key={board.id}
               className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950"
@@ -151,6 +158,8 @@ export default async function PresentationPage({
                   initialComments={comments}
                   onSaveSnapshot={saveMoodboardSnapshot.bind(null, token, board.id)}
                   onAddComment={addMoodboardComment.bind(null, token, board.id)}
+                  onRefreshComments={listMoodboardComments.bind(null, token, board.id)}
+                  realtimeToken={realtimeToken}
                 />
               </div>
             </div>

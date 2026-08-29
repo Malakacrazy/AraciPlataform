@@ -36,6 +36,18 @@ export class ClientPortalController {
     return { data };
   }
 
+  // Invalida a sessão no servidor, não só o cookie no navegador (achado
+  // de revisão de segurança -- ver ClientPortalService.logout). 200 mesmo
+  // sem token: "sair" nunca deveria falhar por já estar fora.
+  @Post('logout')
+  @HttpCode(200)
+  async logout(@Headers('x-client-session') sessionToken?: string) {
+    if (sessionToken) {
+      await this.clientPortalService.logout(sessionToken);
+    }
+    return { data: { message: 'Sessão encerrada.' } };
+  }
+
   @Get('projects')
   async listProjects(@Headers('x-client-session') sessionToken?: string) {
     if (!sessionToken) {
