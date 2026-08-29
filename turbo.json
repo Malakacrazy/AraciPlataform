@@ -2,7 +2,18 @@
   "$schema": "https://turborepo.com/schema.json",
   "tasks": {
     "generate": {
-      "cache": false
+      "cache": false,
+      // O turbo 2.x roda cada task com o ambiente FILTRADO (envMode
+      // "strict" é o padrão): variável que não estiver declarada aqui
+      // simplesmente não existe pro processo filho, mesmo estando setada
+      // em quem chamou. `prisma generate` carrega prisma.config.ts, que
+      // faz env("DATABASE_URL") e aborta com PrismaConfigEnvError sem
+      // ela. Achado rodando `docker build` de verdade -- e o mesmo bug
+      // valia pro .github/workflows/ci.yml, que setava DATABASE_URL no
+      // job e via ela ser filtrada aqui do mesmo jeito.
+      // Nenhum destes comandos conecta em banco: a URL só precisa
+      // existir e ter forma válida pra config resolver.
+      "env": ["DATABASE_URL"]
     },
     "build": {
       "dependsOn": ["^build", "generate"],
