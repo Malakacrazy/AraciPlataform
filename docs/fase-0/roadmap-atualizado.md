@@ -2877,14 +2877,42 @@ portais. Revisão estática — nada foi explorado de fato.
   no servidor** nos três portais — antes só apagava o cookie, o token
   seguia válido por até 7 dias, então quem tivesse copiado ele antes
   continuava dentro.
-- **Registrado, não corrigido**: `snapshot: z.unknown()` é guardado e
-  reproduzido na store do tldraw de todo mundo sem validação de forma. Se
-  isso alcança um sink que executa script depende da sanitização do
-  próprio tldraw (URL de asset/bookmark são os suspeitos de sempre) —
-  **não conferi contra o código do tldraw**, então fica como "vale
-  investigar", não como vulnerabilidade confirmada. E a prévia de imagem
-  em `present/[token]/page.tsx` continua sem `onError` (link do Drive
-  morto vira ícone quebrado sem contexto).
+- **`snapshot: z.unknown()` — investigado depois e RESOLVIDO: não é
+  vulnerabilidade.** Na primeira passada isto ficou como "vale
+  investigar" (não tinha conferido o código do tldraw). Conferido depois,
+  lendo `node_modules` de verdade + teste empírico dos validadores.
+  Importa porque quem escreve snapshot inclui o CLIENTE (posse do link de
+  apresentação) e quem abre o mesmo quadro inclui a EQUIPE — um sink que
+  executasse script ali seria escalada de cliente → sessão de staff.
+  Duas camadas independentes seguram:
+  1. **Validação de schema roda nos nossos caminhos**: `Store.put`
+     valida todo record (`schema.validateRecord`), e tanto `loadSnapshot`
+     quanto o `mergeRemoteChanges` do broadcast passam por lá. Os
+     validadores `linkUrl` (bookmark/geo/note) e `srcUrl` (image/video)
+     só aceitam `http:`/`https:`/`mailto:` e `http:`/`https:`/`data:`/
+     `asset:` respectivamente. Testado de fato: `javascript:...`,
+     `JaVaScRiPt:...` (variação de caixa — o validador normaliza antes de
+     comparar), `data:text/html,<script>` e `vbscript:` **todos
+     rejeitados**; `https://` e `data:image/png` aceitos.
+  2. **O único campo sem validação de protocolo é o `url` do embed**
+     (`T.string`), e ele é renderizado dentro de um `<iframe sandbox>`.
+     Pra URL desconhecida (qualquer coisa que um atacante coloque) vale
+     `unknownEmbedShapePermissionOverrides`: `allow-same-origin: false`,
+     `allow-popups: false`, `allow-forms: false` (mais
+     `allow-modals: false` do default). Origem opaca — mesmo que algo
+     rodasse lá dentro, não alcança nosso DOM, cookie nem storage.
+  - **Risco residual honesto (não é execução de código)**: quem pode
+    escrever no quadro consegue criar um embed apontando pra uma URL
+    https arbitrária, que renderiza conteúdo de terceiro dentro do quadro
+    pra quem abrir. Sandbox impede formulário/popup/same-origin, então
+    não dá pra colher credencial direto, mas dá pra EXIBIR o que quiser —
+    superfície de phishing/impersonação, não XSS. Se isso incomodar, a
+    correção é tirar `EmbedShapeUtil` de `defaultShapeUtils` (decisão de
+    produto: perde-se embutir referência de Pinterest/YouTube no
+    moodboard), não uma correção técnica pendente.
+- **Registrado, não corrigido**: a prévia de imagem em
+  `present/[token]/page.tsx` continua sem `onError` (link do Drive morto
+  vira ícone quebrado sem contexto).
 - **Auditado e sem achado** (registrado pra não reauditar à toa):
   negação por padrão no `AuthGuard` (`APP_GUARD` global, `@Public()` como
   única saída, e cada rota pública reconferindo o próprio token no
