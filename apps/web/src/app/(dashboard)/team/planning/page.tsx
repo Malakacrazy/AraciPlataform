@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet } from "@/lib/api";
-import type { User, Project, Allocation, Absence } from "@/lib/types";
+import type { User, Project, Allocation, Absence, Me } from "@/lib/types";
 import { formatDateUTC } from "@/lib/format";
 import { allocationCost, isOnAbsence, peakHoursPerWeek, phasesBudget, groupBy } from "@/lib/allocations";
 import { AllocationForm } from "@/components/allocations/allocation-form";
@@ -16,12 +16,17 @@ export default async function AllocationPlanningPage() {
     redirect("/api/auth/signin");
   }
 
-  const [users, projects, allocations, absences] = await Promise.all([
+  const [me, users, projects, allocations, absences] = await Promise.all([
+    apiGet<Me>("me"),
     apiGet<User[]>("users"),
     apiGet<Project[]>("projects"),
     apiGet<Allocation[]>("allocations"),
     apiGet<Absence[]>("absences"),
   ]);
+  // AllocationsController agora exige admin em create/remove (achado de
+  // revisão: faltava o gate, ver comentário lá) -- esconder aqui evita
+  // mostrar formulário/botão que só resultariam em 403.
+  const isAdmin = me.accessLevel === "admin";
 
   const allocationsByUser = groupBy(allocations, (a) => a.userId);
   const absencesByUser = groupBy(absences, (a) => a.userId);
@@ -40,11 +45,13 @@ export default async function AllocationPlanningPage() {
         </p>
       </div>
 
-      <AllocationForm users={users} projects={projects} allocations={allocations} absences={absences} />
+      {isAdmin && (
+        <AllocationForm users={users} projects={projects} allocations={allocations} absences={absences} />
+      )}
 
       <AbsenceSection users={users} absences={absences} />
 
-      <AllocationViews allocations={allocations} />
+      <AllocationViews allocations={allocations} isAdmin={isAdmin} />
 
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-medium text-zinc-900 dark:text-zinc-50">Carga por pessoa</h2>

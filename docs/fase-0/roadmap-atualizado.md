@@ -2748,6 +2748,73 @@ que seria num campo que afeta cobrança/arrecadação real.
   salvar `1,55` persiste e volta corretamente no reload, revertido pra
   `0,7` (valor real da fase de teste 2026) ao final da verificação.
 
+## Correção — passada de revisão própria (não auditoria): 3 achados reais
+
+Com as duas auditorias externas fechadas, pedido do usuário pra uma
+passada de qualidade própria (não motivada por nenhum achado de fora)
+sobre 4 áreas construídas nesta sessão: colaboração do moodboard
+(tldraw+Logto+Supabase), cancelamento/substituição de NFS-e, prévia de
+documentos no link de apresentação, e alocação/planejamento de
+capacidade. As três primeiras vieram limpas; alocação teve dois achados
+reais, mais um achado real separado no moodboard:
+
+- **`lib/allocations.ts` (`sweepPeak`) — empate de sweep-line dependia da
+  ordem do array, não do tipo de evento**: `events.sort((a, b) => a[0] -
+  b[0])` só ordena por instante. Quando uma alocação termina exatamente
+  quando outra começa (agenda "encostada", sem sobreposição real —
+  ex.: A até 15/jan, B a partir de 15/jan), o desempate ficava a cargo da
+  ordem de inserção no array, não de qual evento é fim (`-horas`) e qual
+  é início (`+horas`). Dependendo da ordem, o pico calculado (usado tanto
+  em `peakHoursPerWeek` quanto `peakHoursInWindow`, que alimentam o aviso
+  de sobrecarga em `/team/planning` e a sugestão de disponibilidade em
+  `AllocationForm`) contava as duas alocações como simultâneas por um
+  instante, inflando o pico sem sobreposição real nenhuma. Corrigido
+  desempatando fim antes de início no mesmo instante (`a[1] - b[1]` como
+  segundo critério do sort).
+- **`AllocationsController` sem `@AdminOnly()`, apesar do próprio
+  `AllocationsService` documentar a intenção**: o comentário em
+  `createAllocation` já dizia "alocação é decisão de quem gerencia o
+  time, não do próprio colaborador" (mesmo espírito de
+  `RoleRatesController`), mas faltava o guard de fato — qualquer staff
+  autenticado conseguia criar ou remover alocação de qualquer colega em
+  qualquer projeto. Corrigido com `@AdminOnly()` em `create`/`remove`
+  (nível de método, mesmo padrão de `ProjectsController.remove` — não a
+  classe inteira, porque `list` continua sendo a agenda compartilhada do
+  time, staff também precisa ver quem está alocado onde em
+  `/team/planning`). Lado do `apps/web`: `AllocationPlanningPage` agora
+  busca `/me` e só renderiza `AllocationForm` e o botão "Remover" (em
+  `AllocationViews`/`ListaView`) pra admin — sem isso, um staff veria um
+  formulário que só resultaria em 403 ao enviar.
+- **`CollaborativeBoard` (moodboard) — último traço perdido ao navegar
+  pra outra rota**: o cleanup do efeito de auto-save (debounce de 2s)
+  fazia só `clearTimeout(saveTimeout)` no unmount, nunca descarregava o
+  save pendente. Desenhar algo e navegar pra outra tela dentro da janela
+  de debounce descartava esse traço em silêncio, sem persistir nem
+  avisar. Corrigido: o cleanup agora chama `flush()` (o mesmo
+  `onSaveSnapshot(getSnapshot(store).document)` que o timeout chamaria)
+  antes de limpar, se havia um save pendente. Fecho de aba/refresh
+  continua fora do alcance disto, de propósito — exigiria
+  `beforeunload` + `sendBeacon`, e `onSaveSnapshot` é uma server action
+  (fetch), não compatível com beacon sem reescrevê-la; registrado como
+  lacuna residual, não resolvido nesta passada.
+- **Não é achado de ação, só observação**: a prévia de imagem em
+  `present/[token]/page.tsx` não trata `onError` do `<img>` (um link do
+  Drive quebrado renderiza o ícone de imagem quebrada do navegador, sem
+  contexto) — baixa severidade (só afeta o caminho de falha de um caso já
+  estreito), citado aqui pra não se perder, não corrigido nesta rodada.
+- Verificado: build+typecheck limpos (api e web); Jest 28/28; smoke suite
+  348/349 (mesmas duas falhas pré-existentes de sempre, nenhuma
+  relacionada); mecanismo do guard confirmado lendo
+  `auth.guard.ts#canActivate` — `reflector.getAllAndOverride` checa
+  `getHandler()` antes de `getClass()`, então `@AdminOnly()` em método
+  (não na classe) funciona exatamente como em `ProjectsController.remove`,
+  já provado em produção; testado ao vivo no navegador contra a conta
+  real (admin): formulário e botão "Remover" aparecem normalmente. Não
+  testado ao vivo com uma sessão de staff não-admin real (evitado
+  rebaixar a conta admin real da conta fixture só pra esse teste) — a
+  cobertura ficou na leitura do mecanismo do guard, não numa chamada real
+  negada.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

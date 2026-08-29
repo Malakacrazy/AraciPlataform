@@ -16,11 +16,14 @@ import {
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { AdminOnly } from '../auth/admin-only.decorator';
 
 @Controller('v1/allocations')
 export class AllocationsController {
   constructor(private readonly allocationsService: AllocationsService) {}
 
+  // Sem @AdminOnly() aqui -- é a agenda compartilhada do time (tela de
+  // planejamento), qualquer staff pode ver quem está alocado onde.
   @Get()
   async list(
     @SessionAccount() { accountId }: SessionAccountType,
@@ -34,6 +37,12 @@ export class AllocationsController {
     return { data };
   }
 
+  // @AdminOnly() em create/remove -- AllocationsService.createAllocation
+  // já documenta o porquê: alocação é decisão de quem gerencia o time,
+  // não do próprio colaborador (mesmo espírito de RoleRatesController).
+  // Achado real de revisão: faltava aqui, então qualquer staff conseguia
+  // reatribuir a semana de outra pessoa pra outro projeto.
+  @AdminOnly()
   @Post()
   @HttpCode(201)
   async create(
@@ -47,6 +56,7 @@ export class AllocationsController {
     return { data };
   }
 
+  @AdminOnly()
   @Delete(':id')
   @HttpCode(204)
   async remove(

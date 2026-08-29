@@ -80,6 +80,12 @@ export function CollaborativeBoard({ boardId, initialSnapshot, initialComments, 
   useEffect(() => {
     let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
+    // .document, não o TLEditorSnapshot inteiro -- session (câmera,
+    // ferramenta selecionada) é por pessoa, salvar isso serviria só pra
+    // empurrar a câmera de quem salvou por último em cima de todo mundo
+    // que reabrir a prancha depois.
+    const flush = () => onSaveSnapshot(getSnapshot(store).document);
+
     const unlisten = store.listen(
       (entry) => {
         const put = [
@@ -94,11 +100,8 @@ export function CollaborativeBoard({ boardId, initialSnapshot, initialComments, 
 
         if (saveTimeout) clearTimeout(saveTimeout);
         saveTimeout = setTimeout(() => {
-          // .document, não o TLEditorSnapshot inteiro -- session (câmera,
-          // ferramenta selecionada) é por pessoa, salvar isso serviria só
-          // pra empurrar a câmera de quem salvou por último em cima de
-          // todo mundo que reabrir a prancha depois.
-          onSaveSnapshot(getSnapshot(store).document);
+          saveTimeout = null;
+          flush();
         }, SNAPSHOT_SAVE_DEBOUNCE_MS);
       },
       { source: "user", scope: "document" },
@@ -106,7 +109,16 @@ export function CollaborativeBoard({ boardId, initialSnapshot, initialComments, 
 
     return () => {
       unlisten();
-      if (saveTimeout) clearTimeout(saveTimeout);
+      // Achado real de revisão: cancelar o timeout sem descarregar
+      // perdia silenciosamente o último traço se a pessoa navegasse pra
+      // outra rota (troca de projeto, etc.) dentro da janela de debounce.
+      // Fecho de aba/refresh continua fora do alcance disto -- exigiria
+      // beforeunload + sendBeacon, e onSaveSnapshot é uma server action
+      // (fetch), não compatível com beacon sem reescrevê-la.
+      if (saveTimeout) {
+        clearTimeout(saveTimeout);
+        flush();
+      }
     };
   }, [store, onSaveSnapshot]);
 

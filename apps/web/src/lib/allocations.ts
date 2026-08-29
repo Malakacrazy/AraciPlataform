@@ -21,7 +21,13 @@ export function formatCost(cost: number | null): string {
 }
 
 function sweepPeak(events: Array<[number, number]>): number {
-  events.sort((a, b) => a[0] - b[0]);
+  // Empate no mesmo instante (fim de uma alocação = início da próxima,
+  // caso comum de agenda "encostada") tem que processar o fim (delta
+  // negativo) antes do início (delta positivo) -- senão a ordem de
+  // inserção no array (irrelevante pro negócio) decide se as duas contam
+  // como simultâneas por um instante, inflando o pico sem sobreposição
+  // real nenhuma.
+  events.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   let running = 0;
   let peak = 0;
   for (const [, delta] of events) {

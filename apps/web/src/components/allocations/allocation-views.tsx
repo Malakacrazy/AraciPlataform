@@ -14,7 +14,7 @@ const VIEW_LABELS: Record<ViewMode, string> = {
   calendario: "Calendário",
 };
 
-export function AllocationViews({ allocations }: { allocations: Allocation[] }) {
+export function AllocationViews({ allocations, isAdmin }: { allocations: Allocation[]; isAdmin: boolean }) {
   const [view, setView] = useState<ViewMode>("lista");
 
   return (
@@ -44,7 +44,7 @@ export function AllocationViews({ allocations }: { allocations: Allocation[] }) 
           <p className="text-sm text-zinc-500 dark:text-zinc-400">Nenhuma alocação ainda.</p>
         ) : (
           <>
-            {view === "lista" && <ListaView allocations={allocations} />}
+            {view === "lista" && <ListaView allocations={allocations} isAdmin={isAdmin} />}
             {view === "gantt" && <GanttView allocations={allocations} />}
             {view === "calendario" && <CalendarioView allocations={allocations} />}
           </>
@@ -54,7 +54,7 @@ export function AllocationViews({ allocations }: { allocations: Allocation[] }) 
   );
 }
 
-function ListaView({ allocations }: { allocations: Allocation[] }) {
+function ListaView({ allocations, isAdmin }: { allocations: Allocation[]; isAdmin: boolean }) {
   return (
     <table className="w-full text-left text-sm">
       <thead>
@@ -64,7 +64,7 @@ function ListaView({ allocations }: { allocations: Allocation[] }) {
           <th className="py-2 pr-3 font-medium">Horas/semana</th>
           <th className="py-2 pr-3 font-medium">Período</th>
           <th className="py-2 pr-3 font-medium">Custo total</th>
-          <th className="py-2 font-medium"></th>
+          {isAdmin && <th className="py-2 font-medium"></th>}
         </tr>
       </thead>
       <tbody>
@@ -77,13 +77,15 @@ function ListaView({ allocations }: { allocations: Allocation[] }) {
               {formatDateUTC(alloc.startDate)} – {formatDateUTC(alloc.endDate)}
             </td>
             <td className="py-2 pr-3 font-mono text-zinc-500 dark:text-zinc-400">{formatCost(allocationCost(alloc))}</td>
-            <td className="py-2 text-right">
-              <form action={deleteAllocation.bind(null, alloc.id)}>
-                <button type="submit" className="text-xs text-zinc-500 hover:text-red-600 dark:text-zinc-400">
-                  Remover
-                </button>
-              </form>
-            </td>
+            {isAdmin && (
+              <td className="py-2 text-right">
+                <form action={deleteAllocation.bind(null, alloc.id)}>
+                  <button type="submit" className="text-xs text-zinc-500 hover:text-red-600 dark:text-zinc-400">
+                    Remover
+                  </button>
+                </form>
+              </td>
+            )}
           </tr>
         ))}
       </tbody>
