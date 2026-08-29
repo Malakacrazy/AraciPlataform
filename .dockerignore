@@ -1,0 +1,57 @@
+# Achado rodando `docker build` de VERDADE pela primeira vez (antes disso
+# os Dockerfiles nunca tinham sido construídos, só escritos). Não existia
+# .dockerignore nenhum, e isso é grave por três motivos independentes:
+#
+# 1. SEGREDO NA IMAGEM. `COPY . .` levava pra dentro da imagem o
+#    apps/api/.env (senha do certificado, chave da Asaas, token da
+#    ZapSign, chave do Resend), o apps/web/.env.local (segredo do Logto,
+#    JWT do Supabase, client secret do Google), o packages/db/.env, e --
+#    pior de todos -- o StudioAraci.pfx, o certificado A1 REAL do
+#    estúdio. Qualquer um com acesso à imagem extrai a identidade fiscal
+#    do estúdio de uma camada. O .gitignore não ajuda aqui: o contexto de
+#    build do Docker ignora o .gitignore por completo.
+#
+# 2. IMAGEM QUEBRADA. O Dockerfile faz `npm ci` (que compila binário
+#    nativo pra Linux -- libxmljs2, da integração de NFS-e) e SÓ DEPOIS
+#    `COPY . .`. Sem esta lista, o node_modules do host (Windows)
+#    sobrescrevia o que o `npm ci` acabou de instalar, deixando .node de
+#    Windows dentro de um container Linux.
+#
+# 3. LENTIDÃO. O contexto passava de 900MB (node_modules 1.4G + .next
+#    1.1G + .git), transferido inteiro a cada build.
+
+# Dependências e artefatos: reconstruídos DENTRO da imagem.
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Segredos e credenciais -- nunca entram numa imagem. Em produção eles
+# chegam como variável de ambiente do serviço (ver render.yaml) e o .pfx
+# como Secret File montado em disco (ver a seção `disks`/`secretFiles`).
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+*.pfx
+*.p12
+*.pem
+*.key
+
+# Histórico e metadados de dev -- nada disso é usado no build.
+.git
+.gitignore
+.github
+.claude
+**/.DS_Store
+
+# Documentação e planilhas da Fase 0: pesadas e irrelevantes pro runtime.
+docs
+*.md
+!README.md
