@@ -143,3 +143,29 @@ services:
       # sobre ARG no Dockerfile) -- mesmo DSN de SENTRY_DSN acima.
       - key: NEXT_PUBLIC_SENTRY_DSN
         sync: false
+      # Login do convidado do quadro (OIDC do Logto) -- ver
+      # api/quadro/authorize|callback. Faltavam aqui: este blueprint foi
+      # escrito antes do quadro colaborativo existir e ninguém voltou pra
+      # atualizar (achado conferindo render.yaml contra
+      # `grep process.env` no apps/web). Sem eles, o convidado não
+      # consegue entrar em produção.
+      - key: LOGTO_ENDPOINT
+        sync: false
+      - key: LOGTO_APP_ID
+        sync: false
+      - key: LOGTO_APP_SECRET
+        sync: false
+      # Canal privado do Realtime (sincronização ao vivo do quadro). Os
+      # dois NEXT_PUBLIC_* abaixo são CONGELADOS no bundle em tempo de
+      # build -- precisam chegar como build arg pro Docker, não só como
+      # env de runtime (ver ARG no apps/web/Dockerfile); setar só aqui e
+      # esperar que funcione em runtime é justamente a armadilha.
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      # Assina o JWT curto do canal privado -- segredo de servidor, nunca
+      # NEXT_PUBLIC_. Exige também aplicar
+      # docs/fase-0/supabase-realtime-policy.sql no projeto Supabase.
+      - key: SUPABASE_JWT_SECRET
+        sync: false

@@ -2968,6 +2968,68 @@ portais. Revisão estática — nada foi explorado de fato.
     `subscribe` tem callback que avisa no console apontando a causa mais
     provável (policy não aplicada).
 
+## Correção — deriva de configuração entre o código e o blueprint do Render
+
+O usuário confirmou que tem conta no Render, então valia conferir o que
+a rodada de bloqueadores tinha deixado explicitamente por validar. Sem
+Docker nesta máquina não dá pra rodar `docker build` de verdade — mas o
+modo de falha mais provável de um Dockerfile é caminho de `COPY` errado,
+e isso dá pra conferir contra os artefatos de build que existem no
+disco. Os caminhos estão todos certos (`.next/standalone/apps/web/
+server.js`, `.next/static`, `public`, `apps/api/dist/main.js`).
+
+O que a conferência achou de verdade foi outra coisa, pior e silenciosa:
+**o blueprint e o Dockerfile ficaram para trás do código.** `render.yaml`
+foi escrito antes do quadro colaborativo existir, e ninguém voltou.
+Comparando `grep process.env` no código com o que os manifestos
+declaram, faltavam **6 variáveis** no apps/web:
+
+- `LOGTO_ENDPOINT` / `LOGTO_APP_ID` / `LOGTO_APP_SECRET` — sem elas o
+  login do convidado do quadro simplesmente não funciona em produção.
+- `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` — estas
+  são as piores: valor `NEXT_PUBLIC_*` é **congelado no bundle em tempo
+  de build**, então a imagem sairia com `undefined` embutido e a
+  sincronização ao vivo nasceria morta — e **não daria pra consertar
+  pelo painel do Render depois**, porque não é lido em runtime. Exigiria
+  rebuild. Faltavam tanto como `ARG` no Dockerfile quanto no
+  `render.yaml`.
+- `SUPABASE_JWT_SECRET` — sem ela o canal privado não recebe token e o
+  quadro degrada pra sem sincronização.
+
+E `turbo.json` listava só as três `NEXT_PUBLIC_GOOGLE_*` no `env` do
+build: faltavam as duas do Supabase e o `NEXT_PUBLIC_SENTRY_DSN`. Isso é
+exatamente o bug que o comentário daquele bloco descreve, só que
+silencioso duas vezes — cache do turbo servindo bundle velho, e o valor
+congelado sem conserto em runtime.
+
+- **Aviso de build adicionado** (`apps/web/Dockerfile`): esta classe de
+  bug não falha, ela passa. Agora o build imprime um aviso nomeando cada
+  `NEXT_PUBLIC_*` vazia e o que especificamente quebra por causa dela.
+  Não derruba o build de propósito — `NEXT_PUBLIC_SENTRY_DSN` vazia é
+  legítima (no-op), e Supabase vazio degrada em vez de quebrar; mesma
+  divisão obrigatório/recomendado que `main.ts` já usa.
+- **`ZAPSIGN_SANDBOX_API_TOKEN` ausente do `render.yaml` é correto**, não
+  esquecimento: `ZAPSIGN_ENV` está fixo em `production` ali, então
+  `zapsign-client.ts` nunca lê o token de sandbox naquele ambiente.
+  Registrado pra não "corrigir" isso por engano numa próxima conferência.
+- **Decisão de produto registrada**: o usuário optou por **manter** o
+  `EmbedShapeUtil` (referências do Pinterest/YouTube no moodboard),
+  aceitando a superfície de conteúdo de terceiro descrita na seção da
+  revisão de segurança — sandbox sem `allow-same-origin`, sem formulário
+  e sem popup, logo exibição arbitrária mas não execução de código nem
+  captura de credencial.
+- Verificado: `turbo.json` continua JSON válido e o build do apps/web
+  passa depois da mudança; comparação código × manifesto refeita no fim,
+  **zero variáveis faltando** nos dois apps e zero `NEXT_PUBLIC_*` sem
+  `ARG` correspondente.
+- **Continua NÃO verificado** (precisa de Docker, que não existe nesta
+  máquina, e da conta Render de verdade): o `docker build` em si, e se o
+  Render de fato repassa `envVars` como **build arg** pro Docker — que é
+  o ponto exato de que os `NEXT_PUBLIC_*` dependem. Se não repassar, eles
+  precisam ser declarados como build arg no painel/serviço, senão caem no
+  aviso novo do Dockerfile e a feature nasce quebrada. É a primeira coisa
+  a conferir no primeiro deploy real.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

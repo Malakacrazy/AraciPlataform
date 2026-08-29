@@ -22,10 +22,38 @@ ARG NEXT_PUBLIC_GOOGLE_CLIENT_ID
 ARG NEXT_PUBLIC_GOOGLE_API_KEY
 ARG NEXT_PUBLIC_GOOGLE_APP_ID
 ARG NEXT_PUBLIC_SENTRY_DSN
+# Achado real conferindo o Dockerfile contra o que o código de fato usa:
+# estes dois faltavam. Foram introduzidos junto com o quadro colaborativo
+# (Supabase Realtime), depois deste arquivo ter sido escrito, e ninguém
+# voltou aqui. Sem eles a imagem sai com `undefined` embutido no bundle e
+# a sincronização ao vivo nasce morta em produção -- e, pior, NÃO dá pra
+# consertar pelo painel do Render depois, porque valor NEXT_PUBLIC_* é
+# congelado no build, não lido em runtime.
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 ENV NEXT_PUBLIC_GOOGLE_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_CLIENT_ID
 ENV NEXT_PUBLIC_GOOGLE_API_KEY=$NEXT_PUBLIC_GOOGLE_API_KEY
 ENV NEXT_PUBLIC_GOOGLE_APP_ID=$NEXT_PUBLIC_GOOGLE_APP_ID
 ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+# O modo de falha desta classe de bug é silencioso: build "passa", imagem
+# sobe, e só semanas depois alguém percebe que uma feature nunca
+# funcionou em produção. Como o valor fica congelado no bundle, descobrir
+# tarde custa um rebuild inteiro. Então: avisa alto no log do build pra
+# cada NEXT_PUBLIC_* vazio, dizendo o que especificamente quebra.
+RUN for v in NEXT_PUBLIC_GOOGLE_CLIENT_ID:"seletor de arquivos do Google Drive (Picker)" \
+             NEXT_PUBLIC_GOOGLE_API_KEY:"seletor de arquivos do Google Drive (Picker)" \
+             NEXT_PUBLIC_GOOGLE_APP_ID:"seletor de arquivos do Google Drive (Picker)" \
+             NEXT_PUBLIC_SUPABASE_URL:"sincronizacao ao vivo do quadro" \
+             NEXT_PUBLIC_SUPABASE_ANON_KEY:"sincronizacao ao vivo do quadro" \
+             NEXT_PUBLIC_SENTRY_DSN:"rastreamento de erro no navegador"; do \
+      name="${v%%:*}"; what="${v#*:}"; \
+      if [ -z "$(eval echo \$$name)" ]; then \
+        echo "AVISO: $name vazio no build -- $what nao vai funcionar nesta imagem, e o valor fica congelado no bundle (nao adianta setar no painel depois)."; \
+      fi; \
+    done
 
 RUN npx turbo run build --filter=web
 

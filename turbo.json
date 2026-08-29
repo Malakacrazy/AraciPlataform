@@ -13,7 +13,21 @@
       // NEXT_PUBLIC_GOOGLE_CLIENT_ID de uma execução anterior (valores
       // NEXT_PUBLIC_* são embutidos no bundle do cliente em tempo de
       // build, não lidos em runtime), e o build "passaria" mesmo assim.
-      "env": ["NEXT_PUBLIC_GOOGLE_CLIENT_ID", "NEXT_PUBLIC_GOOGLE_API_KEY", "NEXT_PUBLIC_GOOGLE_APP_ID"]
+      // Precisa listar TODA NEXT_PUBLIC_* que o apps/web usa, não só as do
+      // Google: as do Supabase e o DSN do Sentry entraram depois e
+      // ficaram de fora até uma conferência do Dockerfile contra o que o
+      // código de fato lê (`grep process.env.NEXT_PUBLIC_`) achar a
+      // diferença. Faltar aqui é exatamente o bug que este comentário
+      // descreve, só que silencioso duas vezes: cache do turbo serve um
+      // bundle antigo E o valor congelado não dá pra corrigir em runtime.
+      "env": [
+        "NEXT_PUBLIC_GOOGLE_CLIENT_ID",
+        "NEXT_PUBLIC_GOOGLE_API_KEY",
+        "NEXT_PUBLIC_GOOGLE_APP_ID",
+        "NEXT_PUBLIC_SENTRY_DSN",
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+      ]
     },
     "dev": {
       "dependsOn": ["^build"],
