@@ -157,6 +157,50 @@ export class GoogleDriveService {
     return { checked: links.length, newlyBroken };
   }
 
+  // Arquiva um XML fiscal assinado (emissão/cancelamento/substituição de
+  // NFS-e, ver NfseService) na pasta raiz do projeto -- pedido direto do
+  // usuário: reaproveita o pipeline de Drive já existente em vez do disco
+  // `araci-fiscal-xml`, que ficava provisionado sem nenhum código
+  // escrevendo nele. `ensureProjectFolderTree` garante a pasta raiz (cria
+  // se ainda não existir, idempotente); `visibleToClient: false` sempre
+  // -- é arquivo interno/contábil, o cliente já recebe a via dele da
+  // própria SEFIN/prefeitura quando a NFS-e é autorizada.
+  //
+  // Lança em vez de engolir o erro aqui: quem chama (NfseService) decide
+  // o que fazer com a falha (nunca bloquear a ação fiscal em si, só
+  // registrar) -- este método não sabe nem precisa saber que existe uma
+  // Invoice do outro lado.
+  async archiveFiscalXml(accountId: string, projectId: string, fileName: string, xmlContent: string) {
+    const folders = await this.ensureProjectFolderTree(accountId, projectId);
+    const root = folders.find((f) => f.documentType === 'pasta_projeto');
+    if (!root) {
+      throw new Error('Pasta raiz do projeto não encontrada/criada no Drive.');
+    }
+
+    const accessToken = await this.resolveDriveAccessToken(accountId);
+    const file = await this.driveClient.uploadFile(
+      accessToken,
+      root.externalId,
+      fileName,
+      Buffer.from(xmlContent, 'utf-8'),
+      'application/xml',
+    );
+
+    return this.prisma.db.officeLink.create({
+      data: {
+        accountId,
+        entityType: 'PROJECT',
+        entityId: projectId,
+        provider: 'DRIVE',
+        externalId: file.id,
+        url: file.url,
+        title: file.name,
+        documentType: 'nfse',
+        visibleToClient: false,
+      },
+    });
+  }
+
   // Item "grande" da lista de 11 (deliberadamente adiado até aqui, ver
   // roadmap) -- só o que a equipe marcou visibleToClient=true chega ao
   // portal/link de apresentação, e só o que ainda não está quebrado

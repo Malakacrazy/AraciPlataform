@@ -141,7 +141,14 @@ presentes.)
 
 - [ ] `https://<dominio>/api/health` → `ok` (o web alcança o api)
 - [ ] Login Google entra e o dashboard carrega
-- [ ] `/team` → conectar o Drive funciona (valida `GOOGLE_CLIENT_*` no api)
+- [ ] **Google Drive — conectar credencial de admin**: logue com um
+      usuário `role: admin` (não vale um membro comum), `/team` →
+      "Sincronização Google" → **Conectar**, aceite os 3 escopos
+      (Calendar, Gmail, Drive). Sem isso, `GoogleDriveService` rejeita
+      com `GOOGLE_DRIVE_NOT_CONNECTED` — pastas de projeto no Drive e
+      arquivamento do XML fiscal (emitir/cancelar/substituir NFS-e)
+      ficam quebrados em silêncio até alguém notar (valida
+      `GOOGLE_CLIENT_*` no api + a URI de redirect do passo 4 acima).
 - [ ] Abrir um moodboard em duas abas → traço aparece nos dois
       (valida `NEXT_PUBLIC_SUPABASE_*` + policy; é o item do passo 3)
 - [ ] Portal do cliente: pedir magic link e entrar (valida Resend + `WEB_URL`)

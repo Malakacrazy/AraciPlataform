@@ -9,6 +9,24 @@ import { prisma } from "@araci/db";
 import { AppModule } from "../src/app.module";
 import { NfseService } from "../src/erp/fiscal/nfse.service";
 
+// Ambiente-agnóstico de propósito: nenhum admin do banco de dev tem
+// credencial Drive com escopo drive.file conectada (checado direto no
+// banco antes de escrever isto), então aqui o arquivamento sempre falha
+// com GOOGLE_DRIVE_NOT_CONNECTED -- mas quem rodar isto depois de
+// conectar um admin vai ver `null` (arquivado com sucesso) em vez disso,
+// e isso também é correto. Por isso a asserção confere só que o campo
+// existe e tem o tipo certo (nunca bloqueia a ação fiscal, sempre é
+// string ou null), não qual dos dois resultados aconteceu -- o valor
+// real é impresso pra quem estiver olhando decidir se faz sentido.
+function checkArchive(label: string, value: string | null | undefined) {
+  const ok = value === null || typeof value === "string";
+  console.log(
+    ok
+      ? `  ✓ nfseXmlArchiveError (${label}) tem o tipo certo -- valor: ${value === null ? "null (arquivado com sucesso)" : JSON.stringify(value)}`
+      : `  ✗ nfseXmlArchiveError (${label}) com tipo inesperado: ${JSON.stringify(value)}`
+  );
+}
+
 async function main() {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
   const nfseService = app.get(NfseService);
@@ -61,6 +79,7 @@ async function main() {
         ? `  ✓ Emitida — chaveAcesso=${emitida.nfseChaveAcesso}, idDps=${emitida.nfseIdDps}, ambiente=${emitida.nfseAmbienteEmissao}, nDPS=${emitida.nfseNumeroDps}`
         : `  ✗ Não persistiu como esperado: ${JSON.stringify(emitida)}`
     );
+    checkArchive("emissão", emitida.nfseXmlArchiveError);
 
     console.log("Emitindo de novo pra MESMA fatura (esperado: 422 NFSE_ALREADY_ISSUED, sem chamar a SEFIN)...");
     try {
@@ -88,6 +107,7 @@ async function main() {
         ? `  ✓ Cancelada — chaveAcesso preservada (${cancelada.nfseChaveAcesso}), nfseCanceladaEm=${cancelada.nfseCanceladaEm}`
         : `  ✗ Não persistiu como esperado: ${JSON.stringify(cancelada)}`
     );
+    checkArchive("cancelamento", cancelada.nfseXmlArchiveError);
 
     console.log("Cancelando de novo a MESMA NFS-e (esperado: 422 NFSE_ALREADY_CANCELED)...");
     try {
@@ -114,11 +134,15 @@ async function main() {
         ? `  ✓ Reemitida — nova chaveAcesso=${reemitida.nfseChaveAcesso}, anterior preservada em nfseChaveAcessoAnterior`
         : `  ✗ Não persistiu como esperado: ${JSON.stringify(reemitida)}`
     );
+    checkArchive("reemissão", reemitida.nfseXmlArchiveError);
 
-    // Substituição: emite uma DPS corrigida nova e cancela a atual
-    // (chaveAntiga = a que acabou de ser reemitida acima) referenciando a
-    // nova (evento e105102).
-    console.log("Substituindo a NFS-e atual (emite corrigida nova + cancela a atual por substituição)...");
+    // Substituição REDESENHADA: uma única DPS nova carregando o bloco
+    // `subst` (referenciando a chave antiga) -- a própria SEFIN cancela a
+    // antiga como efeito colateral de autorizar esta. Não existe mais um
+    // segundo passo (RegistrarEvento/e105102) que possa falhar
+    // separadamente -- ver comentário em NfseService.substituirParaFatura
+    // pro porquê do design anterior (dois passos) ser impossível (E1861).
+    console.log("Substituindo a NFS-e atual (DPS nova com bloco subst referenciando a antiga)...");
     const chaveAntesDaSubstituicao = reemitida.nfseChaveAcesso!;
     const substituida = await nfseService.substituirParaFatura(account.id, invoiceComDocumento.id, {
       justificativa: "Teste de substituição (verify-nfse-invoice)",
@@ -128,9 +152,20 @@ async function main() {
         substituida.nfseChaveAcesso !== chaveAntesDaSubstituicao &&
         substituida.nfseChaveAcessoAnterior === chaveAntesDaSubstituicao &&
         !substituida.nfseCanceladaEm
-        ? `  ✓ Substituída — nova chaveAcesso=${substituida.nfseChaveAcesso}, chave anterior (${chaveAntesDaSubstituicao}) cancelada por substituição`
+        ? `  ✓ Substituída — nova chaveAcesso=${substituida.nfseChaveAcesso}, chave anterior (${chaveAntesDaSubstituicao}) referenciada via subst`
         : `  ✗ Não persistiu como esperado: ${JSON.stringify(substituida)}`
     );
+    // Com o redesenho, isto é definitivo: só existe UMA chamada
+    // (Autorizacao) que poderia ter falhado, e ela já teria lançado antes
+    // de chegar aqui se tivesse falhado. Primeira vez que este campo pode
+    // ser verificado como realmente null (antes, o segundo passo sempre
+    // falhava silenciosamente -- ver histórico em substituirParaFatura).
+    console.log(
+      substituida.nfseRejectionReason === null
+        ? "  ✓ nfseRejectionReason null -- substituição completa em uma única autorização, sem passo separado pra falhar"
+        : `  ✗ nfseRejectionReason NÃO é null: "${substituida.nfseRejectionReason}"`
+    );
+    checkArchive("substituição", substituida.nfseXmlArchiveError);
   } finally {
     await prisma.invoice.deleteMany({ where: { id: { in: [invoiceComDocumento.id, invoiceSemDocumento.id] } } });
     await prisma.project.deleteMany({ where: { id: { in: [projectComDocumento.id, projectSemDocumento.id] } } });

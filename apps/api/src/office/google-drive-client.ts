@@ -75,6 +75,18 @@ export interface DriveClient {
   // nova por cima do mesmo arquivo) -- isto só expõe o que o Drive já
   // sabe, não implementa versionamento nenhum por conta própria.
   listRevisions(accessToken: string, fileId: string): Promise<DriveRevision[]>;
+  // Cria um arquivo NOVO com conteúdo (não uma pasta) -- usado hoje só
+  // pelo arquivamento do XML assinado da NFS-e (ver
+  // GoogleDriveService.archiveFiscalXml). Nenhum outro fluxo de Drive
+  // deste app cria arquivo: os demais sempre linkam algo que já existe
+  // (Picker) ou uma pasta (createFolder acima).
+  uploadFile(
+    accessToken: string,
+    parentFolderId: string,
+    fileName: string,
+    content: Buffer,
+    mimeType: string,
+  ): Promise<DriveFolder>;
 }
 
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
@@ -139,6 +151,52 @@ export class GoogleDriveApiClient implements DriveClient {
       name: isGoogleNative ? `${meta.name}.pdf` : (meta.name ?? fileId),
       mimeType: isGoogleNative ? 'application/pdf' : (meta.mimeType ?? 'application/octet-stream'),
       data: Buffer.from(await contentRes.arrayBuffer()),
+    };
+  }
+
+  // Multipart upload (metadata JSON + bytes num corpo só) é o formato mais
+  // simples da Drive API pra criar arquivo com conteúdo numa chamada --
+  // resumable upload existe pra arquivo grande, sem necessidade aqui (XML
+  // de NFS-e é poucos KB). Boundary fixo: não há risco de colisão porque o
+  // conteúdo é XML/texto, nunca contém esta sequência específica.
+  async uploadFile(
+    accessToken: string,
+    parentFolderId: string,
+    fileName: string,
+    content: Buffer,
+    mimeType: string,
+  ): Promise<DriveFolder> {
+    const boundary = 'araci-drive-upload-boundary';
+    const metadata = JSON.stringify({ name: fileName, parents: [parentFolderId] });
+    const body = Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n` +
+          `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`,
+      ),
+      content,
+      Buffer.from(`\r\n--${boundary}--`),
+    ]);
+
+    const res = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+        },
+        body,
+      },
+    );
+    const resBody: { id?: string; name?: string; webViewLink?: string; error?: { message?: string } } =
+      await res.json();
+    if (!res.ok || !resBody.id) {
+      throw new Error(resBody.error?.message ?? `Falha ao subir o arquivo "${fileName}" pro Drive.`);
+    }
+    return {
+      id: resBody.id,
+      name: resBody.name ?? fileName,
+      url: resBody.webViewLink ?? `https://drive.google.com/file/d/${resBody.id}/view`,
     };
   }
 

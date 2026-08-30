@@ -39,6 +39,27 @@ class FakeDriveClient implements DriveClient {
   async listRevisions(_accessToken: string, fileId: string): Promise<DriveRevision[]> {
     return this.revisions.get(fileId) ?? [];
   }
+
+  public uploadedFiles: { parentFolderId: string; fileName: string; content: Buffer; mimeType: string }[] = [];
+  // Setar isto num teste simula upload falhando (ex.: credencial revogada
+  // entre a autorização da NFS-e e o arquivamento) sem precisar mockar o
+  // fetch de verdade.
+  public uploadShouldFail = false;
+
+  async uploadFile(
+    _accessToken: string,
+    parentFolderId: string,
+    fileName: string,
+    content: Buffer,
+    mimeType: string,
+  ): Promise<DriveFolder> {
+    if (this.uploadShouldFail) {
+      throw new Error('Falha simulada de upload pro Drive.');
+    }
+    this.uploadedFiles.push({ parentFolderId, fileName, content, mimeType });
+    const id = `file-${this.nextId++}`;
+    return { id, name: fileName, url: `https://drive.example/${id}` };
+  }
 }
 
 interface FakeOfficeLink {

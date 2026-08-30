@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
+import { OfficeModule } from '../office/office.module';
 import { ProjectsController } from './projects.controller';
 import { ProjectsService } from './projects.service';
 import { UsersController } from './users.controller';
@@ -42,7 +43,15 @@ import { NotificationsModule } from '../notifications/notifications.module';
 @Module({
   // NotificationsModule é só pro CertificateExpiryCron -- sem risco de
   // ciclo, NotificationsModule não importa nada (ver seu próprio arquivo).
-  imports: [NotificationsModule],
+  // OfficeModule é pro NfseService arquivar o XML assinado no Drive (ver
+  // GoogleDriveService.archiveFiscalXml) -- forwardRef porque OfficeModule
+  // já importa ErpModule (por ProjectsService, ver office.module.ts), e
+  // Nest não resolve import circular de módulo sem isso. Não é ciclo de
+  // PROVIDER: GoogleDriveService não depende de nada do ErpModule, só
+  // NfseService (aqui) passa a depender de GoogleDriveService (lá) --
+  // por isso não precisa de @Inject(forwardRef(...)) no construtor do
+  // NfseService, só aqui no import do módulo.
+  imports: [NotificationsModule, forwardRef(() => OfficeModule)],
   controllers: [
     ProjectsController,
     UsersController,

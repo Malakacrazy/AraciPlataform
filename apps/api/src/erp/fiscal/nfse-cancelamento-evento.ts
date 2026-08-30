@@ -44,33 +44,15 @@ export function buildCancelamentoEvento(input: CancelamentoEventoInput): LayoutP
   };
 }
 
-export interface CancelamentoPorSubstituicaoEventoInput {
-  ambiente: 1 | 2;
-  prestadorCnpj: string;
-  chaveAcessoAntiga: string;
-  chaveAcessoNova: string;
-}
-
-// Substituição: a NFS-e nova (corrigida) já foi autorizada antes disto
-// (ver NfseService.substituirParaFatura) -- este evento só cancela a
-// antiga, referenciando a nova como quem a substitui.
-// EventoCancelamentoSubstituicao (e105102) não tem cMotivo/xMotivo livre
-// como o e101101 -- a SEFIN Nacional trata "foi substituída" como
-// motivo suficiente por si só.
-export function buildCancelamentoPorSubstituicaoEvento(
-  input: CancelamentoPorSubstituicaoEventoInput,
-): LayoutPedRegEvento {
-  return {
-    infPedReg: {
-      tpAmb: input.ambiente,
-      verAplic: 'araci-fatura-1.0',
-      dhEvento: dhEventoAgora(),
-      CNPJAutor: input.prestadorCnpj,
-      chNFSe: input.chaveAcessoAntiga,
-      e105102: {
-        xDesc: 'Cancelamento de NFS-e por Substituição',
-        chNFSeSubst: input.chaveAcessoNova,
-      },
-    },
-  };
-}
+// e105102 (cancelamento por substituição) NÃO tem mais uma função
+// builder aqui -- achado rodando de verdade contra Homologação: SEFIN
+// Nacional rejeita esse evento vindo do prestador com E1861 ("não é
+// aceito pelo método POST da API Eventos"), não importa o payload. É
+// evento gerado pelo próprio sistema municipal quando uma NFS-e nova
+// referencia a antiga via `subst` na DPS (TCSubstituicao, ver
+// nfse-invoice-dps.ts/InvoiceDpsInput.substituicao) -- nunca algo que o
+// contribuinte registra diretamente. Chegamos a corrigir dois bugs reais
+// tentando forçar esse caminho (mapeamento de campo hardcoded errado em
+// @nfewizard/nfse, e o enum errado de cMotivo aqui), mas o caminho em si
+// é impossível -- documentados só pra quem for investigar de novo no
+// futuro não repetir a mesma investigação.

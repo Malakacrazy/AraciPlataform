@@ -740,6 +740,20 @@ model Invoice {
   nfseAmbienteEmissao String?
   nfseRejectionReason String?
 
+  // Arquivamento do XML assinado (emissão/cancelamento/substituição) no
+  // Drive do projeto -- pedido direto do usuário: a NFS-e já vem com XML
+  // assinado pronto na resposta da SEFIN (nfseXmlGZipB64/eventoXmlGZipB64),
+  // e a lib até salva em disco, mas no container do Render isso é
+  // efêmero (some no redeploy) e ninguém nunca lê de volta. Reaproveita o
+  // pipeline de Drive já existente em vez do disco `araci-fiscal-xml`
+  // (que ficava sem nenhum código escrevendo nele). Mesmo espírito de
+  // nfseRejectionReason: nunca bloqueia a ação fiscal em si (a NFS-e já
+  // está autorizada/cancelada de verdade na SEFIN nesse ponto -- falhar
+  // a resposta por causa do Drive seria errado), só registra quando o
+  // arquivamento falhou, pra não ficar silencioso. null = arquivado com
+  // sucesso (ou ação fiscal ainda não tentada).
+  nfseXmlArchiveError String?
+
   // Lacuna da matriz (NFS-e: cancelamento/substituição). Cancelamento
   // simples (evento e101101 da SEFIN Nacional) não emite nada novo, só
   // invalida a NFS-e atual -- nfseChaveAcesso continua com a chave

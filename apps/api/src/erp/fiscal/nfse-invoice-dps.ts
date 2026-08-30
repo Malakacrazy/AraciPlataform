@@ -33,6 +33,18 @@ export interface InvoiceDpsInput {
   // autorização nova; reusar o nDPS faria a SEFIN rejeitar como
   // duplicata da primeira). Omitido = emissão normal/reemissão do zero.
   nDpsVariant?: string;
+  // Substituição de verdade acontece AQUI, não num evento separado --
+  // achado em teste real contra Homologação (E1861: SEFIN Nacional
+  // rejeita e105102/RegistrarEvento vindo do prestador; é evento
+  // gerado pelo sistema municipal, não algo que o contribuinte possa
+  // registrar). O jeito correto, confirmado no XSD oficial
+  // (NFSe-ESQUEMAS_XSD-v1.01, TCSubstituicao): a NOVA DPS referencia a
+  // NFS-e antiga aqui, e a SEFIN cancela a antiga como efeito colateral
+  // da autorização desta. cMotivo fixo em '99' (Outros) -- nenhum dos
+  // códigos específicos (01 desenquadramento Simples Nacional .. 05
+  // rejeição pelo tomador) descreve "corrigi um erro no valor/descrição
+  // da fatura", o único cenário real de substituição do estúdio.
+  substituicao?: { chaveAcessoAntiga: string; xMotivo?: string };
 }
 
 // Confirmado com a Giulia (decisoes-pos-descoberta.md #4): Arquitetura
@@ -157,6 +169,15 @@ export function buildInvoiceDps(input: InvoiceDpsInput): LayoutDPS {
           },
         },
       },
+      ...(input.substituicao
+        ? {
+            subst: {
+              chSubstda: input.substituicao.chaveAcessoAntiga,
+              cMotivo: '99',
+              ...(input.substituicao.xMotivo ? { xMotivo: input.substituicao.xMotivo } : {}),
+            },
+          }
+        : {}),
     },
   };
 }

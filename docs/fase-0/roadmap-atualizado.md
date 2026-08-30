@@ -3030,6 +3030,100 @@ congelado sem conserto em runtime.
   aviso novo do Dockerfile e a feature nasce quebrada. É a primeira coisa
   a conferir no primeiro deploy real.
 
+## Correção — Arquivamento do XML fiscal no Drive + redesenho da substituição de NFS-e
+
+Pergunta direta do usuário sobre o deploy: "quando gerando uma NFS-e, não
+deveria também gerar um XML que é enviado ao Drive?" Investigação (lendo o
+código-fonte instalado de `@nfewizard/nfse`, não só o README) confirmou
+que sim — a resposta de `Autorizacao`/`RegistrarEvento` já vem com o XML
+assinado de verdade (`nfseXmlGZipB64`/`eventoXmlGZipB64`, gzip+base64), a
+lib até salva em disco por padrão, mas isso nunca era usado: no container
+do Render o disco é efêmero (some no redeploy) e nada no app lia de volta
+mesmo localmente.
+
+- **`GoogleDriveService.archiveFiscalXml`** (novo) — reaproveita o
+  pipeline de Drive já existente (mesma árvore de pastas por projeto) em
+  vez do disco `araci-fiscal-xml` do Render (mantido por decisão do
+  usuário, mas sem nenhum código escrevendo nele). Cria um `OfficeLink`
+  com `documentType: 'nfse'`, `visibleToClient: false` — decisão do
+  usuário: arquivo fiscal é uso interno, nunca aparece no link de
+  apresentação do cliente.
+- **`Invoice.nfseXmlArchiveError`** (nova coluna, migration
+  `20260830015651_add_nfse_xml_archive_error`) — nunca bloqueia a ação
+  fiscal em si (decisão do usuário: a NFS-e já está autorizada/cancelada
+  de verdade na SEFIN nesse ponto; falhar a resposta por causa do Drive
+  seria errado). `null` = arquivado com sucesso; string = motivo da falha,
+  registrado em vez de escondido — mesmo espírito de
+  `nfseRejectionReason`. Wired nos três fluxos (emitir/cancelar/
+  substituir), decisão do usuário de cobrir os três de uma vez.
+
+**Verificando o arquivamento, achado um bug fiscal real e sério** — o
+existente `verify-nfse-invoice.ts` nunca conferia `nfseRejectionReason`
+depois de uma substituição "bem-sucedida" (só os campos da chave
+nova/anterior, que já eram persistidos ANTES do segundo passo). Adicionar
+essa checagem revelou que **o segundo passo (evento e105102 via
+`RegistrarEvento`, cancelando a chave antiga) falhava silenciosamente em
+TODA substituição já feita**, nunca detectado antes.
+
+Rastreado por camadas, cada uma confirmada rodando de verdade contra a
+Homologação da SEFIN Nacional (nunca por leitura de manual/PDF de
+terceiro sozinha):
+
+1. **Bug real em `@nfewizard/nfse` (1.0.5, versão mais nova publicada)** —
+   `NFSeEventosService` tinha o mapeamento pra XML do evento e105102
+   hardcoded errado (`chNFSeSubst`, campo que não existe no schema),
+   descartando `cMotivo`/`xMotivo` mesmo que passados. SEFIN rejeitava com
+   E1235. Sem issue aberta encontrada no repositório oficial — rascunho de
+   issue preparado pro usuário abrir lá (não é nosso repositório pra
+   postar diretamente).
+2. **Enum errado neste app** — `cMotivo` do e105102 não é o mesmo tipo do
+   e101101 (`1|2|9`); é `TSCodJustSubst`, string zero-padded de 2 dígitos
+   (`"01"`–`"05"`, `"99"`). Confirmado no XSD oficial de verdade
+   (`gov.br/nfse`, pacote `NFSe-ESQUEMAS_XSD-v1.01`), não um PDF de
+   terceiro.
+3. **Achado arquitetural, o que realmente importava**: depois de corrigir
+   os dois bugs acima, SEFIN Homologação continuou rejeitando com
+   `E1861`: *"O Pedido de Registro de Evento de Cancelamento de NFS-e por
+   Substituição não é aceito pelo método POST da API Eventos."* — ou seja,
+   **o contribuinte não pode registrar e105102 via `RegistrarEvento` de
+   jeito nenhum**, não importa o payload. É evento gerado pelo próprio
+   sistema municipal.
+
+**Redesenho** (aprovado pelo usuário após o achado): o design certo, no
+XSD oficial (`TCSubstituicao`), é uma **única** autorização — a DPS nova
+carrega um bloco `subst: {chSubstda, cMotivo, xMotivo?}` referenciando a
+chave antiga, e a própria SEFIN cancela a antiga como efeito colateral de
+autorizar esta. `@nfewizard/nfse` já tinha esse campo funcionando (tanto
+o tipo em `@nfewizard/types` quanto o passthrough em
+`NFSeAutorizacaoService.normalizarInfDps`), só nunca tinha sido usado.
+
+- `InvoiceDpsInput.substituicao` (novo, `nfse-invoice-dps.ts`) — popula o
+  bloco `subst` na DPS nova; `cMotivo` fixo em `'99'` (Outros — nenhum dos
+  códigos específicos descreve "corrigi um erro na fatura").
+- `NfseService.substituirParaFatura` simplificado de duas chamadas
+  (`Autorizacao` + `RegistrarEvento`) pra uma só. `nfseRejectionReason:
+  null` agora é definitivo — não existe mais um segundo passo que possa
+  falhar depois.
+- `buildCancelamentoPorSubstituicaoEvento`/`CancelamentoPorSubstituicaoEventoInput`
+  removidos (`nfse-cancelamento-evento.ts`) — caminho confirmado
+  impossível pro contribuinte, mantido só como comentário histórico pra
+  quem investigar de novo não repetir a mesma pesquisa.
+- Correção do patch da lib (edição direta em `node_modules`, não
+  persistida via patch-package) deixada como está — corrige um bug real
+  da lib mesmo não sendo mais exercitada pelo nosso código; não vale o
+  esforço de formalizar em `patches/` pra um caminho que não chamamos
+  mais.
+- Verificado: typecheck + build limpos (`apps/api`); Jest 28/28 sem
+  regressão. **Verificado de ponta a ponta contra a Homologação real da
+  SEFIN Nacional**: `verify-nfse-invoice.ts` confirmou pela primeira vez
+  `nfseRejectionReason === null` numa substituição por um motivo
+  genuíno (não por ausência de checagem). Confirmação independente, além
+  do que o script já fazia: consulta direta a `EventosPorChave` pela
+  chave antiga mostrou a própria SEFIN gerando um evento
+  `CANCELAMENTO_POR_SUBSTITUICAO` sozinha, 0,3s depois da nova DPS ser
+  autorizada — prova de que o cancelamento automático de verdade
+  acontece, não só que a chamada não foi rejeitada.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { readFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
 import { z } from 'zod';
 import { ApiError, NotFoundError } from '../../common/api-error';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AccountService } from '../account.service';
+import { GoogleDriveService } from '../../office/google-drive.service';
 import {
   loadCertificateFileFromEnv,
   loadCertificateConfigFromEnv,
@@ -15,7 +17,7 @@ import {
 import { readCertificateInfo, type CertificateInfo } from './nfse-certificate-info';
 import { buildTestDps } from './nfse-test-dps';
 import { buildInvoiceDps } from './nfse-invoice-dps';
-import { buildCancelamentoEvento, buildCancelamentoPorSubstituicaoEvento } from './nfse-cancelamento-evento';
+import { buildCancelamentoEvento } from './nfse-cancelamento-evento';
 
 // cMotivo é um código fechado da SEFIN Nacional pro evento e101101: 1
 // (erro na emissão), 2 (serviço não prestado), 9 (outros) -- não é texto
@@ -27,11 +29,10 @@ export const cancelarNfseSchema = z.object({
 });
 export type CancelarNfseInput = z.infer<typeof cancelarNfseSchema>;
 
-// Sem motivo aqui -- o evento e105102 (cancelamento por substituição) não
-// tem cMotivo/xMotivo livre como o e101101, a SEFIN trata "foi
-// substituída por uma NFS-e nova" como motivo suficiente por si só.
-// justificativa é só pro nosso próprio registro (nfseJustificativaCancelamento),
-// nunca enviada à SEFIN.
+// justificativa vira o xMotivo (livre, opcional) do bloco `subst` na DPS
+// nova -- cMotivo em si é fixo em '99' (ver InvoiceDpsInput.substituicao),
+// a SEFIN não tem um código específico pra "corrigi um erro na fatura".
+// Também persistida em nfseJustificativaCancelamento pro nosso registro.
 export const substituirNfseSchema = z.object({
   justificativa: z.string().min(1).max(255),
 });
@@ -42,7 +43,43 @@ export class NfseService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly accountService: AccountService,
+    private readonly googleDriveService: GoogleDriveService,
   ) {}
+
+  // gzip+base64 -> XML de verdade. Mesmo formato nos dois casos que a lib
+  // devolve (Autorizacao.response.nfseXmlGZipB64,
+  // RegistrarEvento(...).eventoXmlGZipB64) -- extraído porque os três
+  // fluxos abaixo (emitir/cancelar/substituir) precisam da mesma
+  // descompactação.
+  private decodeXmlGZipB64(gzipB64: string): string {
+    return gunzipSync(Buffer.from(gzipB64, 'base64')).toString('utf-8');
+  }
+
+  // Nunca lança -- pedido explícito do usuário: a ação fiscal (emissão/
+  // cancelamento/substituição) já aconteceu de verdade na SEFIN nesse
+  // ponto, falhar a resposta por causa do Drive seria errado (acabaria
+  // parecendo que a NFS-e falhou, quando na verdade só o arquivamento
+  // falhou). Em vez disso, devolve a mensagem de erro (ou null se deu
+  // certo) pra quem chama persistir em nfseXmlArchiveError -- mesmo
+  // espírito de nfseRejectionReason: registrado, não escondido atrás de
+  // um retorno silencioso.
+  private async archiveXmlBestEffort(
+    accountId: string,
+    projectId: string,
+    fileName: string,
+    gzipB64: string | undefined,
+  ): Promise<string | null> {
+    if (!gzipB64) {
+      return 'A SEFIN não devolveu o XML assinado nesta resposta -- nada pra arquivar.';
+    }
+    try {
+      const xml = this.decodeXmlGZipB64(gzipB64);
+      await this.googleDriveService.archiveFiscalXml(accountId, projectId, fileName, xml);
+      return null;
+    } catch (error: any) {
+      return `Falha ao arquivar o XML no Drive: ${error?.message ?? 'erro desconhecido'}.`;
+    }
+  }
 
   // Só lê o certificado e devolve os metadados públicos dele (CNPJ,
   // validade) -- não fala com nenhum webservice. Passo de baixo risco
@@ -196,6 +233,12 @@ export class NfseService {
 
     try {
       const resultado = await client.Autorizacao({ DPS: dps });
+      const nfseXmlArchiveError = await this.archiveXmlBestEffort(
+        accountId,
+        invoice.projectId,
+        `NFS-e ${resultado.response.chaveAcesso}.xml`,
+        resultado.response.nfseXmlGZipB64,
+      );
       return this.prisma.db.invoice.update({
         where: { id: invoice.id },
         data: {
@@ -207,6 +250,7 @@ export class NfseService {
           nfseNumeroDps: dps.infDps.nDPS,
           nfseAmbienteEmissao: ambiente === AMBIENTE_PRODUCAO ? 'producao' : 'homologacao',
           nfseRejectionReason: null,
+          nfseXmlArchiveError,
           // Limpa o rastro do cancelamento anterior -- guarda a chave
           // cancelada em nfseChaveAcessoAnterior antes de sobrescrever
           // nfseChaveAcesso, mesma disciplina de nunca perder o
@@ -265,7 +309,13 @@ export class NfseService {
     });
 
     try {
-      await client.RegistrarEvento({ chaveAcesso: invoice.nfseChaveAcesso, pedRegEvento });
+      const resultadoEvento = await client.RegistrarEvento({ chaveAcesso: invoice.nfseChaveAcesso, pedRegEvento });
+      const nfseXmlArchiveError = await this.archiveXmlBestEffort(
+        accountId,
+        invoice.projectId,
+        `NFS-e ${invoice.nfseChaveAcesso} - cancelamento.xml`,
+        resultadoEvento.eventoXmlGZipB64,
+      );
       return this.prisma.db.invoice.update({
         where: { id: invoice.id },
         data: {
@@ -273,6 +323,7 @@ export class NfseService {
           nfseMotivoCancelamento: input.motivo,
           nfseJustificativaCancelamento: input.justificativa,
           nfseRejectionReason: null,
+          nfseXmlArchiveError,
         },
         include: { lines: true },
       });
@@ -286,13 +337,26 @@ export class NfseService {
     }
   }
 
-  // Lacuna da matriz (NFS-e: substituição) -- corrige uma NFS-e já
-  // autorizada emitindo uma NOVA primeiro (DPS corrigida com os dados
-  // atuais da fatura, nDPS diferente da original) e só então cancelando a
-  // antiga por substituição (evento e105102, referenciando a nova). A
-  // nova NFS-e é persistida ANTES de tentar cancelar a antiga --
-  // documento fiscal real de verdade, nunca pode ficar só na memória se o
-  // segundo passo falhar (ver comentário no catch abaixo).
+  // Lacuna da matriz (NFS-e: substituição) -- REDESENHADO depois de achar,
+  // rodando de verdade contra Homologação, que o design original (emitir
+  // a nova, depois cancelar a antiga com um evento e105102 separado via
+  // RegistrarEvento) é estruturalmente impossível: SEFIN Nacional sempre
+  // rejeita e105102 vindo do prestador com E1861 ("não é aceito pelo
+  // método POST da API Eventos") -- é um evento gerado pelo sistema
+  // municipal, não algo que o contribuinte possa registrar (nenhuma
+  // combinação de campo/cMotivo corrige isso, é arquitetural). Esse bug
+  // ficou invisível por muito tempo porque nada verificava
+  // nfseRejectionReason depois de uma substituição "bem-sucedida" -- os
+  // campos de chave nova/anterior já tinham sido persistidos ANTES da
+  // chamada que sempre falhava.
+  //
+  // Design correto, confirmado no XSD oficial (NFSe-ESQUEMAS_XSD-v1.01,
+  // TCSubstituicao): a substituição é UMA ÚNICA autorização -- a DPS nova
+  // carrega o bloco `subst` referenciando a chave antiga (ver
+  // buildInvoiceDps/InvoiceDpsInput.substituicao), e a própria SEFIN
+  // cancela a antiga como efeito colateral de autorizar esta. Não existe
+  // mais um segundo passo pra falhar: nfseRejectionReason só fica não-nulo
+  // se a ÚNICA chamada (Autorizacao) falhar, igual emitirParaFatura.
   async substituirParaFatura(accountId: string, invoiceId: string, input: SubstituirNfseInput) {
     const invoice = await this.prisma.db.invoice.findFirst({
       where: { id: invoiceId, project: { accountId } },
@@ -334,6 +398,7 @@ export class NfseService {
       tomador: { documento: invoice.project.client.document, nome: invoice.project.client.name },
       cbsIbsEffectiveRatePercent: Number(account.cbsIbsEffectiveRatePercent),
       nDpsVariant: `substituicao-${Date.now()}`,
+      substituicao: { chaveAcessoAntiga: chaveAntiga, xMotivo: input.justificativa },
     });
 
     const client = createNfseClient(cert, ambiente);
@@ -350,11 +415,18 @@ export class NfseService {
       throw new ApiError('NFSE_AUTORIZACAO_FAILED', mensagem, 502);
     }
 
-    // A nova já está autorizada de verdade neste ponto -- persiste antes
-    // de tentar cancelar a antiga, pra nunca perder o rastro de um
-    // documento fiscal real só porque o segundo passo (RegistrarEvento)
-    // falhou.
-    await this.prisma.db.invoice.update({
+    // Chamada única -- a SEFIN já cancela a chave antiga como efeito
+    // colateral de autorizar esta (bloco `subst` na DPS, ver comentário
+    // acima). Nada mais pode falhar depois disto: nfseRejectionReason:
+    // null aqui é definitivo, não "só a nova deu certo" como no design
+    // antigo.
+    const nfseXmlArchiveError = await this.archiveXmlBestEffort(
+      accountId,
+      invoice.projectId,
+      `NFS-e ${resultadoNova.response.chaveAcesso}.xml`,
+      resultadoNova.response.nfseXmlGZipB64,
+    );
+    return this.prisma.db.invoice.update({
       where: { id: invoice.id },
       data: {
         nfseChaveAcesso: resultadoNova.response.chaveAcesso,
@@ -363,39 +435,9 @@ export class NfseService {
         nfseAmbienteEmissao: ambiente === AMBIENTE_PRODUCAO ? 'producao' : 'homologacao',
         nfseChaveAcessoAnterior: chaveAntiga,
         nfseRejectionReason: null,
+        nfseXmlArchiveError,
+        nfseJustificativaCancelamento: input.justificativa,
       },
-    });
-
-    const pedRegEvento = buildCancelamentoPorSubstituicaoEvento({
-      ambiente,
-      prestadorCnpj: cert.info.cnpj,
-      chaveAcessoAntiga: chaveAntiga,
-      chaveAcessoNova: resultadoNova.response.chaveAcesso,
-    });
-
-    try {
-      await client.RegistrarEvento({ chaveAcesso: chaveAntiga, pedRegEvento });
-    } catch (error: any) {
-      // A nova NFS-e já está autorizada e salva (acima) -- a antiga ainda
-      // está tecnicamente ativa na SEFIN até alguém repetir este
-      // cancelamento com sucesso. Fail loud: nfseRejectionReason deixa
-      // isso explícito, não esconde a inconsistência atrás de um 200.
-      const mensagem = this.extractRejectionMessage(
-        error,
-        'Falha desconhecida ao cancelar a NFS-e substituída.',
-      );
-      return this.prisma.db.invoice.update({
-        where: { id: invoice.id },
-        data: {
-          nfseRejectionReason: `NFS-e nova emitida (chave ${resultadoNova.response.chaveAcesso}), mas o cancelamento da anterior (chave ${chaveAntiga}) falhou: ${mensagem}. A antiga continua tecnicamente ativa na SEFIN -- repita a substituição ou cancele a chave antiga manualmente.`,
-        },
-        include: { lines: true },
-      });
-    }
-
-    return this.prisma.db.invoice.update({
-      where: { id: invoice.id },
-      data: { nfseJustificativaCancelamento: input.justificativa },
       include: { lines: true },
     });
   }

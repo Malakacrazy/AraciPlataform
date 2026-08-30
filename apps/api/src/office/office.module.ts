@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ErpModule } from '../erp/erp.module';
 import { CrmModule } from '../crm/crm.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -19,8 +19,14 @@ import { BrokenLinkCheckCron } from './broken-link-check.cron';
   // ErpModule para ProjectsService, CrmModule para ClientsService — só
   // pra validar que o Project/Client alvo existe e pertence à conta antes
   // de gravar o vínculo, mesmo padrão de AreasService/PhasesService.
-  // NotificationsModule é só pro BrokenLinkCheckCron.
-  imports: [ErpModule, CrmModule, NotificationsModule],
+  // NotificationsModule é só pro BrokenLinkCheckCron. forwardRef nos
+  // dois (Erp e Crm): ErpModule passou a importar OfficeModule de volta
+  // (NfseService arquiva XML fiscal no Drive), o que fecha um ciclo de
+  // TRÊS módulos com o CrmModule no meio (Erp -> Office -> Crm -> Erp),
+  // não só a aresta direta Erp<->Office -- ver o comentário em
+  // crm.module.ts pro erro real de boot que isso causou sem o forwardRef
+  // aqui também.
+  imports: [forwardRef(() => ErpModule), forwardRef(() => CrmModule), NotificationsModule],
   controllers: [
     ProjectOfficeLinksController,
     ClientOfficeLinksController,

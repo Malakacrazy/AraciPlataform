@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ErpModule } from '../erp/erp.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ClientsController } from './clients.controller';
@@ -18,7 +18,17 @@ import { LeadsService } from './leads.service';
   // mudou pra ErpModule quando InvoicesService passou a precisar dela;
   // ver comentário em erp.module.ts); NotificationsModule para avisar a
   // equipe quando o cliente assina uma proposta via ZapSign.
-  imports: [ErpModule, NotificationsModule],
+  //
+  // forwardRef achado NA PRÁTICA (não por precaução): ErpModule passou a
+  // importar OfficeModule (NfseService arquiva XML no Drive), e
+  // OfficeModule já importava tanto ErpModule quanto CrmModule sem
+  // forwardRef nenhum -- isso fecha um ciclo de TRÊS módulos (Erp ->
+  // Office -> Crm -> Erp), não só o de dois que erp.module.ts/
+  // office.module.ts documentam. `npm run dev` bootando de verdade
+  // acusou "UndefinedModuleException: module at index [1] of the
+  // OfficeModule imports array is undefined" -- forwardRef só na aresta
+  // Erp<->Office não bastava, precisou nesta também.
+  imports: [forwardRef(() => ErpModule), NotificationsModule],
   controllers: [
     ClientsController,
     OpportunitiesController,
