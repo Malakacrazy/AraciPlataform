@@ -16,6 +16,7 @@ import {
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { AdminOnly } from '../auth/admin-only.decorator';
 
 @Controller('v1/absences')
 export class AbsencesController {
@@ -30,6 +31,11 @@ export class AbsencesController {
     return { data };
   }
 
+  // @AdminOnly() em create/remove -- AbsencesService já documenta "mesmo
+  // raciocínio de AllocationsService.createAllocation", mas a trava nunca
+  // tinha sido posta aqui (achado real de revisão): qualquer staff
+  // conseguia marcar/apagar a ausência de outra pessoa pela API.
+  @AdminOnly()
   @Post()
   @HttpCode(201)
   async create(
@@ -40,6 +46,7 @@ export class AbsencesController {
     return { data };
   }
 
+  @AdminOnly()
   @Delete(':id')
   @HttpCode(204)
   async remove(

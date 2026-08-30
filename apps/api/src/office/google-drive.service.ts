@@ -53,7 +53,14 @@ export class GoogleDriveService {
   // novo depois de uma fase nova ser contratada só cria o que falta, não
   // duplica a árvore inteira. Só fases contratadas ganham pasta -- a
   // mesma regra de negócio que já vale pro faturamento por fase.
-  async ensureProjectFolderTree(accountId: string, projectId: string) {
+  // accessToken opcional -- achado real de revisão: archiveFiscalXml
+  // sempre precisa de um token pro upload em si, então resolvê-lo de novo
+  // aqui dentro (quando a árvore de pastas precisa ser criada) duplicava
+  // a consulta de admin/credencial e um possível refresh de OAuth.
+  // Chamadores que já têm um token resolvido (archiveFiscalXml) passam o
+  // deles; os demais (ensureProjectFolderTree chamado direto do
+  // controller) continuam resolvendo por conta própria, como antes.
+  async ensureProjectFolderTree(accountId: string, projectId: string, accessToken?: string) {
     const project = await this.prisma.db.project.findFirst({
       where: { id: projectId, accountId },
       include: { phases: { where: { contracted: true }, orderBy: { order: 'asc' } } },
@@ -79,12 +86,12 @@ export class GoogleDriveService {
       return existingFolders;
     }
 
-    const accessToken = await this.resolveDriveAccessToken(accountId);
+    const token = accessToken ?? (await this.resolveDriveAccessToken(accountId));
     const created: (typeof existingFolders)[number][] = [];
 
     let root = existingRoot;
     if (!root) {
-      const folder = await this.driveClient.createFolder(accessToken, project.name);
+      const folder = await this.driveClient.createFolder(token, project.name);
       root = await this.prisma.db.officeLink.create({
         data: {
           accountId,
@@ -102,7 +109,7 @@ export class GoogleDriveService {
 
     for (const phase of missingPhases) {
       const label = STAGE_LABELS[phase.stage] ?? phase.stage;
-      const folder = await this.driveClient.createFolder(accessToken, label, root.externalId);
+      const folder = await this.driveClient.createFolder(token, label, root.externalId);
       const link = await this.prisma.db.officeLink.create({
         data: {
           accountId,
@@ -171,13 +178,17 @@ export class GoogleDriveService {
   // registrar) -- este método não sabe nem precisa saber que existe uma
   // Invoice do outro lado.
   async archiveFiscalXml(accountId: string, projectId: string, fileName: string, xmlContent: string) {
-    const folders = await this.ensureProjectFolderTree(accountId, projectId);
+    // Resolvido uma vez só e repassado pra ensureProjectFolderTree -- ver
+    // comentário lá; esta chamada sempre precisa do token pro upload,
+    // então deixar ensureProjectFolderTree resolver de novo por conta
+    // própria dobrava a consulta de admin/credencial sem necessidade.
+    const accessToken = await this.resolveDriveAccessToken(accountId);
+    const folders = await this.ensureProjectFolderTree(accountId, projectId, accessToken);
     const root = folders.find((f) => f.documentType === 'pasta_projeto');
     if (!root) {
       throw new Error('Pasta raiz do projeto não encontrada/criada no Drive.');
     }
 
-    const accessToken = await this.resolveDriveAccessToken(accountId);
     const file = await this.driveClient.uploadFile(
       accessToken,
       root.externalId,

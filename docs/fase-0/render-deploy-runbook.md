@@ -230,9 +230,14 @@ que a connection string específica do Supabase (SSL, porta direta
   contradizendo o próprio propósito dele). Primeiro request depois de
   15min ocioso paga ~1min de cold start; isso é esperado, não bug.
 - **`araci-fiscal-xml` (disco de 1GB) continua declarado sem uso real**
-  — nada em `apps/api/src` escreve em `/data/fiscal` hoje. Mantido por
-  decisão do usuário pra uma feature futura de arquivamento de XML
-  fiscal assinado, não por necessidade atual.
+  — nada em `apps/api/src` escreve em `/data/fiscal`. A feature de
+  arquivamento de XML fiscal assinado **já foi implementada** (ver
+  `roadmap-atualizado.md`, seção "Arquivamento do XML fiscal no Drive +
+  redesenho da substituição de NFS-e"), mas deliberadamente **não usa
+  este disco** — reaproveita o Drive via `GoogleDriveService`, porque o
+  disco do Render é efêmero (some no redeploy) e o Drive já tem o
+  pipeline de pastas por projeto. O disco continua declarado por decisão
+  do usuário ("posso usar depois"), não por essa feature.
 - **Nada aqui foi executado contra o Render de verdade** — as duas
   imagens constroem localmente e estão sem segredos dentro, mas o
   blueprint em si (nomes de campo, `fromService`, `secretFiles`, e a

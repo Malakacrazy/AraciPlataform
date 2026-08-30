@@ -128,7 +128,11 @@ export class OfficeLinksService {
       where: { id },
       data: {
         documentType: input.documentType,
-        phaseId: input.phaseId,
+        // "" (limpa o vínculo, ver doc do schema acima) precisa virar
+        // null antes do Prisma -- achado real de revisão: phaseId é FK de
+        // verdade pra ProjectPhase.id, e "" nunca bate com nenhuma linha,
+        // então ia direto pra uma violação de FK em vez de desvincular.
+        phaseId: input.phaseId === '' ? null : input.phaseId,
         visibleToClient: input.visibleToClient,
       },
     });

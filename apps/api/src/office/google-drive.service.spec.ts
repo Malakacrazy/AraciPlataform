@@ -348,6 +348,65 @@ describe('GoogleDriveService — documentos visíveis ao cliente (item "grande" 
   });
 });
 
+describe('GoogleDriveService.archiveFiscalXml (arquivamento do XML fiscal, ver NfseService)', () => {
+  const project = { id: 'proj-1', accountId: 'acc-1', name: 'Apto Vila Madalena', phases: [] };
+  const admins = [{ id: 'user-1', accountId: 'acc-1' }];
+  const credentials = [{ userId: 'user-1', scope: DRIVE_FILE_SCOPE }];
+
+  it('sobe o XML pra pasta raiz do projeto e grava um OfficeLink interno (nfse, visibleToClient false)', async () => {
+    const drive = new FakeDriveClient();
+    const prisma = createFakePrisma({ project, admins, credentials });
+    const credentialsService = { getAccessToken: async () => 'fake-access-token' } as any;
+    const service = new GoogleDriveService(prisma as any, credentialsService, drive);
+
+    const link: any = await service.archiveFiscalXml('acc-1', 'proj-1', 'NFS-e 123.xml', '<xml/>');
+
+    expect(drive.uploadedFiles).toHaveLength(1);
+    expect(drive.uploadedFiles[0].fileName).toBe('NFS-e 123.xml');
+    expect(drive.uploadedFiles[0].content.toString('utf-8')).toBe('<xml/>');
+    expect(link.documentType).toBe('nfse');
+    expect(link.visibleToClient).toBe(false);
+  });
+
+  // Achado real de revisão: archiveFiscalXml resolvia o access token uma
+  // vez pra si e ensureProjectFolderTree resolvia de novo por conta
+  // própria quando a pasta raiz ainda não existia -- duas consultas de
+  // admin/credencial (e um possível refresh de OAuth) pra uma única
+  // chamada.
+  it('resolve o access token uma única vez, mesmo quando a pasta raiz do projeto ainda não existe', async () => {
+    const drive = new FakeDriveClient();
+    const prisma = createFakePrisma({ project, admins, credentials });
+    let tokenCalls = 0;
+    const credentialsService = {
+      getAccessToken: async () => {
+        tokenCalls++;
+        return 'fake-access-token';
+      },
+    } as any;
+    const service = new GoogleDriveService(prisma as any, credentialsService, drive);
+
+    await service.archiveFiscalXml('acc-1', 'proj-1', 'NFS-e 123.xml', '<xml/>');
+
+    expect(tokenCalls).toBe(1);
+    expect(drive.createdFolders).toHaveLength(1); // só a pasta raiz -- projeto sem fase contratada
+  });
+
+  // Contrato desta camada: propaga o erro, não engole. Quem decide "nunca
+  // bloquear a ação fiscal" é NfseService.archiveXmlBestEffort, uma
+  // camada acima -- ver nfse.service.spec.ts.
+  it('propaga o erro quando o upload falha no Drive, em vez de engolir', async () => {
+    const drive = new FakeDriveClient();
+    drive.uploadShouldFail = true;
+    const prisma = createFakePrisma({ project, admins, credentials });
+    const credentialsService = { getAccessToken: async () => 'fake-access-token' } as any;
+    const service = new GoogleDriveService(prisma as any, credentialsService, drive);
+
+    await expect(
+      service.archiveFiscalXml('acc-1', 'proj-1', 'NFS-e 123.xml', '<xml/>'),
+    ).rejects.toThrow('Falha simulada de upload pro Drive.');
+  });
+});
+
 describe('GoogleDriveService.listRevisions (item "versionamento" adiado na rodada de gestão documental)', () => {
   const admins = [{ id: 'user-1', accountId: 'acc-1' }];
   const credentials = [{ userId: 'user-1', scope: DRIVE_FILE_SCOPE }];

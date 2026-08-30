@@ -22,11 +22,21 @@ import { AdminOnly } from '../auth/admin-only.decorator';
 export class AllocationsController {
   constructor(private readonly allocationsService: AllocationsService) {}
 
+  // Mesmo redactCost de UsersController -- achado real de revisão: esta
+  // lista embute o User inteiro (alloc.user), então costPerHour vazava
+  // pra qualquer staff mesmo já sendo removido em /v1/users. create/
+  // remove não precisam disto (já são @AdminOnly() abaixo).
+  private redactCost<T extends { user?: { costPerHour?: unknown } }>(alloc: T, accessLevel: string): T {
+    if (accessLevel === 'admin' || !alloc.user) return alloc;
+    return { ...alloc, user: { ...alloc.user, costPerHour: undefined } };
+  }
+
   // Sem @AdminOnly() aqui -- é a agenda compartilhada do time (tela de
-  // planejamento), qualquer staff pode ver quem está alocado onde.
+  // planejamento), qualquer staff pode ver quem está alocado onde. O
+  // custo/hora em si continua redigido pra quem não é admin (redactCost).
   @Get()
   async list(
-    @SessionAccount() { accountId }: SessionAccountType,
+    @SessionAccount() { accountId, accessLevel }: SessionAccountType,
     @Query('userId') userId?: string,
     @Query('projectId') projectId?: string,
   ) {
@@ -34,7 +44,7 @@ export class AllocationsController {
       userId,
       projectId,
     });
-    return { data };
+    return { data: data.map((a) => this.redactCost(a, accessLevel)) };
   }
 
   // @AdminOnly() em create/remove -- AllocationsService.createAllocation

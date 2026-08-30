@@ -9,6 +9,7 @@ import {
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { AdminOnly } from '../auth/admin-only.decorator';
 
 @Controller('v1/projects/:projectId/phases')
 export class PhasesController {
@@ -41,6 +42,11 @@ export class PhasesController {
   // (ordem sequencial, canal válido) antes de gravar. 200, não 201 (Nest
   // usa 201 como padrão para POST, mas isto muta uma fase existente, não
   // cria um recurso novo).
+  // @AdminOnly() -- achado real de revisão: faltava aqui, e aprovar um
+  // gate destrava faturamento do estágio (Invoice.phaseId) e o início do
+  // próximo estágio no PEP; mesma classe de decisão gerencial que já é
+  // @AdminOnly() em AllocationsController/AbsencesController.
+  @AdminOnly()
   @Post(':phaseId/approve')
   @HttpCode(200)
   async approve(

@@ -94,6 +94,22 @@ export class TimeEntriesService {
   ) {
     const entry = await this.getTimeEntry(accountId, id);
     this.assertNotApproved(entry);
+    // Achado real de revisão: faltava aqui a mesma checagem de
+    // createTimeEntry -- sem isso, um projectId/phaseId de OUTRA conta
+    // passava direto (Prisma só confere que a FK existe, não o tenant),
+    // movendo o lançamento pra fora da conta original.
+    const projectId = input.projectId ?? entry.projectId;
+    if (input.projectId) {
+      await this.projectsService.getProject(accountId, input.projectId);
+    }
+    if (input.phaseId) {
+      const phase = await this.prisma.db.projectPhase.findFirst({
+        where: { id: input.phaseId, projectId },
+      });
+      if (!phase) {
+        throw new NotFoundError('Fase do projeto');
+      }
+    }
     return this.prisma.db.timeEntry.update({
       where: { id },
       data: { ...input, date: input.date ? new Date(input.date) : undefined },

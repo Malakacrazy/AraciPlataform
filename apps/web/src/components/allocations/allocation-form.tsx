@@ -64,7 +64,7 @@ export function AllocationForm({
         if (a.matchesSpecialty !== b.matchesSpecialty) return a.matchesSpecialty ? -1 : 1;
         return b.availableHours - a.availableHours;
       });
-  }, [users, allocationsByUser, startDate, endDate, specialtyQuery]);
+  }, [users, allocationsByUser, absencesByUser, startDate, endDate, specialtyQuery]);
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
