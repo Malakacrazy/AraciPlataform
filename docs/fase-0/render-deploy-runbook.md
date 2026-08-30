@@ -26,11 +26,18 @@ credenciais da sua conta, e nenhuma deveria ser.
 | `RESEND_API_KEY` | Painel Resend |
 | `LOGTO_ENDPOINT` / `APP_ID` / `APP_SECRET` | Console Logto → seu app |
 | `NEXT_PUBLIC_SUPABASE_URL` / `ANON_KEY` / `SUPABASE_JWT_SECRET` | Supabase → Settings → API |
+| `DATABASE_URL` (connection string DIRETA, porta 5432) | Supabase → Settings → Database → Connection string |
 | DSN do Sentry (opcional) | sentry.io → Client Keys |
 
-> **Banco**: o `render.yaml` declara um Postgres gerenciado do próprio
-> Render (`araci-postgres`). Se você preferir o Prisma Postgres, veja
-> "Variante: banco externo" no fim.
+> **Banco**: decisão consciente de custo — o `render.yaml` **não**
+> provisiona Postgres do Render. Usa o Postgres do MESMO projeto
+> Supabase já configurado pro Realtime do quadro (você já tem a conta;
+> ver comentário no topo do `render.yaml` pro raciocínio completo:
+> ~$20/mês rodando tudo no Render vira ~$7/mês, só o `araci-api`, que é
+> o único custo que não tem como evitar — serviço privado não tem
+> instância grátis no Render). Pegue a connection string **direta**
+> (porta 5432), não o pooler (6543) — o pooler é ajustado pra conexão
+> curta/serverless, e `apps/api` é processo de vida longa.
 
 ---
 
@@ -38,8 +45,9 @@ credenciais da sua conta, e nenhuma deveria ser.
 
 1. Render → **New** → **Blueprint**.
 2. Conecte o repositório `Malakacrazy/AraciPlataform`, branch `main`.
-3. O Render lê o `render.yaml` e propõe **3 recursos**: `araci-postgres`
-   (banco), `araci-api` (privado, sem domínio) e `araci-web` (público).
+3. O Render lê o `render.yaml` e propõe **2 recursos**: `araci-api`
+   (privado, sem domínio) e `araci-web` (público). Sem banco — o
+   `DATABASE_URL` do Supabase entra como segredo no passo 2.
 4. **Não confirme ainda** — ele vai pedir os valores marcados
    `sync: false` (passo 2).
 
@@ -47,7 +55,8 @@ credenciais da sua conta, e nenhuma deveria ser.
 
 ## 2. Segredos que você digita (`sync: false`)
 
-**`araci-api`** — `ALLOWED_EMAILS`, `GOOGLE_CLIENT_ID`,
+**`araci-api`** — `DATABASE_URL` (Supabase, connection string direta),
+`ALLOWED_EMAILS`, `GOOGLE_CLIENT_ID`,
 `GOOGLE_CLIENT_SECRET`, `NFSE_CERTIFICATE_PASSWORD`,
 `NFSE_CERTIFICATE_CPFCNPJ`, `ASAAS_API_KEY`,
 `ZAPSIGN_PRODUCTION_API_TOKEN`, `RESEND_API_KEY`, `SENTRY_DSN`
@@ -107,10 +116,12 @@ presentes.)
    `https://<seu-dominio>/api/google/callback`.
 5. **Logto** → adicione o redirect URI:
    `https://<seu-dominio>/api/quadro/callback`.
-6. **Supabase** → no projeto que produção usa, aplique
-   `docs/fase-0/supabase-realtime-policy.sql` (SQL Editor). É estado do
-   banco, **não viaja com o repositório** — sem isso o quadro sobe sem
-   sincronização ao vivo.
+6. **Supabase** → nada a fazer aqui: é o MESMO projeto já usado em
+   desenvolvimento (mesma URL/anon key, ver passo 0), e a policy de
+   `docs/fase-0/supabase-realtime-policy.sql` já foi aplicada e
+   verificada nele nesta sessão. Só reaplique se um dia migrar pra um
+   projeto Supabase diferente — é estado do banco, não viaja com o
+   repositório.
 7. **Webhooks** — leia os valores gerados no painel do `araci-api` e
    configure nos provedores:
    - Asaas → `https://<seu-dominio>/api/webhooks/asaas`, header
@@ -162,20 +173,16 @@ verdade**. Resultado:
 - **Rota pública de apresentação com token inválido → 404**, não 500.
 
 Ou seja: se algo falhar no Render, o suspeito **não** é o build das
-imagens, a conexão com o banco, a migração nem a comunicação entre os
-serviços — tudo isso já rodou. Olhe primeiro pro passo 3 (build args) e
-pro passo 4 (o que não viaja com o repositório: policy do Supabase, URIs
-de redirect, URLs de webhook).
+imagens, a migração nem a comunicação entre os serviços — tudo isso já
+rodou. Olhe primeiro pro passo 3 (build args) e pro passo 4 (o que não
+viaja com o repositório: URIs de redirect, URLs de webhook).
 
----
-
-## Variante: banco externo (Prisma Postgres etc.)
-
-O `render.yaml` cria um Postgres do Render e injeta `DATABASE_URL` via
-`fromDatabase`. Pra usar outro banco: remova o bloco `databases:` e a
-referência `fromDatabase` no `araci-api`, e declare `DATABASE_URL` como
-`sync: false`, colando a connection string. O resto não muda —
-`prisma migrate deploy` roda igual no `preDeployCommand`.
+**Ressalva honesta**: o Postgres usado nesse teste local foi um
+`postgres:16-alpine` genérico em Docker, não o Supabase de verdade —
+prova que a imagem/migração/app funcionam contra Postgres padrão, não
+que a connection string específica do Supabase (SSL, porta direta
+5432) já foi testada de ponta a ponta. Primeira coisa a conferir se
+`araci-api` não subir: o log dele ao tentar conectar.
 
 ---
 
@@ -203,11 +210,28 @@ referência `fromDatabase` no `araci-api`, e declare `DATABASE_URL` como
 - **Cuidado ao mexer no estágio final**: `openssl`/`ca-certificates` são
   instalados explicitamente ali. No estágio único o `libssl.so.3` vinha
   de carona com o toolchain; sem ele o motor do Prisma cai pra
-  `openssl-1.1.x` em Debian 12 e a conexão com o Postgres do Render (que
-  exige SSL) pode quebrar — e isso NÃO aparece em build, boot nem
-  smoke test, só comparando os avisos do `prisma migrate` entre as duas
-  imagens. Não remova aquelas duas linhas achando que são supérfluas.
+  `openssl-1.1.x` em Debian 12 e a conexão com o Postgres (que exige
+  SSL, seja Render ou Supabase) pode quebrar — e isso NÃO aparece em
+  build, boot nem smoke test, só comparando os avisos do
+  `prisma migrate` entre as duas imagens. Não remova aquelas duas linhas
+  achando que são supérfluas.
+- **`araci-web` no plano `free`**: `healthCheckPath: /api/health` fica
+  declarado mesmo assim (é o que o Render usa pra saber que o deploy
+  subiu com sucesso), mas não achei confirmação oficial de que esse
+  ping específico da plataforma impede a hibernação por inatividade —
+  assumindo que não impede (senão o free tier não hibernaria nunca,
+  contradizendo o próprio propósito dele). Primeiro request depois de
+  15min ocioso paga ~1min de cold start; isso é esperado, não bug.
+- **`araci-fiscal-xml` (disco de 1GB) continua declarado sem uso real**
+  — nada em `apps/api/src` escreve em `/data/fiscal` hoje. Mantido por
+  decisão do usuário pra uma feature futura de arquivamento de XML
+  fiscal assinado, não por necessidade atual.
 - **Nada aqui foi executado contra o Render de verdade** — as duas
   imagens constroem localmente e estão sem segredos dentro, mas o
-  blueprint em si (nomes de campo, `fromService`, `secretFiles`) só é
-  validado de fato no primeiro `Apply`.
+  blueprint em si (nomes de campo, `fromService`, `secretFiles`, e a
+  ausência do bloco `databases:` que nunca foi testada) só é validado de
+  fato no primeiro `Apply`.
+- **Conexão com o Supabase Postgres em si não foi testada.** O e2e local
+  usou um `postgres:16-alpine` genérico, não o Supabase real (que exige
+  SSL e tem dois modos de connection string, direto vs pooler) — ver
+  ressalva na seção anterior.
