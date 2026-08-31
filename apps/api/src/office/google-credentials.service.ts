@@ -70,9 +70,15 @@ export class GoogleCredentialsService {
         iv: credential.refreshTokenIv,
         tag: credential.refreshTokenTag,
       });
-      const res = await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(refreshToken)}`, {
+      // Achado A37 da auditoria de 30 ago 2026: o token ia na query string
+      // (mesmo mandando Content-Type urlencoded, o corpo ficava vazio) --
+      // query string é o lugar mais provável de um segredo de longa
+      // duração acabar registrado (proxy de saída, instrumentação HTTP do
+      // Sentry). No corpo, mesmo padrão já usado em getAccessToken acima.
+      const res = await fetch('https://oauth2.googleapis.com/revoke', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ token: refreshToken }),
       });
       if (!res.ok) {
         this.logger.warn(`Revogação no Google não confirmada (status ${res.status}) -- removendo credencial local mesmo assim.`);

@@ -26,9 +26,15 @@ export class AllocationsController {
   // lista embute o User inteiro (alloc.user), então costPerHour vazava
   // pra qualquer staff mesmo já sendo removido em /v1/users. create/
   // remove não precisam disto (já são @AdminOnly() abaixo).
-  private redactCost<T extends { user?: { costPerHour?: unknown } }>(alloc: T, accessLevel: string): T {
-    if (accessLevel === 'admin' || !alloc.user) return alloc;
-    return { ...alloc, user: { ...alloc.user, costPerHour: undefined } };
+  // Achado A47 da auditoria de 30 ago 2026: o mesmo include também
+  // vazava apiKeyHash (o redactCost original só tratava costPerHour) --
+  // redigido pra todo mundo, não só quem não é admin, porque não há
+  // motivo nenhum pra hash de chave de API atravessar esta tela pra
+  // ninguém (diferente de costPerHour, que admin legitimamente vê aqui).
+  private redactCost<T extends { user?: { costPerHour?: unknown; apiKeyHash?: unknown } }>(alloc: T, accessLevel: string): T {
+    if (!alloc.user) return alloc;
+    const user = accessLevel === 'admin' ? alloc.user : { ...alloc.user, costPerHour: undefined };
+    return { ...alloc, user: { ...user, apiKeyHash: undefined } };
   }
 
   // Sem @AdminOnly() aqui -- é a agenda compartilhada do time (tela de

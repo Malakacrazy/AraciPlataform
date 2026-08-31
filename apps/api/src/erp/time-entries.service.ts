@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service';
-import { ApiError, NotFoundError } from '../common/api-error';
+import { ApiError, NotFoundError, ForbiddenError } from '../common/api-error';
 import { ProjectsService } from './projects.service';
+import { RoleRatesService } from './role-rates.service';
+import { UsersService } from './users.service';
 
 export const timeEntryInputSchema = z.object({
   projectId: z.string().min(1),
@@ -20,6 +22,8 @@ export class TimeEntriesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly projectsService: ProjectsService,
+    private readonly roleRatesService: RoleRatesService,
+    private readonly usersService: UsersService,
   ) {}
 
   listTimeEntries(
@@ -87,12 +91,27 @@ export class TimeEntriesService {
     }
   }
 
+  // Achado A5 da auditoria de 30 ago 2026: sem isso, qualquer staff podia
+  // editar/apagar o lançamento de QUALQUER colega (a checagem antiga só
+  // olhava o tenant, nunca o dono) -- inclusive remover horas de outra
+  // pessoa antes que fossem aprovadas, ou inflar as próprias. Admin
+  // continua podendo mexer em qualquer lançamento (é quem vai aprovar
+  // e/ou corrigir erro de lançamento de outra pessoa).
+  private assertOwnerOrAdmin(entry: { userId: string }, callerUserId: string, callerAccessLevel: string) {
+    if (callerAccessLevel !== 'admin' && entry.userId !== callerUserId) {
+      throw new ForbiddenError('Você só pode alterar os próprios lançamentos de horas.');
+    }
+  }
+
   async updateTimeEntry(
     accountId: string,
     id: string,
+    callerUserId: string,
+    callerAccessLevel: string,
     input: Partial<TimeEntryInput>,
   ) {
     const entry = await this.getTimeEntry(accountId, id);
+    this.assertOwnerOrAdmin(entry, callerUserId, callerAccessLevel);
     this.assertNotApproved(entry);
     // Achado real de revisão: faltava aqui a mesma checagem de
     // createTimeEntry -- sem isso, um projectId/phaseId de OUTRA conta
@@ -110,14 +129,26 @@ export class TimeEntriesService {
         throw new NotFoundError('Fase do projeto');
       }
     }
+    // Achado A8: quando o projeto muda e nenhum phaseId novo vem junto, o
+    // spread de `input` abaixo não tocaria a coluna -- o lançamento ficava
+    // no projeto novo com o phaseId de uma fase do projeto ANTIGO
+    // (createHourlyInvoice hoje também escopa por projectId+phaseId, mas
+    // não custa nada não deixar o dado inconsistente gravado).
+    const clearStalePhase =
+      input.projectId !== undefined && input.projectId !== entry.projectId && input.phaseId === undefined;
     return this.prisma.db.timeEntry.update({
       where: { id },
-      data: { ...input, date: input.date ? new Date(input.date) : undefined },
+      data: {
+        ...input,
+        phaseId: clearStalePhase ? null : input.phaseId,
+        date: input.date ? new Date(input.date) : undefined,
+      },
     });
   }
 
-  async deleteTimeEntry(accountId: string, id: string) {
+  async deleteTimeEntry(accountId: string, id: string, callerUserId: string, callerAccessLevel: string) {
     const entry = await this.getTimeEntry(accountId, id);
+    this.assertOwnerOrAdmin(entry, callerUserId, callerAccessLevel);
     this.assertNotApproved(entry);
     await this.prisma.db.timeEntry.delete({ where: { id } });
   }
@@ -125,16 +156,36 @@ export class TimeEntriesService {
   // Aprovação de horas por gestor ou responsável antes do fechamento do
   // período (plano original, seção ERP Arquitetura). approverUserId é
   // quem está aprovando (o usuário autenticado fazendo a chamada), não
-  // quem lançou a hora.
+  // quem lançou a hora. @AdminOnly() no controller resolve o achado A5
+  // (qualquer staff podia se autoaprovar) -- deliberadamente SEM bloquear
+  // entry.userId === approverUserId: um estúdio de UMA pessoa (o caso
+  // real de hoje) tem o admin aprovando o próprio apontamento o tempo
+  // todo, e travar isso tornaria o faturamento por hora impossível pra
+  // esse operador único (a própria auditoria sinaliza essa correção
+  // "óbvia" como pior que o problema).
+  //
+  // Achado A7: congela a RoleRate do papel de quem lançou a hora NO
+  // MOMENTO da aprovação -- sem isso, faturar meses depois usa a tarifa
+  // de HOJE pra horas trabalhadas quando a tarifa era outra. Deixa null
+  // (sem bloquear a aprovação) se ainda não existe tarifa cadastrada pro
+  // papel -- o mesmo ROLE_RATE_MISSING de sempre aparece só na hora de
+  // faturar, não aqui.
   async approveTimeEntry(
     accountId: string,
     id: string,
     approverUserId: string,
   ) {
-    await this.getTimeEntry(accountId, id);
+    const entry = await this.getTimeEntry(accountId, id);
+    const owner = await this.usersService.getUser(accountId, entry.userId);
+    const roleRates = await this.roleRatesService.listRoleRates(accountId);
+    const rate = roleRates.find((r) => r.role === owner.role);
     return this.prisma.db.timeEntry.update({
       where: { id },
-      data: { approvedAt: new Date(), approvedById: approverUserId },
+      data: {
+        approvedAt: new Date(),
+        approvedById: approverUserId,
+        approvedHourlyRate: rate ? rate.hourlyRate : null,
+      },
     });
   }
 }

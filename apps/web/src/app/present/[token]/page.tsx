@@ -30,6 +30,14 @@ import { CollaborativeBoard } from "@/components/moodboards/collaborative-board"
 // disponível sem esperar o arquivo inteiro só pra decidir como mostrar.
 // Link puro (extensão desconhecida) cai no "other" -- mesmo
 // comportamento de antes desta prévia inline existir.
+// Achados A32/A45 da auditoria de 30 ago 2026: esta função é só um
+// palpite de UX (que tag mostrar) -- não é mais o que decide se o
+// conteúdo pode executar. PublicPresentationController.downloadDocument
+// agora normaliza o Content-Type numa allowlist e força
+// Content-Disposition: attachment pra qualquer coisa fora dela, então um
+// título "planta.pdf" cujo conteúdo real seja HTML aparece aqui como
+// iframe/PDF mas o navegador recebe application/octet-stream (não
+// executa, no máximo baixa um arquivo vazio-parecendo-quebrado).
 function previewKind(title: string): "pdf" | "image" | "other" {
   const lower = title.toLowerCase();
   if (lower.endsWith(".pdf")) return "pdf";
@@ -189,9 +197,6 @@ export default async function PresentationPage({
                         <p className="text-sm text-zinc-900 dark:text-zinc-50">
                           {spec.product.name} <span className="text-zinc-500 dark:text-zinc-400">× {spec.quantity}</span>
                         </p>
-                        {spec.product.supplier && (
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">{spec.product.supplier}</p>
-                        )}
                         {spec.unitPrice && (
                           <p className="mt-1 font-mono text-xs text-zinc-500 dark:text-zinc-400">
                             R$ {Number(spec.unitPrice).toLocaleString("pt-BR")}

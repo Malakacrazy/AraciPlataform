@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mintInternalToken } from "@/lib/internalToken";
+import { withScheme } from "@/lib/url";
 
 // BFF: toda a lógica de negócio (CRM/ERP/FF&E) vive em apps/api agora —
 // esta rota só verifica a sessão NextAuth real e encaminha para lá com um
@@ -7,7 +8,9 @@ import { mintInternalToken } from "@/lib/internalToken";
 // navegador diretamente; este é o único caminho. Ver docs/fase-0/ para o
 // desenho completo (por que BFF em vez de apps/api ter seu próprio
 // login, ou o navegador chamar apps/api direto).
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
+// withScheme (achado A12 da auditoria de 30 ago 2026): API_URL vem de
+// render.yaml fromService/hostport, sem protocolo.
+const API_URL = withScheme(process.env.API_URL ?? "http://localhost:3001");
 
 async function proxy(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   const token = await mintInternalToken();

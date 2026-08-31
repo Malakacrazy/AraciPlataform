@@ -64,6 +64,15 @@ export class WhiteboardGuestsService {
     return { ...access, guest };
   }
 
+  // Achado A60 da auditoria de 30 ago 2026: apagar só o
+  // WhiteboardGuestAccess deixava a sessão de portal do convidado
+  // (WhiteboardGuestSession) viva -- força reautenticação via Logto na
+  // próxima vez que ele tentar abrir qualquer quadro, em vez de deixar a
+  // sessão de portal sobreviver à revogação. Não invalida sozinho o JWT
+  // do canal Realtime já emitido (bearer, independente desta tabela --
+  // ver TOKEN_TTL em supabaseBoardToken.ts, que é a defesa real contra
+  // isso), mas fecha o caminho HTTP do portal (get/snapshot/comentário)
+  // imediatamente em vez de só no próximo check per-request.
   async revoke(accountId: string, moodboardId: string, guestId: string) {
     await this.moodboardsService.getMoodboard(accountId, moodboardId);
     const access = await this.prisma.db.whiteboardGuestAccess.findUnique({
@@ -72,6 +81,9 @@ export class WhiteboardGuestsService {
     if (!access) {
       throw new NotFoundError('Acesso de convidado ao quadro');
     }
-    await this.prisma.db.whiteboardGuestAccess.delete({ where: { id: access.id } });
+    await this.prisma.db.$transaction([
+      this.prisma.db.whiteboardGuestAccess.delete({ where: { id: access.id } }),
+      this.prisma.db.whiteboardGuestSession.deleteMany({ where: { guestId } }),
+    ]);
   }
 }

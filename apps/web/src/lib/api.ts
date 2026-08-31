@@ -1,4 +1,5 @@
 import { mintInternalToken } from "./internalToken";
+import { withScheme } from "./url";
 
 // Helper de servidor (Server Components, Server Actions) para chamar
 // apps/api direto, sem o hop HTTP de um Server Component chamando sua
@@ -7,7 +8,9 @@ import { mintInternalToken } from "./internalToken";
 // que route.ts usa — mesma verificação de sessão, mesmo segredo, mesmo
 // formato de token; só evita duplicar a chamada em route.ts, que fica
 // intacta para o caminho navegador → proxy BFF → apps/api.
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
+// withScheme (achado A12): API_URL vem de render.yaml fromService/
+// hostport, sem protocolo.
+const API_URL = withScheme(process.env.API_URL ?? "http://localhost:3001");
 
 export class ApiError extends Error {
   constructor(

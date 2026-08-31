@@ -26,7 +26,7 @@ credenciais da sua conta, e nenhuma deveria ser.
 | `RESEND_API_KEY` | Painel Resend |
 | `LOGTO_ENDPOINT` / `APP_ID` / `APP_SECRET` | Console Logto → seu app |
 | `NEXT_PUBLIC_SUPABASE_URL` / `ANON_KEY` / `SUPABASE_JWT_SECRET` | Supabase → Settings → API |
-| `DATABASE_URL` (connection string DIRETA, porta 5432) | Supabase → Settings → Database → Connection string |
+| `DATABASE_URL` (connection string do POOLER, porta 6543, `?sslmode=require`) | Supabase → Settings → Database → Connection string |
 | DSN do Sentry (opcional) | sentry.io → Client Keys |
 
 > **Banco**: decisão consciente de custo — o `render.yaml` **não**
@@ -35,9 +35,51 @@ credenciais da sua conta, e nenhuma deveria ser.
 > ver comentário no topo do `render.yaml` pro raciocínio completo:
 > ~$20/mês rodando tudo no Render vira ~$7/mês, só o `araci-api`, que é
 > o único custo que não tem como evitar — serviço privado não tem
-> instância grátis no Render). Pegue a connection string **direta**
-> (porta 5432), não o pooler (6543) — o pooler é ajustado pra conexão
-> curta/serverless, e `apps/api` é processo de vida longa.
+> instância grátis no Render).
+>
+> **Correção (achados A11/A15 da auditoria de 30 ago 2026,
+> `docs/auditoria-2026-08-30-detalhada.md`)** -- esta seção dizia antes
+> pra usar a connection string DIRETA (porta 5432), não o pooler (6543),
+> com a justificativa de que "o pooler conflita com prepared statements
+> do Prisma". Duas coisas erradas nisso:
+> 1. Essa justificativa é sobre o ENGINE Rust do Prisma -- este projeto
+>    usa `@prisma/adapter-pg` (node-postgres), que não tem esse
+>    conflito com o Supavisor em modo transação.
+> 2. O endpoint direto (`db.<ref>.supabase.co:5432`) só resolve em
+>    IPv6 sem o add-on IPv4 pago do Supabase, e a saída de rede do
+>    Render é IPv4 -- ou seja, a instrução antiga apontava pro caminho
+>    com MAIOR chance de simplesmente não conectar (`ETIMEDOUT`).
+>    Use o **pooler** (`aws-0-<região>.pooler.supabase.com:6543`) como
+>    conexão primária.
+> 3. **Sempre com `?sslmode=require` no final** -- `pg` (o driver por
+>    trás do adapter) tem `ssl: false` por padrão, e a string que o
+>    painel do Supabase entrega não traz `sslmode` nenhum. Sem isso, o
+>    tráfego entre Render e Supabase (senha do banco, e depois cada
+>    linha de Client/Invoice/GoogleCredential) vai sem criptografia,
+>    sem nenhum sinal de erro -- a aplicação funciona igual.
+>    `packages/db/src/index.ts` agora FALHA NO BOOT se `DATABASE_URL`
+>    for um host remoto sem `sslmode=`, então esquecer isso aqui já não
+>    passa despercebido.
+
+---
+
+## 0.5. Antes do primeiro Apply — backup do Supabase
+
+**Achado A18 da auditoria de 30 ago 2026** (`docs/auditoria-2026-08-30-detalhada.md`):
+o `preDeployCommand` (`npm run db:migrate:deploy`, passo 1 abaixo) aplica
+TODAS as migrações pendentes sem confirmação nenhuma, contra o MESMO
+projeto Supabase que você já usa em desenvolvimento (não um banco
+zerado). Pelo menos uma migração já mergeada faz `DROP TABLE` sem
+backfill (`MoodboardItem`, substituída por `Moodboard.snapshot`) --
+`prisma migrate deploy` não tem rollback. Antes de dar Apply pela
+primeira vez:
+
+1. Supabase → **Database → Backups** → confirme que existe um backup
+   recente (ou dispare um manual, se o plano permitir).
+2. Regra pra qualquer migração nova daqui pra frente: um `DROP TABLE`/
+   `DROP COLUMN` que perderia dado existente precisa de uma migração de
+   dados explícita ANTES do drop (copiar pro destino novo), não só o
+   drop direto -- mesmo que hoje o ambiente seja só de desenvolvimento.
 
 ---
 
@@ -55,7 +97,7 @@ credenciais da sua conta, e nenhuma deveria ser.
 
 ## 2. Segredos que você digita (`sync: false`)
 
-**`araci-api`** — `DATABASE_URL` (Supabase, connection string direta),
+**`araci-api`** — `DATABASE_URL` (Supabase, connection string do pooler + `?sslmode=require`),
 `ALLOWED_EMAILS`, `GOOGLE_CLIENT_ID`,
 `GOOGLE_CLIENT_SECRET`, `NFSE_CERTIFICATE_PASSWORD`,
 `NFSE_CERTIFICATE_CPFCNPJ`, `ASAAS_API_KEY`,
@@ -116,12 +158,23 @@ presentes.)
    `https://<seu-dominio>/api/google/callback`.
 5. **Logto** → adicione o redirect URI:
    `https://<seu-dominio>/api/quadro/callback`.
-6. **Supabase** → nada a fazer aqui: é o MESMO projeto já usado em
-   desenvolvimento (mesma URL/anon key, ver passo 0), e a policy de
+6. **Supabase** → é o MESMO projeto já usado em desenvolvimento (mesma
+   URL/anon key, ver passo 0), e a policy de
    `docs/fase-0/supabase-realtime-policy.sql` já foi aplicada e
-   verificada nele nesta sessão. Só reaplique se um dia migrar pra um
-   projeto Supabase diferente — é estado do banco, não viaja com o
-   repositório.
+   verificada nele nesta sessão -- só reaplique se um dia migrar pra um
+   projeto Supabase diferente (é estado do banco, não viaja com o
+   repositório). **Antes de ir pra produção de verdade**, resolva o
+   achado crítico A10 da auditoria de 30 ago 2026
+   (`docs/auditoria-2026-08-30-detalhada.md`):
+   1. Settings → API → **desligue a Data API** (`/rest/v1`) -- o código
+      nunca a usa, e é a correção mais barata e mais eficaz das quatro
+      abaixo.
+   2. Rode `docs/fase-0/supabase-rls-lockdown.sql` no SQL Editor (RLS +
+      REVOKE em toda tabela do schema `public`) -- defesa em
+      profundidade, não substitui o passo 1.
+   3. Considere separar o projeto Supabase do Realtime do quadro do
+      projeto que hospeda o schema da aplicação -- a `anon key` publicada
+      no bundle e os dados do estúdio hoje coabitam o mesmo projeto.
 7. **Webhooks** — leia os valores gerados no painel do `araci-api` e
    configure nos provedores:
    - Asaas → `https://<seu-dominio>/api/webhooks/asaas`, header
@@ -187,8 +240,8 @@ viaja com o repositório: URIs de redirect, URLs de webhook).
 **Ressalva honesta**: o Postgres usado nesse teste local foi um
 `postgres:16-alpine` genérico em Docker, não o Supabase de verdade —
 prova que a imagem/migração/app funcionam contra Postgres padrão, não
-que a connection string específica do Supabase (SSL, porta direta
-5432) já foi testada de ponta a ponta. Primeira coisa a conferir se
+que a connection string específica do Supabase (pooler, `sslmode=require`)
+já foi testada de ponta a ponta. Primeira coisa a conferir se
 `araci-api` não subir: o log dele ao tentar conectar.
 
 ---

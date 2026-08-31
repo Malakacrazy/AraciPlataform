@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotFoundError, ApiError } from '../common/api-error';
 import { StudioFixedCostsService } from './studio-fixed-costs.service';
 import { calcularOverheadPorHora, calcularTarifaHora } from '../crm/pricing';
+import { round2 } from '../common/money';
 
 // Duas formas válidas de preencher uma RoleRate: (a) hourlyRate direto
 // (ex.: freelancer com valor já fechado, sem salário/encargos que façam
@@ -121,13 +122,20 @@ export class RoleRatesService {
       billableHoursPerMonth: studioBillableHoursPerMonth,
     });
 
-    return calcularTarifaHora(
-      { role: '', ...compensation },
-      overheadPorHora,
-      {
-        marginTarget: Number(account.pricingMarginPercent),
-        taxBurden: Number(account.pricingTaxBurdenPercent),
-      },
+    // round2 na fronteira de escrita (achado A4 da auditoria de 30 ago
+    // 2026) -- sem isso, a fórmula devolve algo como 86.5138461538..., que
+    // se propaga sem arredondar até a Asaas (que normaliza sozinha, então
+    // o boleto diverge do valor exibido da fatura) e a NFS-e (vServ com
+    // mais de 2 casas é rejeitado pela SEFIN).
+    return round2(
+      calcularTarifaHora(
+        { role: '', ...compensation },
+        overheadPorHora,
+        {
+          marginTarget: Number(account.pricingMarginPercent),
+          taxBurden: Number(account.pricingTaxBurdenPercent),
+        },
+      ),
     );
   }
 

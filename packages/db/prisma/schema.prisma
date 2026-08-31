@@ -140,6 +140,11 @@ model StudioFixedCost {
   description   String
   monthlyAmount Decimal
   createdAt     DateTime @default(now())
+
+  // Achado do Apêndice B da auditoria de 30 ago 2026 ("Quase nenhuma FK
+  // tinha índice", reaberto nos models criados depois da varredura
+  // original): FK sem índice.
+  @@index([accountId])
 }
 
 // Hourly rate per role, already net of overhead/margin/tax (the output of
@@ -237,6 +242,7 @@ model User {
   notifications     Notification[]
   assignedTasks     Task[]
   googleCredential  GoogleCredential?
+  linkedOfficeLinks OfficeLink[]    @relation("OfficeLinkLinkedByUser")
 
   @@index([accountId])
 }
@@ -326,6 +332,10 @@ model ClientMagicLink {
   expiresAt  DateTime
   consumedAt DateTime?
   createdAt  DateTime  @default(now())
+
+  // Achado A55 da auditoria de 30 ago 2026: FK sem índice, e
+  // requestMagicLink faz deleteMany por clientId a cada pedido de link.
+  @@index([clientId])
 }
 
 // Sessão de cliente já autenticado (depois de consumir um
@@ -343,6 +353,9 @@ model ClientSession {
   token     String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
+
+  // Achado A55 da auditoria de 30 ago 2026: FK sem índice.
+  @@index([clientId])
 }
 
 // Lacuna da matriz ("colaboração com consultores externos") -- a própria
@@ -370,6 +383,9 @@ model ExternalCollaborator {
   projectAccess CollaboratorProjectAccess[]
   magicLinks    CollaboratorMagicLink[]
   sessions      CollaboratorSession[]
+
+  // Achado do Apêndice B da auditoria de 30 ago 2026: FK sem índice.
+  @@index([accountId])
 }
 
 // O convite em si -- criado por um admin (ver CollaboratorsService) ANTES
@@ -386,6 +402,10 @@ model CollaboratorProjectAccess {
   invitedAt      DateTime             @default(now())
 
   @@unique([collaboratorId, projectId])
+  // Achado do Apêndice B: o unique acima começa por collaboratorId, então
+  // não serve pra busca por projectId sozinho (CollaboratorsService.
+  // listForProject filtra só por ela).
+  @@index([projectId])
 }
 
 // Mesmo modelo exato de ClientMagicLink, só que pra ExternalCollaborator
@@ -403,6 +423,9 @@ model CollaboratorMagicLink {
   expiresAt      DateTime
   consumedAt     DateTime?
   createdAt      DateTime             @default(now())
+
+  // Achado do Apêndice B: FK sem índice.
+  @@index([collaboratorId])
 }
 
 // Mesmo modelo exato de ClientSession -- ver comentário lá e em
@@ -414,6 +437,9 @@ model CollaboratorSession {
   token          String               @unique
   expiresAt      DateTime
   createdAt      DateTime             @default(now())
+
+  // Achado do Apêndice B: FK sem índice.
+  @@index([collaboratorId])
 }
 
 // CRM: oportunidade no pipeline (kanban)
@@ -693,9 +719,26 @@ model TimeEntry {
   approvedAt   DateTime?
   approvedById String?
 
+  // Achados A2+A7 da auditoria de 30 ago 2026 (auditoria-2026-08-30-detalhada.md):
+  // invoiceId (em vez de reusar "uma fatura por fase" como o único
+  // invariante) é o que permite uma fatura COMPLEMENTAR no mesmo estágio
+  // quando horas são aprovadas depois do primeiro faturamento -- sem
+  // isso, essas horas ficavam permanentemente não faturáveis (guard
+  // PHASE_ALREADY_INVOICED barrava qualquer fatura nova pro mesmo
+  // phaseId). createHourlyInvoice agora seleciona por
+  // `invoiceId: null`, não mais só por phaseId (ver invoices.service.ts).
+  // approvedHourlyRate congela a tarifa do papel NO MOMENTO da aprovação
+  // -- sem isso, horas de meses atrás eram recalculadas pela tarifa de
+  // HOJE quando finalmente faturadas, mudando o valor cobrado do cliente
+  // depois do trabalho já feito.
+  invoiceId          String?
+  invoice            Invoice?  @relation(fields: [invoiceId], references: [id])
+  approvedHourlyRate Decimal?
+
   @@index([userId])
   @@index([projectId])
   @@index([phaseId])
+  @@index([invoiceId])
 }
 
 // Billing is per stage completed and approved (PEP §0, "Forma de
@@ -790,7 +833,13 @@ model Invoice {
   cstCbs     String? // Código de Situação Tributária da CBS
   cClassTrib String? // Código de Classificação Tributária
 
-  lines InvoiceLine[]
+  lines       InvoiceLine[]
+  // Reverso de TimeEntry.invoiceId (ver comentário lá) -- não é "a mesma
+  // coisa" que `lines`: lines é o resumo por papel gravado na criação da
+  // fatura (histórico, sobrevive mesmo que a TimeEntry original seja
+  // editada depois); timeEntries é o vínculo vivo usado só pra saber
+  // quais horas já foram consumidas por qual fatura.
+  timeEntries TimeEntry[]
 
   @@index([projectId])
   @@index([phaseId])
@@ -876,6 +925,9 @@ model ProductImage {
   url       String
   order     Int      @default(0)
   createdAt DateTime @default(now())
+
+  // Achado do Apêndice B: FK ON DELETE CASCADE sem índice.
+  @@index([productId])
 }
 
 // FF&E: linha do carrinho de compras — produto especificado em uma área,
@@ -893,6 +945,18 @@ model ProductSpecification {
   clientApproved Boolean  @default(false)
   clientComment  String?
   createdAt      DateTime @default(now())
+
+  // Achado A49 da auditoria de 30 ago 2026: clientApproved carregava dois
+  // significados ao mesmo tempo -- "o cliente aprovou pelo link público"
+  // E "já foi faturado" (approveCartToInvoiceDraft usava
+  // `clientApproved: false` como guarda de corrida do checkout). Como
+  // FfeCart filtra `!clientApproved` pro carrinho, um item aprovado pelo
+  // cliente sumia da lista de faturáveis PERMANENTEMENTE, mesmo sem
+  // nenhum Invoice ter sido gerado -- não existia caminho de UI de volta.
+  // invoicedAt separa os dois: clientApproved continua só "o cliente
+  // aprovou" (sinal pra equipe saber que pode faturar), invoicedAt é a
+  // guarda de corrida e o filtro real do carrinho.
+  invoicedAt DateTime?
 
   @@index([areaId])
   @@index([productId])
@@ -920,6 +984,11 @@ model Moodboard {
 
   guestAccess WhiteboardGuestAccess[]
   comments    MoodboardComment[]
+
+  // Achado A62 da auditoria de 30 ago 2026: a migration que criou este
+  // model reintroduziu o problema de FK sem índice que a varredura
+  // anterior tinha corrigido -- só criou índices UNIQUE, nenhum de FK.
+  @@index([projectId])
 }
 
 // Chat por prancha, ao lado do desenho ao vivo -- tldraw cobre o canvas,
@@ -942,6 +1011,11 @@ model MoodboardComment {
   authorName  String
   body        String
   createdAt   DateTime  @default(now())
+
+  // Achado A62: FK ON DELETE CASCADE sem índice -- cada listComments e
+  // cada apagar de prancha (resolução do cascade) varria a tabela
+  // inteira.
+  @@index([moodboardId])
 }
 
 // Nova audiência que não é staff (sem conta Google Workspace) nem o
@@ -965,6 +1039,9 @@ model WhiteboardGuest {
 
   access   WhiteboardGuestAccess[]
   sessions WhiteboardGuestSession[]
+
+  // Achado A62: FK sem índice.
+  @@index([accountId])
 }
 
 // O convite em si -- criado por um admin ANTES do convidado logar pela
@@ -981,6 +1058,10 @@ model WhiteboardGuestAccess {
   invitedAt   DateTime        @default(now())
 
   @@unique([guestId, moodboardId])
+  // Achado A62: o unique composto acima começa por guestId, então não
+  // serve pra busca por moodboardId sozinho (listForMoodboard/
+  // deleteMoodboard filtram por ela).
+  @@index([moodboardId])
 }
 
 // Sessão própria da plataforma, não o cookie/JWT do Logto em si --
@@ -997,6 +1078,9 @@ model WhiteboardGuestSession {
   token     String          @unique
   expiresAt DateTime
   createdAt DateTime        @default(now())
+
+  // Achado A62: FK sem índice.
+  @@index([guestId])
 }
 
 // Link de apresentação: dá a um cliente (sem login, sem conta) acesso de
@@ -1046,6 +1130,22 @@ model OfficeLink {
   phase           ProjectPhase? @relation(fields: [phaseId], references: [id])
   visibleToClient Boolean       @default(false)
 
+  // Achado A33 da auditoria de 30 ago 2026: a credencial de Drive é por
+  // (app, usuário, arquivo) no escopo drive.file -- um arquivo escolhido
+  // pelo Picker do usuário B não está na concessão do usuário A, então
+  // resolver "qualquer admin conectado" pra verificar/baixar um vínculo
+  // que outra pessoa criou faz o Drive responder 404 (sem grant) e o
+  // código confundir isso com "arquivo apagado de verdade". Guarda quem
+  // de fato criou o vínculo (nulo pra linhas antigas, migradas antes
+  // deste campo existir, e pra pastas/XML provisionados pelo servidor
+  // via ensureProjectFolderTree/archiveFiscalXml, cujo "dono" é só quem
+  // resolveu a credencial na hora, não uma pessoa específica que
+  // escolheu o arquivo) -- resolveDriveAccessToken passa a preferir a
+  // credencial desta pessoa antes de cair no fallback de "qualquer
+  // admin".
+  linkedByUserId String?
+  linkedByUser   User?   @relation("OfficeLinkLinkedByUser", fields: [linkedByUserId], references: [id])
+
   // Achado da auditoria: "hoje o link apodrece em silêncio" -- arquivo
   // movido/renomeado/excluído no Drive não derruba nada aqui, só some
   // silenciosamente do lado de lá. GoogleDriveService.checkBrokenLinks
@@ -1057,6 +1157,11 @@ model OfficeLink {
   lastCheckedAt DateTime?
 
   @@index([accountId, entityType, entityId])
+  // Achado A39 da auditoria de 30 ago 2026: FK criada sem índice, e é
+  // exatamente a coluna pela qual o checklist de documentos obrigatórios
+  // do gate consulta (phases.service.ts) -- sem isto era seq scan da
+  // tabela inteira a cada abertura de fase/tentativa de aprovar gate.
+  @@index([phaseId, brokenAt])
 }
 
 // Nota/atividade em texto livre anexada a Project, Client ou Opportunity
@@ -1075,6 +1180,14 @@ model Activity {
   author     User               @relation(fields: [authorId], references: [id])
   body       String
   createdAt  DateTime           @default(now())
+
+  // Achado A63 da auditoria de 30 ago 2026: collaborator-portal.service.ts
+  // devolvia TODA Activity de um projeto pro consultor externo, inclusive
+  // retroativa (escrita meses antes dele existir) e sem nenhum aviso pra
+  // quem escreve a nota de que ela sai do estúdio. Default false (opt-in
+  // explícito) segue o mesmo padrão de OfficeLink.visibleToClient --
+  // preserva o comportamento seguro pra todo o histórico já existente.
+  visibleToCollaborator Boolean @default(false)
 
   @@index([accountId, entityType, entityId])
 }

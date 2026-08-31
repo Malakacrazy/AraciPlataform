@@ -10,11 +10,14 @@ import { DRIVE_CLIENT, DRIVE_FILE_SCOPE, type DriveClient } from './google-drive
 // plataforma passa a ser dona só da árvore e dos metadados. A credencial
 // usada é a de sincronização (GoogleCredential, por USUÁRIO, ver
 // google-credentials.service.ts) -- não existe identidade "do estúdio"
-// no Google, então esta classe usa a credencial de QUALQUER admin da
-// conta que já conectou com escopo drive.file, a primeira que achar. Se
-// essa pessoa desconectar depois, quem provisionou não some (as pastas
-// já existem no Drive dela), só a próxima ação (nova pasta, checagem de
-// vínculo quebrado) passa a exigir outro admin conectado.
+// no Google. Achado A33 da auditoria de 30 ago 2026: drive.file é uma
+// concessão por (app, usuário, arquivo), então "qualquer admin
+// conectado" não enxerga o arquivo que outro admin escolheu -- cada
+// OfficeLink guarda quem de fato o criou (linkedByUserId) e
+// resolveDriveAccessToken prefere a credencial dessa pessoa; só cai no
+// "qualquer admin" (agora com orderBy determinístico) quando o vínculo
+// não tem dono conhecido (linhas antigas, ou pasta/XML cujo dono é só
+// quem resolveu a credencial na hora de criar).
 @Injectable()
 export class GoogleDriveService {
   constructor(
@@ -23,7 +26,26 @@ export class GoogleDriveService {
     @Inject(DRIVE_CLIENT) private readonly driveClient: DriveClient,
   ) {}
 
-  private async resolveDriveAccessToken(accountId: string): Promise<string> {
+  // Achado A33 da auditoria de 30 ago 2026: drive.file é uma concessão
+  // por (app, usuário, arquivo) -- a credencial de QUALQUER admin não
+  // enxerga o arquivo que outro admin escolheu pelo Picker. preferUserId
+  // (o linkedByUserId do vínculo, quando existe) faz a checagem de fato
+  // usar quem escolheu o arquivo; só cai no "qualquer admin" (com
+  // orderBy determinístico, sem depender de qual linha o Postgres decide
+  // devolver primeiro) quando não há um dono conhecido, ou a credencial
+  // dessa pessoa não existe mais.
+  private async resolveDriveAccessToken(
+    accountId: string,
+    preferUserId?: string | null,
+  ): Promise<{ accessToken: string; userId: string }> {
+    if (preferUserId) {
+      const preferred = await this.prisma.db.googleCredential.findFirst({
+        where: { userId: preferUserId, scope: { contains: DRIVE_FILE_SCOPE } },
+      });
+      if (preferred) {
+        return { accessToken: await this.googleCredentialsService.getAccessToken(preferred.userId), userId: preferred.userId };
+      }
+    }
     const admins = await this.prisma.db.user.findMany({
       where: { accountId, accessLevel: 'admin' },
       select: { id: true },
@@ -37,6 +59,7 @@ export class GoogleDriveService {
     }
     const credential = await this.prisma.db.googleCredential.findFirst({
       where: { userId: { in: admins.map((a) => a.id) }, scope: { contains: DRIVE_FILE_SCOPE } },
+      orderBy: { userId: 'asc' },
     });
     if (!credential) {
       throw new ApiError(
@@ -45,7 +68,7 @@ export class GoogleDriveService {
         422,
       );
     }
-    return this.googleCredentialsService.getAccessToken(credential.userId);
+    return { accessToken: await this.googleCredentialsService.getAccessToken(credential.userId), userId: credential.userId };
   }
 
   // Idempotente: reaproveita a pasta raiz e as pastas de fase que já
@@ -57,10 +80,14 @@ export class GoogleDriveService {
   // sempre precisa de um token pro upload em si, então resolvê-lo de novo
   // aqui dentro (quando a árvore de pastas precisa ser criada) duplicava
   // a consulta de admin/credencial e um possível refresh de OAuth.
-  // Chamadores que já têm um token resolvido (archiveFiscalXml) passam o
-  // deles; os demais (ensureProjectFolderTree chamado direto do
+  // Chamadores que já têm uma credencial resolvida (archiveFiscalXml)
+  // passam a deles; os demais (ensureProjectFolderTree chamado direto do
   // controller) continuam resolvendo por conta própria, como antes.
-  async ensureProjectFolderTree(accountId: string, projectId: string, accessToken?: string) {
+  async ensureProjectFolderTree(
+    accountId: string,
+    projectId: string,
+    resolved?: { accessToken: string; userId: string },
+  ) {
     const project = await this.prisma.db.project.findFirst({
       where: { id: projectId, accountId },
       include: { phases: { where: { contracted: true }, orderBy: { order: 'asc' } } },
@@ -86,47 +113,100 @@ export class GoogleDriveService {
       return existingFolders;
     }
 
-    const token = accessToken ?? (await this.resolveDriveAccessToken(accountId));
+    const { accessToken: token, userId: linkedByUserId } = resolved ?? (await this.resolveDriveAccessToken(accountId));
     const created: (typeof existingFolders)[number][] = [];
 
+    // Achado A36 da auditoria de 30 ago 2026: duas chamadas concorrentes
+    // (duplo clique, dois membros da equipe) liam o mesmo estado "sem
+    // pasta raiz" e ambas chamavam createFolder -- sem transação nem
+    // constraint, duas pastas raiz nasciam no Drive. O índice único
+    // parcial da migration (OfficeLink_unique_pasta_projeto/_pasta_fase)
+    // faz a SEGUNDA gravação estourar P2002 em vez de duplicar; aqui só
+    // trata isso como "outro processo já criou", relendo o que existe.
     let root = existingRoot;
     if (!root) {
       const folder = await this.driveClient.createFolder(token, project.name);
-      root = await this.prisma.db.officeLink.create({
-        data: {
-          accountId,
-          entityType: 'PROJECT',
-          entityId: projectId,
-          provider: 'DRIVE',
-          externalId: folder.id,
-          url: folder.url,
-          title: folder.name,
-          documentType: 'pasta_projeto',
-        },
-      });
-      created.push(root);
+      try {
+        root = await this.prisma.db.officeLink.create({
+          data: {
+            accountId,
+            entityType: 'PROJECT',
+            entityId: projectId,
+            provider: 'DRIVE',
+            externalId: folder.id,
+            url: folder.url,
+            title: folder.name,
+            documentType: 'pasta_projeto',
+            linkedByUserId,
+          },
+        });
+        created.push(root);
+      } catch (error) {
+        if (!this.isUniqueConstraintError(error)) throw error;
+        root = await this.prisma.db.officeLink.findFirst({
+          where: { accountId, entityType: 'PROJECT', entityId: projectId, provider: 'DRIVE', documentType: 'pasta_projeto' },
+        });
+        if (!root) throw error;
+        // A recuperação não veio de existingFolders (lido ANTES da
+        // corrida) nem do create acima (que falhou) -- sem isto, root
+        // fica correto localmente (usado no loop de fases abaixo) mas
+        // desaparece do valor de RETORNO, quebrando archiveFiscalXml
+        // (que faz folders.find(documentType === 'pasta_projeto')) pra
+        // quem ganhou a corrida e caiu neste ramo.
+        created.push(root);
+      }
     }
 
     for (const phase of missingPhases) {
       const label = STAGE_LABELS[phase.stage] ?? phase.stage;
       const folder = await this.driveClient.createFolder(token, label, root.externalId);
-      const link = await this.prisma.db.officeLink.create({
-        data: {
-          accountId,
-          entityType: 'PROJECT',
-          entityId: projectId,
-          provider: 'DRIVE',
-          externalId: folder.id,
-          url: folder.url,
-          title: folder.name,
-          documentType: 'pasta_fase',
-          phaseId: phase.id,
-        },
-      });
-      created.push(link);
+      try {
+        const link = await this.prisma.db.officeLink.create({
+          data: {
+            accountId,
+            entityType: 'PROJECT',
+            entityId: projectId,
+            provider: 'DRIVE',
+            externalId: folder.id,
+            url: folder.url,
+            title: folder.name,
+            documentType: 'pasta_fase',
+            phaseId: phase.id,
+            linkedByUserId,
+          },
+        });
+        created.push(link);
+      } catch (error) {
+        if (!this.isUniqueConstraintError(error)) throw error;
+        const link = await this.prisma.db.officeLink.findFirst({
+          where: { accountId, provider: 'DRIVE', documentType: 'pasta_fase', phaseId: phase.id },
+        });
+        if (!link) throw error;
+        created.push(link);
+      }
     }
 
     return [...existingFolders, ...created];
+  }
+
+  private isUniqueConstraintError(error: unknown): boolean {
+    return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'P2002';
+  }
+
+  // Achado A38 da auditoria de 30 ago 2026: officeLinkInputSchema aceitava
+  // qualquer externalId como se fosse um arquivo de verdade, sem nenhuma
+  // chamada ao Drive -- OfficeLinksService.createForProject usa isto pra
+  // confirmar o arquivo antes de marcar lastCheckedAt (condição que o
+  // checklist de documentos obrigatórios agora exige). accessToken aqui é
+  // o token EFÊMERO do Picker do próprio navegador (drive.file, só desta
+  // sessão) -- nunca persistido, só usado nesta chamada única.
+  async verifyFileAccessible(accessToken: string, fileId: string): Promise<boolean> {
+    try {
+      const file = await this.driveClient.getFile(accessToken, fileId);
+      return !!file && !file.trashed;
+    } catch {
+      return false;
+    }
   }
 
   // Achado da auditoria: "hoje o link apodrece em silêncio" -- arquivo
@@ -143,11 +223,31 @@ export class GoogleDriveService {
       return { checked: 0, newlyBroken: [] };
     }
 
-    const accessToken = await this.resolveDriveAccessToken(accountId);
+    // Achado A33: token de fallback resolvido uma vez (usado só quando um
+    // vínculo não tem linkedByUserId ou a credencial dessa pessoa sumiu).
+    const fallback = await this.resolveDriveAccessToken(accountId);
     const newlyBroken: string[] = [];
+    let checked = 0;
 
     for (const link of links) {
-      const file = await this.driveClient.getFile(accessToken, link.externalId);
+      // Achado A34: um erro num vínculo (rate limit, 5xx, token expirado
+      // no meio da varredura) não pode abortar a conta inteira -- antes
+      // disso acontecer, os vínculos já processados ficavam com brokenAt
+      // gravado mas a notificação nunca saía (a exceção subia até o cron,
+      // que só loga e pula a conta), e o vínculo com erro ficava
+      // marcado "quebrado" pra sempre no ciclo seguinte porque
+      // `isBroken && !link.brokenAt` já seria falso.
+      let file: Awaited<ReturnType<typeof this.driveClient.getFile>>;
+      try {
+        const token = link.linkedByUserId ? (await this.resolveDriveAccessToken(accountId, link.linkedByUserId)).accessToken : fallback.accessToken;
+        file = await this.driveClient.getFile(token, link.externalId);
+      } catch {
+        // Indeterminado (403/429/5xx) -- não é prova de que o arquivo
+        // sumiu, só que esta verificação falhou agora. Não marca quebrado,
+        // não aborta a conta: tenta de novo no próximo ciclo.
+        continue;
+      }
+      checked++;
       const isBroken = !file || file.trashed;
       if (isBroken && !link.brokenAt) {
         newlyBroken.push(link.id);
@@ -161,7 +261,7 @@ export class GoogleDriveService {
       });
     }
 
-    return { checked: links.length, newlyBroken };
+    return { checked, newlyBroken };
   }
 
   // Arquiva um XML fiscal assinado (emissão/cancelamento/substituição de
@@ -182,15 +282,15 @@ export class GoogleDriveService {
     // comentário lá; esta chamada sempre precisa do token pro upload,
     // então deixar ensureProjectFolderTree resolver de novo por conta
     // própria dobrava a consulta de admin/credencial sem necessidade.
-    const accessToken = await this.resolveDriveAccessToken(accountId);
-    const folders = await this.ensureProjectFolderTree(accountId, projectId, accessToken);
+    const resolved = await this.resolveDriveAccessToken(accountId);
+    const folders = await this.ensureProjectFolderTree(accountId, projectId, resolved);
     const root = folders.find((f) => f.documentType === 'pasta_projeto');
     if (!root) {
       throw new Error('Pasta raiz do projeto não encontrada/criada no Drive.');
     }
 
     const file = await this.driveClient.uploadFile(
-      accessToken,
+      resolved.accessToken,
       root.externalId,
       fileName,
       Buffer.from(xmlContent, 'utf-8'),
@@ -208,6 +308,7 @@ export class GoogleDriveService {
         title: file.name,
         documentType: 'nfse',
         visibleToClient: false,
+        linkedByUserId: resolved.userId,
       },
     });
   }
@@ -255,7 +356,7 @@ export class GoogleDriveService {
       throw new NotFoundError('Documento');
     }
 
-    const accessToken = await this.resolveDriveAccessToken(accountId);
+    const { accessToken } = await this.resolveDriveAccessToken(accountId, link.linkedByUserId);
     return this.driveClient.downloadFile(accessToken, link.externalId);
   }
 
@@ -272,7 +373,7 @@ export class GoogleDriveService {
       throw new NotFoundError('Vínculo do Drive');
     }
 
-    const accessToken = await this.resolveDriveAccessToken(accountId);
+    const { accessToken } = await this.resolveDriveAccessToken(accountId, link.linkedByUserId);
     const revisions = await this.driveClient.listRevisions(accessToken, link.externalId);
     // Mais recente primeiro -- é o que interessa de cara ("o que mudou
     // por último"), não a ordem cronológica crescente que a API devolve.

@@ -25,13 +25,29 @@ export class AbsencesService {
     private readonly usersService: UsersService,
   ) {}
 
+  // Achado A41 da auditoria de 30 ago 2026: `include: { user: true }`
+  // trazia o User inteiro (inclusive costPerHour) pra qualquer staff --
+  // terceira superfície com o mesmo vazamento de UsersController/
+  // AllocationsController (que usam um redactCost por cima do include),
+  // a única sem tratamento nenhum. Aqui, em vez de repetir o redactCost,
+  // um `select` explícito com só o que a tela usa (nome, pra exibir "Fulano
+  // — Férias"): uma coluna sensível nova no User não vaza por padrão de
+  // novo, nem que outra tela venha a consumir esta lista sem redigir.
   listAbsences(accountId: string, filters: { userId?: string } = {}) {
     return this.prisma.db.absence.findMany({
       where: {
         user: { accountId },
         ...(filters.userId ? { userId: filters.userId } : {}),
       },
-      include: { user: true },
+      select: {
+        id: true,
+        userId: true,
+        startDate: true,
+        endDate: true,
+        type: true,
+        createdAt: true,
+        user: { select: { id: true, name: true } },
+      },
       orderBy: { startDate: 'asc' },
     });
   }

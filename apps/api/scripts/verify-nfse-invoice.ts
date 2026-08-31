@@ -74,21 +74,34 @@ async function main() {
 
     console.log("Emitindo NFS-e de verdade (Homologação) pra fatura real com cliente documentado...");
     const emitida = await nfseService.emitirParaFatura(account.id, invoiceComDocumento.id);
+    // Achado A28 da auditoria de 30 ago 2026: homologação NÃO é emissão
+    // de verdade -- status/nfseNumber ficam intocados de propósito (a
+    // conta real do estúdio nasce e continua em homologação; sem isto, o
+    // sinal "falta emitir NFS-e" desapareceria pra sempre depois de um
+    // teste). chaveAcesso/idDps/ambiente são o rastro de que o teste
+    // aconteceu.
     console.log(
-      emitida.nfseChaveAcesso && emitida.status === "emitida"
-        ? `  ✓ Emitida — chaveAcesso=${emitida.nfseChaveAcesso}, idDps=${emitida.nfseIdDps}, ambiente=${emitida.nfseAmbienteEmissao}, nDPS=${emitida.nfseNumeroDps}`
+      emitida.nfseChaveAcesso && emitida.nfseAmbienteEmissao === "homologacao" && emitida.status === "pendente" && !emitida.nfseNumber
+        ? `  ✓ Emitida (TESTE, homologação) — chaveAcesso=${emitida.nfseChaveAcesso}, idDps=${emitida.nfseIdDps}, nDPS=${emitida.nfseNumeroDps}, status/nfseNumber continuam intocados`
         : `  ✗ Não persistiu como esperado: ${JSON.stringify(emitida)}`
     );
     checkArchive("emissão", emitida.nfseXmlArchiveError);
 
-    console.log("Emitindo de novo pra MESMA fatura (esperado: 422 NFSE_ALREADY_ISSUED, sem chamar a SEFIN)...");
+    // Achado A28: o guard NFSE_ALREADY_ISSUED só existe pra emissão REAL
+    // (produção) -- em homologação, emitir de novo pra MESMA fatura é
+    // permitido pelo guard (é só um teste), mas esbarra na MESMA proteção
+    // que sempre existiu contra fatura real duplicada: o nDPS estável faz
+    // a SEFIN rejeitar como duplicata (502 NFSE_AUTORIZACAO_FAILED), não
+    // mais um 422 limpo do lado de cá. Duas camadas diferentes, a de
+    // baixo (SEFIN) continua funcionando mesmo sem a de cima (client-side).
+    console.log("Emitindo de novo pra MESMA fatura em homologação (esperado: SEFIN rejeita como duplicata)...");
     try {
       await nfseService.emitirParaFatura(account.id, invoiceComDocumento.id);
       console.log("  ✗ Deveria ter rejeitado — emitiu duas vezes");
     } catch (error: any) {
       console.log(
-        error?.code === "NFSE_ALREADY_ISSUED"
-          ? "  ✓ NFSE_ALREADY_ISSUED, como esperado"
+        error?.code === "NFSE_AUTORIZACAO_FAILED"
+          ? `  ✓ NFSE_AUTORIZACAO_FAILED (rejeição da SEFIN, esperado em homologação), como esperado -- "${error?.message}"`
           : `  ✗ Código inesperado: ${error?.code} — ${error?.message}`
       );
     }
@@ -130,8 +143,9 @@ async function main() {
       reemitida.nfseChaveAcesso &&
         reemitida.nfseChaveAcesso !== chaveOriginal &&
         reemitida.nfseChaveAcessoAnterior === chaveOriginal &&
-        !reemitida.nfseCanceladaEm
-        ? `  ✓ Reemitida — nova chaveAcesso=${reemitida.nfseChaveAcesso}, anterior preservada em nfseChaveAcessoAnterior`
+        !reemitida.nfseCanceladaEm &&
+        !reemitida.nfseNumber // achado A28 -- homologação, continua sem nfseNumber
+        ? `  ✓ Reemitida (TESTE) — nova chaveAcesso=${reemitida.nfseChaveAcesso}, anterior preservada em nfseChaveAcessoAnterior`
         : `  ✗ Não persistiu como esperado: ${JSON.stringify(reemitida)}`
     );
     checkArchive("reemissão", reemitida.nfseXmlArchiveError);
@@ -151,8 +165,9 @@ async function main() {
       substituida.nfseChaveAcesso &&
         substituida.nfseChaveAcesso !== chaveAntesDaSubstituicao &&
         substituida.nfseChaveAcessoAnterior === chaveAntesDaSubstituicao &&
-        !substituida.nfseCanceladaEm
-        ? `  ✓ Substituída — nova chaveAcesso=${substituida.nfseChaveAcesso}, chave anterior (${chaveAntesDaSubstituicao}) referenciada via subst`
+        !substituida.nfseCanceladaEm &&
+        !substituida.nfseNumber // achado A24+A28 -- gate simétrico ao de emitirParaFatura: homologação continua sem nfseNumber
+        ? `  ✓ Substituída (TESTE) — nova chaveAcesso=${substituida.nfseChaveAcesso}, chave anterior (${chaveAntesDaSubstituicao}) referenciada via subst`
         : `  ✗ Não persistiu como esperado: ${JSON.stringify(substituida)}`
     );
     // Com o redesenho, isto é definitivo: só existe UMA chamada
@@ -166,6 +181,29 @@ async function main() {
         : `  ✗ nfseRejectionReason NÃO é null: "${substituida.nfseRejectionReason}"`
     );
     checkArchive("substituição", substituida.nfseXmlArchiveError);
+
+    // Achado A29: substituir precisa usar o ambiente ONDE a NFS-e atual
+    // vive (invoice.nfseAmbienteEmissao=homologação), não
+    // account.nfseAmbiente. Simula a divergência direto no banco (nunca
+    // chamando a SEFIN de produção de verdade -- o guard tem que
+    // recusar ANTES de qualquer chamada de rede) e restaura o valor real
+    // da conta no finally, independente do resultado.
+    console.log("Simulando conta trocada pra produção com NFS-e ainda em homologação (esperado: 422 NFSE_AMBIENTE_MISMATCH, sem chamar a SEFIN)...");
+    await prisma.account.update({ where: { id: account.id }, data: { nfseAmbiente: "producao" } });
+    try {
+      await nfseService.substituirParaFatura(account.id, invoiceComDocumento.id, {
+        justificativa: "Não deveria nem tentar (verify-nfse-invoice)",
+      });
+      console.log("  ✗ Deveria ter rejeitado — substituiu com ambiente divergente");
+    } catch (error: any) {
+      console.log(
+        error?.code === "NFSE_AMBIENTE_MISMATCH"
+          ? "  ✓ NFSE_AMBIENTE_MISMATCH, como esperado"
+          : `  ✗ Código inesperado: ${error?.code} — ${error?.message}`
+      );
+    } finally {
+      await prisma.account.update({ where: { id: account.id }, data: { nfseAmbiente: "homologacao" } });
+    }
   } finally {
     await prisma.invoice.deleteMany({ where: { id: { in: [invoiceComDocumento.id, invoiceSemDocumento.id] } } });
     await prisma.project.deleteMany({ where: { id: { in: [projectComDocumento.id, projectSemDocumento.id] } } });

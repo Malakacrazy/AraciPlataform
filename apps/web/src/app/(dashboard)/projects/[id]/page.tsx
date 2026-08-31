@@ -146,6 +146,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         invoicedPhaseIds={invoicedPhaseIds}
         feeModel={project.feeModel}
         documentChecklists={documentChecklists}
+        isAdmin={isAdmin}
       />
 
       <TaskList projectId={id} phases={project.phases} tasks={tasks} users={users} />
@@ -172,18 +173,31 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                   {INVOICE_STATUS_LABELS[inv.status]}
                   {inv.nfseNumber
                     ? ` · NFS-e ${inv.nfseNumber}${inv.nfseChaveAcesso ? " (emitida automaticamente)" : ""}`
-                    : inv.status === "paga"
-                      ? " · aguardando emissão de NFS-e"
-                      : ""}
+                    : inv.nfseChaveAcesso && inv.nfseAmbienteEmissao === "homologacao"
+                      ? // Achado A28 da auditoria de 30 ago 2026: emissão em
+                        // homologação não grava nfseNumber (não é uma emissão
+                        // de verdade) -- mostra a chave de teste separada,
+                        // deixando claro que não tem validade fiscal.
+                        ` · NFS-e de TESTE ${inv.nfseChaveAcesso} — sem validade fiscal`
+                      : inv.status === "paga"
+                        ? " · aguardando emissão de NFS-e"
+                        : ""}
                   {inv.nfseCanceladaEm && " · NFS-e cancelada"}
                 </span>
-                {(!inv.nfseChaveAcesso || inv.nfseCanceladaEm) && (inv.status === "pendente" || inv.status === "paga") && (
-                  <form action={emitirNfse.bind(null, id, inv.id)}>
-                    <button type="submit" className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
-                      {inv.nfseCanceladaEm ? "Emitir nova NFS-e" : "Emitir NFS-e"}
-                    </button>
-                  </form>
-                )}
+                {/* Achado A28: além de !chaveAcesso/cancelada, reabre também
+                    quando a chave atual é só um teste de homologação -- sem
+                    isto, testar em homologação bloqueava emitir de verdade
+                    depois de trocar pra produção. */}
+                {(!inv.nfseChaveAcesso ||
+                  inv.nfseCanceladaEm ||
+                  inv.nfseAmbienteEmissao === "homologacao") &&
+                  (inv.status === "pendente" || inv.status === "paga") && (
+                    <form action={emitirNfse.bind(null, id, inv.id)}>
+                      <button type="submit" className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
+                        {inv.nfseCanceladaEm ? "Emitir nova NFS-e" : "Emitir NFS-e"}
+                      </button>
+                    </form>
+                  )}
                 {(inv.status === "pendente" || (inv.status === "paga" && !inv.nfseNumber)) && (
                   <form
                     action={markInvoiceIssued.bind(null, id, inv.id, inv.status)}
@@ -202,6 +216,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                 {inv.nfseRejectionReason && (
                   <p className="w-full text-xs text-red-600 dark:text-red-400">
                     NFS-e rejeitada pela SEFIN: {inv.nfseRejectionReason}
+                  </p>
+                )}
+                {inv.nfseXmlArchiveError && (
+                  <p className="w-full text-xs text-amber-600 dark:text-amber-400">
+                    Falha ao arquivar o XML no Drive: {inv.nfseXmlArchiveError}
                   </p>
                 )}
                 {inv.nfseCanceladaEm && (

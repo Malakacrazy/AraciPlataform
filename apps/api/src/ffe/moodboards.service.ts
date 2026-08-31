@@ -10,13 +10,25 @@ export const moodboardInputSchema = z.object({
 
 export type MoodboardInput = z.infer<typeof moodboardInputSchema>;
 
-// Corpo opaco de propósito -- é o TLStoreSnapshot inteiro do tldraw
-// (shapes + assets), formato interno da biblioteca que muda entre
-// versões. Validar a forma aqui acoplaria este service a uma versão
-// específica do tldraw; a única garantia que interessa é "é um JSON
-// válido", que o próprio parser HTTP já exige antes de chegar aqui.
+// Achado A59 da auditoria de 30 ago 2026: z.unknown() aceitava
+// LITERALMENTE qualquer JSON (`123`, `{"lixo":true}`, etc.) -- do outro
+// lado, CollaborativeBoard chama loadSnapshot(store, snapshot) sem
+// try/catch; a rejeição do tldraw (que existe e funciona -- é a defesa
+// que barra javascript:/data:text/html, ver commit ec883be) LANÇA, e um
+// throw dentro do useEffect sobe até o error boundary e derruba a tela
+// inteira de FF&E/apresentação pra todo mundo, de forma persistente (o
+// snapshot ruim já foi gravado, sobrescrevendo o anterior sem histórico).
+// A validação abaixo não entende o tldraw -- só garante a forma mínima
+// que TODO TLStoreSnapshot de verdade tem (store como mapa, schema com
+// versão), sem acoplar este service a uma versão específica da
+// biblioteca (.loose() aceita qualquer coisa além disso).
 export const moodboardSnapshotInputSchema = z.object({
-  snapshot: z.unknown(),
+  snapshot: z
+    .object({
+      store: z.record(z.string(), z.unknown()),
+      schema: z.object({ schemaVersion: z.number() }).loose(),
+    })
+    .loose(),
 });
 
 export type MoodboardSnapshotInput = z.infer<typeof moodboardSnapshotInputSchema>;
@@ -83,10 +95,12 @@ export class MoodboardsService {
   }
 
   // Chamado por quem tem acesso de escrita ao quadro -- staff (rota
-  // autenticada normal) ou um WhiteboardGuest com WhiteboardGuestAccess
-  // pra esta prancha (ver WhiteboardGuestPortalService), nunca
-  // diretamente pelo link de apresentação (esse é sempre leitura, ver
-  // PublicPresentationService).
+  // autenticada normal), um WhiteboardGuest com WhiteboardGuestAccess pra
+  // esta prancha (ver WhiteboardGuestPortalService), OU o cliente pelo
+  // link de apresentação (PublicPresentationService.saveMoodboardSnapshot
+  // chama isto direto -- é decisão de produto real, o cliente colabora no
+  // quadro, não só visualiza; achado A51/A59 da auditoria de 30 ago 2026
+  // corrigiu um comentário aqui que afirmava o contrário do código).
   async saveSnapshot(accountId: string, id: string, input: MoodboardSnapshotInput) {
     await this.getMoodboard(accountId, id);
     return this.prisma.db.moodboard.update({

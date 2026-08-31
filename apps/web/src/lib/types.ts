@@ -230,6 +230,11 @@ export interface Invoice {
   nfseIdDps?: string | null;
   nfseAmbienteEmissao?: string | null;
   nfseRejectionReason?: string | null;
+  // Achado A27 da auditoria de 30 ago 2026: existia no banco desde a
+  // rodada de arquivamento no Drive, mas nunca tinha chegado no tipo do
+  // front nem em tela nenhuma -- diferente de nfseRejectionReason, uma
+  // falha de arquivamento ficava só no banco, sem ninguém ver.
+  nfseXmlArchiveError?: string | null;
   // Lacuna da matriz (NFS-e: cancelamento/substituição) --
   // nfseCanceladaEm presente = nfseChaveAcesso não vale mais (histórico,
   // não apagado). nfseChaveAcessoAnterior só vem preenchido quando a
@@ -254,7 +259,9 @@ export interface User {
   // resposta em vez de mandar null, ver UsersController.redactCost.
   costPerHour?: string | null;
   weeklyCapacityHours: string;
-  apiKeyHash?: string | null;
+  // Achado A47 da auditoria de 30 ago 2026: a API devolve o booleano
+  // derivado, nunca mais o hash em si (ver UsersService.withHasApiKey).
+  hasApiKey: boolean;
 }
 
 export interface Me {
@@ -307,7 +314,10 @@ export interface Allocation {
 export interface Absence {
   id: string;
   userId: string;
-  user: User;
+  // Achado A41 da auditoria de 30 ago 2026: GET /absences agora devolve
+  // um select explícito (id, name), não o User inteiro -- costPerHour
+  // não vaza mais pra qualquer staff.
+  user: Pick<User, "id" | "name">;
   startDate: string;
   endDate: string;
   type: string;
@@ -368,6 +378,9 @@ export interface ProductSpecification {
   unitPrice?: string | null;
   markupPercent?: string | null;
   clientApproved: boolean;
+  // Achado A49 da auditoria de 30 ago 2026: sinal de "já virou fatura",
+  // separado de clientApproved -- ver FfeCart e specifications.service.ts.
+  invoicedAt?: string | null;
   clientComment?: string | null;
 }
 
@@ -423,7 +436,6 @@ export interface PresentationLink {
 export interface PresentationProduct {
   id: string;
   name: string;
-  supplier?: string | null;
   imageUrl?: string | null;
 }
 
@@ -643,6 +655,9 @@ export interface Activity {
   body: string;
   createdAt: string;
   author: ActivityAuthor;
+  // Achado A63 da auditoria de 30 ago 2026 -- só relevante pra nota de
+  // PROJETO (só projeto tem consultor externo), default false.
+  visibleToCollaborator: boolean;
 }
 
 export type TaskStatus = "a_fazer" | "em_andamento" | "concluida";

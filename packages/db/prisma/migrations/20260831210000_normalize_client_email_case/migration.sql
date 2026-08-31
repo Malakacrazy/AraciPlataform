@@ -1,0 +1,26 @@
+-- Achado A52 da auditoria de 30 ago 2026: a migration que criou
+-- Client_email_key (20260828010000) não normalizava as linhas já
+-- existentes. ClientsService.normalizeEmail só passou a gravar e-mail em
+-- minúsculas a partir daquele commit -- qualquer Client cadastrado ANTES
+-- disso com maiúsculas continua com o valor original no banco.
+-- ClientPortalService.requestMagicLink trocou a busca antiga
+-- (findFirst + mode: 'insensitive') por um findUnique EXATO nessa mesma
+-- época, então esse cliente nunca mais consegue pedir magic link: a
+-- comparação falha em silêncio (resposta genérica anti-enumeração) e
+-- nem cliente nem equipe recebem qualquer sinal do motivo.
+--
+-- Migração de dados pura, sem alterar o schema -- Client.email continua
+-- `String? @unique` (índice comum), que já é suficiente daqui pra frente
+-- porque toda escrita nova passa por normalizeEmail.
+--
+-- Deliberadamente NÃO tenta consolidar duplicatas automaticamente: se
+-- existirem hoje duas linhas cujo e-mail só difere em maiúscula/
+-- minúscula (ex.: "a@x.com" e "A@x.com"), o UPDATE abaixo estoura
+-- unique_violation no Postgres e a migration FALHA -- de propósito
+-- (acompanha o Rule 12 "fail loud" -- consolidar dois registros de
+-- Client automaticamente decidiria qual e-mail físico é o titular e o
+-- que fazer com Project/Opportunity dos dois lados, decisão de negócio
+-- que este código não pode tomar sozinho). Se isto falhar em produção,
+-- resolver manualmente qual dos dois registros é o correto antes de
+-- reaplicar.
+update "Client" set email = lower(email) where email is not null and email <> lower(email);

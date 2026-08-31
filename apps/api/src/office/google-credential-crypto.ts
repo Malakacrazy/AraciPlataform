@@ -11,7 +11,12 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH_BYTES = 12; // padrão recomendado do próprio Node para GCM
 
-function loadKey(): Buffer {
+// Exportado (achado A13 da auditoria de 30 ago 2026) só pra
+// main.ts#validateEnv conseguir checar o FORMATO da chave no boot, não só
+// a presença -- generateValue: true do Render produz base64, não hex, e
+// sem essa checagem o erro só aparecia na primeira tentativa de conectar
+// o Google, semanas depois do deploy.
+export function loadKey(): Buffer {
   const raw = process.env.GOOGLE_CREDENTIAL_ENCRYPTION_KEY;
   if (!raw) {
     throw new Error(

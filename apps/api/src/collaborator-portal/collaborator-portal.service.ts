@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service';
 import { UnauthorizedError, ForbiddenError, NotFoundError } from '../common/api-error';
 import { NotificationsService } from '../notifications/notifications.service';
+import { withScheme } from '../common/url';
 
 export const requestLinkSchema = z.object({ email: z.email() });
 export type RequestLinkInput = z.infer<typeof requestLinkSchema>;
@@ -59,7 +60,9 @@ export class CollaboratorPortalService {
     if (!webUrl) {
       this.logger.warn('WEB_URL não configurado -- magic link será gerado com http://localhost:3000, inútil fora de dev.');
     }
-    const link = `${webUrl ?? 'http://localhost:3000'}/colaborador/verify?token=${token}`;
+    // withScheme (achado A12 da auditoria de 30 ago 2026): ver mesmo
+    // comentário em ClientPortalService.
+    const link = `${withScheme(webUrl ?? 'http://localhost:3000')}/colaborador/verify?token=${token}`;
 
     try {
       await this.notificationsService.sendCollaboratorMagicLink(collaborator.email, collaborator.name, link);
@@ -68,19 +71,29 @@ export class CollaboratorPortalService {
     }
   }
 
+  // Achado A66 da auditoria de 30 ago 2026: findUnique + update separados
+  // é um TOCTOU -- duas requisições concorrentes com o mesmo token (ex.:
+  // o clique real do consultor e um prefetch/scanner de e-mail que segue
+  // o link antes dele) passavam as duas pela checagem de consumedAt null
+  // e criavam DUAS CollaboratorSession de 7 dias a partir de um link "de
+  // uso único". updateMany condicional (consumedAt: null no where) numa
+  // instrução só é atômico: só uma das duas concorrentes tem count === 1.
   async consumeMagicLink(input: ConsumeTokenInput) {
     const magicLink = await this.prisma.db.collaboratorMagicLink.findUnique({
       where: { token: input.token },
       include: { collaborator: true },
     });
-    if (!magicLink || magicLink.consumedAt || magicLink.expiresAt < new Date()) {
+    if (!magicLink || magicLink.expiresAt < new Date()) {
       throw new UnauthorizedError('Link inválido, já usado ou expirado.');
     }
 
-    await this.prisma.db.collaboratorMagicLink.update({
-      where: { id: magicLink.id },
+    const claim = await this.prisma.db.collaboratorMagicLink.updateMany({
+      where: { id: magicLink.id, consumedAt: null },
       data: { consumedAt: new Date() },
     });
+    if (claim.count !== 1) {
+      throw new UnauthorizedError('Link inválido, já usado ou expirado.');
+    }
 
     const sessionToken = randomUUID();
     await this.prisma.db.collaboratorSession.create({
@@ -196,8 +209,13 @@ export class CollaboratorPortalService {
       throw new NotFoundError('Projeto');
     }
 
+    // Achado A63 da auditoria de 30 ago 2026: sem o filtro
+    // visibleToCollaborator, TODA nota interna do projeto ia pro
+    // consultor externo -- inclusive escrita meses antes dele existir,
+    // sem quem escreveu ter noção nenhuma disso (mesmo padrão de opt-in
+    // explícito de OfficeLink.visibleToClient).
     const activities = await this.prisma.db.activity.findMany({
-      where: { accountId: project.accountId, entityType: 'PROJECT', entityId: projectId },
+      where: { accountId: project.accountId, entityType: 'PROJECT', entityId: projectId, visibleToCollaborator: true },
       orderBy: { createdAt: 'desc' },
       select: { id: true, body: true, createdAt: true, author: { select: { name: true } } },
     });

@@ -17,6 +17,7 @@ import {
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { AdminOnly } from '../auth/admin-only.decorator';
 
 @Controller('v1/time-entries')
 export class TimeEntriesController {
@@ -52,7 +53,7 @@ export class TimeEntriesController {
 
   @Patch(':id')
   async update(
-    @SessionAccount() { accountId }: SessionAccountType,
+    @SessionAccount() { accountId, userId, accessLevel }: SessionAccountType,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(timeEntryInputSchema.partial()))
     input: Partial<TimeEntryInput>,
@@ -60,6 +61,8 @@ export class TimeEntriesController {
     const data = await this.timeEntriesService.updateTimeEntry(
       accountId,
       id,
+      userId,
+      accessLevel,
       input,
     );
     return { data };
@@ -68,16 +71,20 @@ export class TimeEntriesController {
   @Delete(':id')
   @HttpCode(204)
   async remove(
-    @SessionAccount() { accountId }: SessionAccountType,
+    @SessionAccount() { accountId, userId, accessLevel }: SessionAccountType,
     @Param('id') id: string,
   ) {
-    await this.timeEntriesService.deleteTimeEntry(accountId, id);
+    await this.timeEntriesService.deleteTimeEntry(accountId, id, userId, accessLevel);
   }
 
-  // Quem chama este endpoint é o aprovador, não quem lançou a hora — a
-  // API não impede hoje que alguém aprove o próprio lançamento; isso
-  // ficaria a cargo de uma regra de papel/permissão que ainda não existe.
+  // Achado A5 da auditoria de 30 ago 2026: faltava @AdminOnly() aqui --
+  // a aprovação é o único portão entre hora lançada e linha de fatura,
+  // e qualquer staff conseguia se autoaprovar. Deliberadamente SEM
+  // bloquear entry.userId === approverUserId dentro do service -- ver
+  // comentário em TimeEntriesService.approveTimeEntry pro porquê (quebra
+  // o caso real de operador único).
   // 200, não 201 — muta um lançamento existente, não cria um recurso novo.
+  @AdminOnly()
   @Post(':id/approve')
   @HttpCode(200)
   async approve(

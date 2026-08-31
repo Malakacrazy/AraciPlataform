@@ -10,6 +10,13 @@ on:
     branches: [main]
   pull_request:
 
+# Achado A17 da auditoria de 30 ago 2026: sem isto, o GITHUB_TOKEN deste
+# workflow herdava as permissões default do repositório/organização, que
+# podem ser mais amplas que "ler o código" -- este job nunca precisa
+# escrever nada. Mesmo padrão que pr-visual-recap.yml já declara.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -47,6 +54,18 @@ jobs:
       - name: Typecheck apps/web
         run: npx tsc --noEmit
         working-directory: apps/web
+
+      # Achado A17 da auditoria de 30 ago 2026: nenhum passo deste
+      # workflow rodava jest -- apps/api/src/crm/pricing.spec.ts e
+      # apps/api/src/office/google-drive.service.spec.ts (entre outros)
+      # existiam, passavam localmente, e nada os executava em CI. Um PR
+      # quebrando a precificação ou o GoogleDriveService compilava e
+      # typechecava limpo, então o merge acontecia. `test` já é uma task
+      # declarada em turbo.json (dependsOn: ^build); testes unitários, não
+      # o smoke-test de 355 checks (esse exige Postgres + API de pé, fora
+      # de escopo desta rodada).
+      - name: Testes
+        run: npx turbo run test
 
       # Deriva entre código e manifesto de deploy não quebra build nem
       # typecheck -- o deploy sobe e a feature só não funciona. Já

@@ -59,6 +59,23 @@ coverage
 *.p12
 *.pem
 *.key
+*.crt
+*.cer
+*.jks
+# Achado A16 da auditoria de 30 ago 2026: os padrões acima só casam na
+# RAIZ do contexto de build (semântica de filepath.Match do Docker, `*`
+# não atravessa `/`) -- diferente do .gitignore, onde o mesmo padrão sem
+# barra casa em qualquer profundidade. Um .pfx/.pem salvo numa subpasta
+# seria corretamente ignorado pelo git (nada aparece no diff) e assado
+# numa camada da imagem sem nenhum aviso. Espelha a mesma convenção
+# **/  já usada acima pros .env.
+**/*.pfx
+**/*.p12
+**/*.pem
+**/*.key
+**/*.crt
+**/*.cer
+**/*.jks
 
 # Histórico e metadados de dev -- nada disso é usado no build.
 .git

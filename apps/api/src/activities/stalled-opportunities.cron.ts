@@ -3,6 +3,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { OpportunitiesService } from '../crm/opportunities.service';
 import { ActivitiesService } from './activities.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { runWithCronLock } from '../common/cron-lock';
 
 const STALE_AFTER_DAYS = 14;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -23,6 +25,7 @@ export class StalledOpportunitiesCron {
     private readonly opportunitiesService: OpportunitiesService,
     private readonly activitiesService: ActivitiesService,
     private readonly notificationsService: NotificationsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   // Achado "Médio" da auditoria: versão anterior fazia um for...of com
@@ -37,6 +40,10 @@ export class StalledOpportunitiesCron {
   // ainda não avisadas (sempre ≤ N, tipicamente bem menor).
   @Cron(CronExpression.EVERY_DAY_AT_8AM)
   async checkStalledOpportunities() {
+    await runWithCronLock(this.prisma, 'stalled-opportunities', this.logger, () => this.run());
+  }
+
+  private async run() {
     const open = await this.opportunitiesService.listOpenOpportunities();
     const now = Date.now();
 

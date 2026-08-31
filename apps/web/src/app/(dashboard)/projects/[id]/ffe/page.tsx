@@ -12,6 +12,7 @@ import type {
   MoodboardComment,
   WhiteboardGuestAccess,
   PresentationLink,
+  Me,
 } from "@/lib/types";
 import { FfeCart } from "@/components/ffe/ffe-cart";
 import { createArea, deleteArea, createSpecification, deleteSpecification } from "@/components/ffe/actions";
@@ -41,13 +42,15 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
   let products: Product[];
   let moodboards: Moodboard[];
   let presentationLink: PresentationLink | null;
+  let me: Me;
   try {
-    [project, areas, products, moodboards, presentationLink] = await Promise.all([
+    [project, areas, products, moodboards, presentationLink, me] = await Promise.all([
       apiGet<Project>(`projects/${id}`),
       apiGet<Area[]>(`projects/${id}/areas`),
       apiGet<Product[]>("products"),
       apiGet<Moodboard[]>(`projects/${id}/moodboards`),
       apiGet<PresentationLink | null>(`projects/${id}/presentation-link`),
+      apiGet<Me>("me"),
     ]);
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) {
@@ -55,6 +58,11 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
     }
     throw err;
   }
+  // FfeCheckoutController agora exige admin (achado A6 da auditoria de 30
+  // ago 2026: faturar o carrinho de FF&E era possível pra qualquer staff,
+  // sem checagem de corrida) -- esconder o botão de aprovar pra quem não
+  // é admin evita mostrar um controle que só resultaria em 403.
+  const isAdmin = me.accessLevel === "admin";
 
   const specsByArea = await Promise.all(
     areas.map((area) => apiGet<ProductSpecification[]>(`areas/${area.id}/specifications`)),
@@ -193,8 +201,15 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
                       {spec.unitPrice ? `R$ ${Number(spec.unitPrice).toLocaleString("pt-BR")}` : "—"}
                     </td>
                     <td className="py-2 pr-3">
-                      {spec.clientApproved ? (
-                        <span className="text-xs text-emerald-700 dark:text-emerald-400">Aprovado</span>
+                      {spec.invoicedAt ? (
+                        <span className="text-xs text-emerald-700 dark:text-emerald-400">Faturado</span>
+                      ) : spec.clientApproved ? (
+                        // Achado A49 da auditoria de 30 ago 2026: antes um
+                        // item aprovado pelo cliente já saía daqui como
+                        // "Aprovado" e sumia do carrinho pra sempre --
+                        // agora continua aparecendo (e faturável) até o
+                        // checkout de verdade rodar.
+                        <span className="text-xs text-amber-700 dark:text-amber-400">Aprovado (aguardando fatura)</span>
                       ) : (
                         <span className="text-xs text-zinc-500 dark:text-zinc-400">Aguardando</span>
                       )}
@@ -306,7 +321,7 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
           plataforma.
         </p>
         <div className="mt-3">
-          <FfeCart projectId={id} specs={allSpecs} />
+          <FfeCart projectId={id} specs={allSpecs} isAdmin={isAdmin} />
         </div>
       </section>
 

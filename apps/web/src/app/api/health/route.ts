@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withScheme } from "@/lib/url";
 
 // Bloqueador 15 da auditoria: antes, respondia {status:'ok'} sempre, sem
 // checar nada -- um healthcheck que nunca falha não protege contra a
@@ -6,7 +7,11 @@ import { NextResponse } from "next/server";
 // apps/api). Reaproveita o /health de lá, que já checa o Postgres (ver
 // apps/api/src/app.controller.ts) -- não duplica a checagem de banco
 // aqui, só confirma que o caminho web → api está de pé.
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
+// withScheme (achado A12 da auditoria de 30 ago 2026): sem isto, um
+// API_URL sem protocolo (render.yaml fromService/hostport) faz este
+// fetch falhar sempre, e o healthCheckPath do araci-web nunca fica
+// saudável -- o serviço público nunca entra no ar.
+const API_URL = withScheme(process.env.API_URL ?? "http://localhost:3001");
 
 export async function GET() {
   try {

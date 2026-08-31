@@ -5,9 +5,12 @@ import { NotFoundError } from '../common/api-error';
 import { ClientsService } from './clients.service';
 
 export const leadInputSchema = z.object({
-  name: z.string().min(1),
+  // Achado A56 da auditoria de 30 ago 2026: só `message` tinha `.max()` --
+  // name/phone aceitavam até o limite do body parser, inflando
+  // Client.name/Opportunity.title com conteúdo de tamanho arbitrário.
+  name: z.string().min(1).max(120),
   email: z.email(),
-  phone: z.string().optional(),
+  phone: z.string().max(40).optional(),
   message: z.string().max(2000).optional(),
   // Lacuna da matriz (LGPD) -- achado da auditoria: "o formulário público
   // coleta dado pessoal sem base declarada". .literal(true) em vez de só
@@ -47,7 +50,15 @@ export class LeadsService {
     }
 
     const email = input.email.toLowerCase();
-    const existingClient = await this.prisma.db.client.findUnique({ where: { email } });
+    // Achado A69 da auditoria de 30 ago 2026: Client.email é @unique
+    // GLOBAL (não @@unique([accountId, email])), então um findUnique por
+    // email sozinho atravessaria conta se um dia existir mais de uma --
+    // escopar aqui documenta a intenção e evita a query certa virar
+    // errada silenciosamente no dia em que a segunda Account nascer
+    // (Fase 1 tem uma única conta, sem fluxo de signup -- não é
+    // alcançável hoje, mas mantém a disciplina de "todo where leva
+    // accountId" já aplicada no resto do domínio).
+    const existingClient = await this.prisma.db.client.findFirst({ where: { email, accountId: account.id } });
     const client =
       existingClient ??
       (await this.clientsService.createClient(account.id, {
@@ -57,14 +68,20 @@ export class LeadsService {
         source: 'site',
       }));
 
-    // Lacuna da matriz (LGPD) -- registra a base legal desta coleta
-    // específica, mesmo quando reaproveita um Client já existente (achado
-    // A-05): cada envio do formulário é um evento de consentimento novo,
-    // não só o primeiro.
-    await this.prisma.db.client.update({
-      where: { id: client.id },
-      data: { consentedAt: new Date() },
-    });
+    // Achado A69: submitLead não tem NENHUMA autenticação (@Public) --
+    // quem souber o e-mail de um cliente real do estúdio conseguia
+    // sobrescrever o consentedAt dele a qualquer momento, destruindo o
+    // registro da base legal que este campo existe pra provar, sem
+    // nenhuma prova de posse do e-mail. Consentimento só é gravado na
+    // CRIAÇÃO do Client (a submissão pública prova, na melhor das
+    // hipóteses, que alguém digitou aquele e-mail nesse formulário, nunca
+    // que é o titular de um Client já cadastrado por outro caminho).
+    if (!existingClient) {
+      await this.prisma.db.client.update({
+        where: { id: client.id },
+        data: { consentedAt: new Date() },
+      });
+    }
 
     // feeModel/stage não vêm do formulário -- um visitante anônimo não
     // tem como saber que "hora_tecnica" é o único modelo em uso real

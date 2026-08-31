@@ -76,6 +76,7 @@ interface FakeOfficeLink {
   visibleToClient: boolean;
   brokenAt: Date | null;
   lastCheckedAt: Date | null;
+  linkedByUserId?: string | null;
 }
 
 function matchesOfficeLinkWhere(link: FakeOfficeLink, where: any): boolean {
@@ -98,9 +99,14 @@ function createFakePrisma(seed: {
   admins?: { id: string; accountId: string }[];
   credentials?: { userId: string; scope: string }[];
   officeLinks?: FakeOfficeLink[];
+  // Achado A36 -- simula a SEGUNDA chamada concorrente estourando o
+  // índice único parcial da migration antes da primeira linha existir de
+  // verdade pro findFirst de recuperação enxergar.
+  failCreateOnceWithUniqueViolation?: boolean;
 }) {
   const officeLinks = seed.officeLinks ?? [];
   let nextLinkId = 1;
+  let failCreateOnce = seed.failCreateOnceWithUniqueViolation ?? false;
 
   return {
     db: {
@@ -120,7 +126,15 @@ function createFakePrisma(seed: {
           (seed.admins ?? []).filter((a) => a.accountId === where.accountId),
       },
       googleCredential: {
+        // Achado A33 -- resolveDriveAccessToken chama isto de duas formas:
+        // userId.in (fallback, "qualquer admin") e userId bare string
+        // (preferUserId, credencial de quem de fato criou o vínculo).
         findFirst: async ({ where }: any) => {
+          if (typeof where.userId === 'string') {
+            return (seed.credentials ?? []).find(
+              (c) => c.userId === where.userId && c.scope.includes(where.scope.contains),
+            ) ?? null;
+          }
           const userIds: string[] = where.userId.in;
           return (seed.credentials ?? []).find(
             (c) => userIds.includes(c.userId) && c.scope.includes(where.scope.contains),
@@ -131,6 +145,10 @@ function createFakePrisma(seed: {
         findMany: async ({ where }: any) => officeLinks.filter((link) => matchesOfficeLinkWhere(link, where)),
         findFirst: async ({ where }: any) => officeLinks.find((link) => matchesOfficeLinkWhere(link, where)) ?? null,
         create: async ({ data }: any) => {
+          if (failCreateOnce) {
+            failCreateOnce = false;
+            throw { code: 'P2002' };
+          }
           const link: FakeOfficeLink = {
             id: `link-${nextLinkId++}`,
             documentType: null,
@@ -138,6 +156,7 @@ function createFakePrisma(seed: {
             visibleToClient: false,
             brokenAt: null,
             lastCheckedAt: null,
+            linkedByUserId: null,
             ...data,
           };
           officeLinks.push(link);
@@ -278,6 +297,133 @@ describe('GoogleDriveService.checkBrokenLinksForAccount', () => {
 
     expect(result.newlyBroken).toEqual([]); // já quebrado antes -- não é "novo"
     expect(officeLinks[0].brokenAt).toEqual(jaQuebradoDesde); // preserva a data original
+  });
+
+  // Achado A33: drive.file é uma concessão por (app, usuário, arquivo) --
+  // um arquivo vinculado pelo usuário B responde 404 pro token do usuário
+  // A, mesmo o arquivo existindo de verdade. Sem preferir a credencial de
+  // quem criou o vínculo, isto marcaria brokenAt igual a um arquivo
+  // apagado de verdade.
+  it('usa a credencial de quem criou o vínculo (linkedByUserId), não a de "qualquer admin", pra verificar', async () => {
+    const drive = new FakeDriveClient();
+    drive.files.set('file-do-bruno', { id: 'file-do-bruno', name: 'Planta.pdf', trashed: false });
+    const officeLinks: FakeOfficeLink[] = [
+      {
+        id: 'link-bruno', accountId: 'acc-1', entityType: 'PROJECT', entityId: 'proj-1',
+        provider: 'DRIVE', externalId: 'file-do-bruno', url: 'https://drive.example/file-do-bruno', title: 'Planta.pdf',
+        documentType: null, phaseId: null, visibleToClient: false, brokenAt: null, lastCheckedAt: null,
+        linkedByUserId: 'user-bruno',
+      },
+    ];
+    const dois = [{ id: 'user-1', accountId: 'acc-1' }, { id: 'user-bruno', accountId: 'acc-1' }];
+    const credenciais = [
+      // 'user-1' é quem o fallback ("qualquer admin", orderBy userId asc)
+      // escolheria primeiro -- mas não tem grant nenhum sobre este
+      // arquivo específico (getFile do fake não depende de token, só
+      // confirma QUAL token foi passado via o teste abaixo).
+      { userId: 'user-1', scope: DRIVE_FILE_SCOPE },
+      { userId: 'user-bruno', scope: DRIVE_FILE_SCOPE },
+    ];
+    const prisma = createFakePrisma({ admins: dois, credentials: credenciais, officeLinks });
+    const tokensUsados: string[] = [];
+    const credentialsService = { getAccessToken: async (userId: string) => { tokensUsados.push(userId); return `token-de-${userId}`; } } as any;
+    const service = new GoogleDriveService(prisma as any, credentialsService, drive);
+
+    const result = await service.checkBrokenLinksForAccount('acc-1');
+
+    expect(result.newlyBroken).toEqual([]);
+    expect(officeLinks[0].brokenAt).toBeNull();
+    // O fallback (user-1) é sempre resolvido primeiro (pra sobrar caso
+    // precise) -- o que importa é que a CHECAGEM do vínculo em si usou
+    // user-bruno, não user-1.
+    expect(tokensUsados).toContain('user-bruno');
+  });
+
+  // Achado A34: um erro indeterminado (rate limit, 5xx, token expirado no
+  // meio da varredura) não pode nem abortar a conta inteira nem ser
+  // confundido com "arquivo apagado de verdade" -- os dois eram o defeito
+  // original (a exceção subia até o cron, que perdia a notificação dos
+  // vínculos já processados, e o vínculo com erro virava "quebrado" pra
+  // sempre no próximo ciclo).
+  it('não marca quebrado nem aborta a conta quando a checagem de um vínculo lança (indeterminado)', async () => {
+    const drive = new FakeDriveClient();
+    drive.files.set('file-ok', { id: 'file-ok', name: 'Contrato.pdf', trashed: false });
+    drive.getFile = async (_token: string, fileId: string) => {
+      if (fileId === 'file-instavel') throw new Error('403 userRateLimitExceeded');
+      return drive.files.has(fileId) ? drive.files.get(fileId)! : null;
+    };
+    const officeLinks: FakeOfficeLink[] = [
+      {
+        id: 'link-instavel', accountId: 'acc-1', entityType: 'PROJECT', entityId: 'proj-1',
+        provider: 'DRIVE', externalId: 'file-instavel', url: 'https://drive.example/file-instavel', title: 'ART.pdf',
+        documentType: null, phaseId: null, visibleToClient: false, brokenAt: null, lastCheckedAt: null,
+      },
+      {
+        id: 'link-ok', accountId: 'acc-1', entityType: 'PROJECT', entityId: 'proj-1',
+        provider: 'DRIVE', externalId: 'file-ok', url: 'https://drive.example/file-ok', title: 'Contrato.pdf',
+        documentType: null, phaseId: null, visibleToClient: false, brokenAt: null, lastCheckedAt: null,
+      },
+    ];
+    const prisma = createFakePrisma({ admins, credentials, officeLinks });
+    const credentialsService = { getAccessToken: async () => 'fake-access-token' } as any;
+    const service = new GoogleDriveService(prisma as any, credentialsService, drive);
+
+    const result = await service.checkBrokenLinksForAccount('acc-1');
+
+    // Só o vínculo saudável foi de fato verificado -- o instável não conta
+    // como "checado" nem como "quebrado", e a função não lançou.
+    expect(result.checked).toBe(1);
+    expect(result.newlyBroken).toEqual([]);
+    expect(officeLinks.find((l) => l.id === 'link-instavel')!.brokenAt).toBeNull();
+    expect(officeLinks.find((l) => l.id === 'link-instavel')!.lastCheckedAt).toBeNull();
+    expect(officeLinks.find((l) => l.id === 'link-ok')!.lastCheckedAt).not.toBeNull();
+  });
+});
+
+describe('GoogleDriveService.ensureProjectFolderTree — corrida entre chamadas concorrentes (achado A36)', () => {
+  const project = {
+    id: 'proj-1',
+    accountId: 'acc-1',
+    name: 'Apto Vila Madalena',
+    phases: [],
+  };
+  const admins = [{ id: 'user-1', accountId: 'acc-1' }];
+  const credentials = [{ userId: 'user-1', scope: DRIVE_FILE_SCOPE }];
+
+  it('quando o create da pasta raiz esbarra no índice único (outro processo já criou), relê em vez de lançar', async () => {
+    const drive = new FakeDriveClient();
+    // Simula a OUTRA requisição concorrente: já criou a pasta raiz e
+    // commitou antes desta aqui tentar.
+    const jaExistente: FakeOfficeLink = {
+      id: 'link-concorrente', accountId: 'acc-1', entityType: 'PROJECT', entityId: 'proj-1',
+      provider: 'DRIVE', externalId: 'folder-do-outro', url: 'https://drive.example/folder-do-outro', title: 'Apto Vila Madalena',
+      documentType: 'pasta_projeto', phaseId: null, visibleToClient: false, brokenAt: null, lastCheckedAt: null,
+    };
+    const prisma = createFakePrisma({
+      project,
+      admins,
+      credentials,
+      officeLinks: [], // vazio pro findMany inicial (ensureProjectFolderTree lê "existingFolders" antes)
+      failCreateOnceWithUniqueViolation: true,
+    });
+    // A leitura inicial de existingFolders continua vazia (fiel ao seed
+    // acima) -- simula o commit da outra transação acontecendo só DEPOIS
+    // dessa leitura, mas ANTES do create() desta aqui, que é exatamente a
+    // janela de corrida do achado. O findFirst de RECUPERAÇÃO (dentro do
+    // catch) já enxerga a linha concorrente.
+    (prisma.db.officeLink.findFirst as any) = async ({ where }: any) =>
+      matchesOfficeLinkWhere(jaExistente, where) ? jaExistente : null;
+
+    const credentialsService = { getAccessToken: async () => 'fake-access-token' } as any;
+    const service = new GoogleDriveService(prisma as any, credentialsService, drive);
+
+    const folders = await service.ensureProjectFolderTree('acc-1', 'proj-1');
+
+    expect(folders.find((f) => f.documentType === 'pasta_projeto')).toEqual(jaExistente);
+    // A pasta FOI criada no Drive (a chamada aconteceu antes do create no
+    // banco falhar) -- o que importa é não duplicar o REGISTRO, a
+    // duplicata órfã no Drive em si é aceitável (é o "BAIXO" do achado).
+    expect(drive.createdFolders).toHaveLength(1);
   });
 });
 

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet } from "@/lib/api";
-import type { TimeEntry, Project, User } from "@/lib/types";
+import type { TimeEntry, Project, User, Me } from "@/lib/types";
 import { createTimeEntry, approveTimeEntry } from "@/components/timesheet/actions";
 import { Timer } from "@/components/timesheet/timer";
 import { STAGE_LABELS } from "@/lib/pep-stages";
@@ -20,11 +20,17 @@ export default async function TimesheetPage() {
     redirect("/api/auth/signin");
   }
 
-  const [entries, projects, users] = await Promise.all([
+  const [entries, projects, users, me] = await Promise.all([
     apiGet<TimeEntry[]>("time-entries"),
     apiGet<Project[]>("projects"),
     apiGet<User[]>("users"),
+    apiGet<Me>("me"),
   ]);
+  // TimeEntriesController agora exige admin em POST :id/approve (achado
+  // A5 da auditoria de 30 ago 2026: qualquer staff podia se autoaprovar)
+  // -- esconder o botão pra quem não é admin evita mostrar um controle
+  // que só resultaria em 403.
+  const isAdmin = me.accessLevel === "admin";
 
   const projectById = new Map(projects.map((p) => [p.id, p]));
   const userById = new Map(users.map((u) => [u.id, u]));
@@ -79,7 +85,7 @@ export default async function TimesheetPage() {
                     <td className="px-5 py-3">
                       {entry.approvedAt ? (
                         <span className="text-xs text-emerald-700 dark:text-emerald-400">Aprovado</span>
-                      ) : (
+                      ) : isAdmin ? (
                         <form action={approveTimeEntry.bind(null, entry.id)}>
                           <button
                             type="submit"
@@ -88,6 +94,8 @@ export default async function TimesheetPage() {
                             Aprovar
                           </button>
                         </form>
+                      ) : (
+                        <span className="text-xs text-zinc-500 dark:text-zinc-400">Pendente</span>
                       )}
                     </td>
                   </tr>

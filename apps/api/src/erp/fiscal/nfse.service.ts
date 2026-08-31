@@ -109,7 +109,23 @@ export class NfseService {
   // Extraído de emitirTeste/emitirParaFatura -- as duas checagens
   // (CNPJ do certificado bate com o configurado, ainda não venceu) eram
   // idênticas nos dois métodos antes desta emissão real existir.
-  private loadValidCertificate(): NfseCertificateConfig & { info: CertificateInfo } {
+  //
+  // Achado A68 da auditoria de 30 ago 2026: accountId é sempre resolvido
+  // corretamente pra ler a fatura/Account (taxRegime, nfseAmbiente,
+  // cbsIbsEffectiveRatePercent), mas o PRESTADOR da DPS vinha só de
+  // NFSE_CERTIFICATE_CPFCNPJ -- global de processo, nunca contra
+  // Account.cnpj. Com uma conta só (Fase 1) isso só detecta o
+  // certificado/env estarem inconsistentes ENTRE SI e ainda errados em
+  // relação à conta cadastrada; se um dia existir mais de uma Account no
+  // mesmo processo, é o que impede a NFS-e de uma conta sair autorizada
+  // com o CNPJ de outra. Normaliza os dois lados (só dígitos) antes de
+  // comparar -- Account.cnpj é texto livre digitado por um admin
+  // (account.service.ts: z.string().min(1), sem máscara garantida).
+  // accountId opcional: emitirTeste() não tem fatura/conta nenhuma no
+  // meio (é só um teste de conectividade com a SEFIN, ver comentário no
+  // controller) -- sem accountId, pula a checagem, mesmo comportamento
+  // de antes desta correção pra esse caminho específico.
+  private async loadValidCertificate(accountId?: string): Promise<NfseCertificateConfig & { info: CertificateInfo }> {
     const cert = loadCertificateConfigFromEnv();
     const buffer = readFileSync(cert.path);
     const info = readCertificateInfo(buffer, cert.password);
@@ -127,6 +143,18 @@ export class NfseService {
         `O certificado venceu em ${info.validTo.toLocaleDateString('pt-BR')} — não pode ser usado para emitir.`,
         422,
       );
+    }
+
+    if (accountId) {
+      const account = await this.accountService.getAccount(accountId);
+      const onlyDigits = (value: string) => value.replace(/\D/g, '');
+      if (account.cnpj && onlyDigits(account.cnpj) !== onlyDigits(info.cnpj)) {
+        throw new ApiError(
+          'CERTIFICATE_ACCOUNT_CNPJ_MISMATCH',
+          `O certificado fiscal configurado é do CNPJ ${info.cnpj}, mas esta conta está cadastrada com o CNPJ ${account.cnpj} -- corrija um dos dois antes de emitir.`,
+          422,
+        );
+      }
     }
 
     return { ...cert, info };
@@ -150,7 +178,7 @@ export class NfseService {
   // ponta a ponta; não é o fluxo real de faturamento (ver
   // emitirParaFatura, abaixo).
   async emitirTeste() {
-    const cert = this.loadValidCertificate();
+    const cert = await this.loadValidCertificate();
     const client = createNfseClient(cert);
     const dps = buildTestDps(cert.info.cnpj);
 
@@ -190,7 +218,14 @@ export class NfseService {
     // nfseCanceladaEm presente = a chave atual não vale mais (cancelamento
     // simples, ver cancelarParaFatura) -- reemitir do zero é legítimo
     // nesse caso, só não quando a chave atual ainda está válida.
-    if (invoice.nfseChaveAcesso && !invoice.nfseCanceladaEm) {
+    //
+    // Achado A28 da auditoria de 30 ago 2026: só bloqueia quando a chave
+    // atual é de uma emissão REAL (produção) -- uma emissão em
+    // homologação (ambiente padrão da conta hoje) é só um teste, sem
+    // validade fiscal nenhuma, e tratá-la como "já emitida" impediria
+    // emitir de novo depois de trocar pra produção (ver bloco de
+    // persistência abaixo pro resto do raciocínio).
+    if (invoice.nfseChaveAcesso && !invoice.nfseCanceladaEm && invoice.nfseAmbienteEmissao === 'producao') {
       throw new ApiError(
         'NFSE_ALREADY_ISSUED',
         'Esta fatura já tem uma NFS-e emitida e autorizada — não é possível emitir de novo.',
@@ -212,7 +247,7 @@ export class NfseService {
     const taxRegime: 'MEI' | 'ME' = account.taxRegime === 'ME' ? 'ME' : 'MEI';
     const ambiente = account.nfseAmbiente === 'producao' ? AMBIENTE_PRODUCAO : AMBIENTE_HOMOLOGACAO;
 
-    const cert = this.loadValidCertificate();
+    const cert = await this.loadValidCertificate(accountId);
     const dps = buildInvoiceDps({
       prestadorCnpj: cert.info.cnpj,
       taxRegime,
@@ -233,24 +268,40 @@ export class NfseService {
 
     try {
       const resultado = await client.Autorizacao({ DPS: dps });
-      const nfseXmlArchiveError = await this.archiveXmlBestEffort(
-        accountId,
-        invoice.projectId,
-        `NFS-e ${resultado.response.chaveAcesso}.xml`,
-        resultado.response.nfseXmlGZipB64,
-      );
-      return this.prisma.db.invoice.update({
+
+      // Achado A26 (regressão de 'paga' pra 'emitida') + A28 (homologação
+      // não é emissão de verdade), corrigidos juntos porque são a mesma
+      // decisão: só uma emissão REAL (produção) grava status/nfseNumber/
+      // issuedAt. O fluxo normal do produto é webhook marca 'paga' →
+      // notifica "falta emitir NFS-e" → admin clica Emitir -- sem isto,
+      // esse clique regredia a fatura de volta pra 'emitida' e sumia com
+      // a receita realizada de todo número financeiro derivado (BI).
+      // Homologação nunca marca 'emitida' nem preenche nfseNumber -- o
+      // billing.service.ts já usa `!invoice.nfseNumber` como sinal de
+      // "falta emitir NFS-e de verdade", então uma emissão de teste
+      // deixa esse aviso aceso de propósito, e o guard acima já para de
+      // bloquear reemissão quando o ambiente não é produção.
+      const isRealEmission = ambiente === AMBIENTE_PRODUCAO;
+
+      // Achado A30 (janela irreconciliável): persiste os campos que a
+      // SEFIN devolveu ANTES de arquivar no Drive, não depois -- entre
+      // Autorizacao e este primeiro update não há chamada de rede
+      // nenhuma, então uma queda do processo bem no meio já não deixa
+      // mais uma NFS-e real autorizada sem nenhum rastro no banco (só o
+      // arquivamento em si, um passo auxiliar, ficaria pendente).
+      // Reconciliação completa via Consulta/ConsultarDPS fica de fora
+      // desta rodada -- ver nota no roadmap.
+      await this.prisma.db.invoice.update({
         where: { id: invoice.id },
         data: {
-          status: 'emitida',
-          issuedAt: new Date(),
-          nfseNumber: resultado.response.chaveAcesso,
+          status: isRealEmission ? (invoice.status === 'paga' ? undefined : 'emitida') : undefined,
+          issuedAt: isRealEmission ? (invoice.issuedAt ?? new Date()) : undefined,
+          nfseNumber: isRealEmission ? resultado.response.chaveAcesso : undefined,
           nfseChaveAcesso: resultado.response.chaveAcesso,
           nfseIdDps: resultado.response.idDps,
           nfseNumeroDps: dps.infDps.nDPS,
-          nfseAmbienteEmissao: ambiente === AMBIENTE_PRODUCAO ? 'producao' : 'homologacao',
+          nfseAmbienteEmissao: isRealEmission ? 'producao' : 'homologacao',
           nfseRejectionReason: null,
-          nfseXmlArchiveError,
           // Limpa o rastro do cancelamento anterior -- guarda a chave
           // cancelada em nfseChaveAcessoAnterior antes de sobrescrever
           // nfseChaveAcesso, mesma disciplina de nunca perder o
@@ -262,8 +313,32 @@ export class NfseService {
         },
         include: { lines: true },
       });
+
+      const nfseXmlArchiveError = await this.archiveXmlBestEffort(
+        accountId,
+        invoice.projectId,
+        `NFS-e ${resultado.response.chaveAcesso}.xml`,
+        resultado.response.nfseXmlGZipB64,
+      );
+      return this.prisma.db.invoice.update({
+        where: { id: invoice.id },
+        data: { nfseXmlArchiveError },
+        include: { lines: true },
+      });
     } catch (error: any) {
       const mensagem = this.extractRejectionMessage(error, 'Falha desconhecida ao autorizar a NFS-e.');
+      // Achado A31: antes de gravar a rejeição, reconfere se uma
+      // requisição concorrente já autorizou com sucesso -- sem isto, um
+      // duplo clique podia gravar "rejeitada" DEPOIS do sucesso da outra
+      // requisição, deixando uma NFS-e válida com uma mensagem de erro
+      // permanente na tela (a SEFIN só autoriza uma das duas -- é o nDPS
+      // estável que impede duas NFS-e de verdade, não isto -- isto só
+      // evita que o texto de erro pareça mais recente/verdadeiro que o
+      // sucesso real).
+      const atual = await this.prisma.db.invoice.findUnique({ where: { id: invoice.id } });
+      if (atual?.nfseChaveAcesso && !atual.nfseCanceladaEm) {
+        throw new ApiError('NFSE_AUTORIZACAO_FAILED', mensagem, 502);
+      }
       // Persistida pra sobreviver a um refresh de página -- achado da
       // auditoria: hoje esse detalhe é capturado e descartado, a usuária
       // só vê um 502 genérico. Não muda status/issuedAt: uma rejeição não
@@ -297,7 +372,7 @@ export class NfseService {
       throw new ApiError('NFSE_ALREADY_CANCELED', 'A NFS-e desta fatura já está cancelada.', 422);
     }
 
-    const cert = this.loadValidCertificate();
+    const cert = await this.loadValidCertificate(accountId);
     const ambiente = invoice.nfseAmbienteEmissao === 'producao' ? AMBIENTE_PRODUCAO : AMBIENTE_HOMOLOGACAO;
     const client = createNfseClient(cert, ambiente);
     const pedRegEvento = buildCancelamentoEvento({
@@ -310,6 +385,22 @@ export class NfseService {
 
     try {
       const resultadoEvento = await client.RegistrarEvento({ chaveAcesso: invoice.nfseChaveAcesso, pedRegEvento });
+
+      // Achado A30: persiste o cancelamento ANTES de arquivar no Drive
+      // (mesmo raciocínio de emitirParaFatura) -- o evento já foi aceito
+      // pela SEFIN neste ponto, então uma queda do processo antes do
+      // arquivamento não pode deixar isso sem registro.
+      await this.prisma.db.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          nfseCanceladaEm: new Date(),
+          nfseMotivoCancelamento: input.motivo,
+          nfseJustificativaCancelamento: input.justificativa,
+          nfseRejectionReason: null,
+        },
+        include: { lines: true },
+      });
+
       const nfseXmlArchiveError = await this.archiveXmlBestEffort(
         accountId,
         invoice.projectId,
@@ -318,17 +409,17 @@ export class NfseService {
       );
       return this.prisma.db.invoice.update({
         where: { id: invoice.id },
-        data: {
-          nfseCanceladaEm: new Date(),
-          nfseMotivoCancelamento: input.motivo,
-          nfseJustificativaCancelamento: input.justificativa,
-          nfseRejectionReason: null,
-          nfseXmlArchiveError,
-        },
+        data: { nfseXmlArchiveError },
         include: { lines: true },
       });
     } catch (error: any) {
       const mensagem = this.extractRejectionMessage(error, 'Falha desconhecida ao cancelar a NFS-e.');
+      // Achado A31 -- mesmo guard de emitirParaFatura: não sobrescreve um
+      // cancelamento que uma requisição concorrente já registrou.
+      const atual = await this.prisma.db.invoice.findUnique({ where: { id: invoice.id } });
+      if (atual?.nfseCanceladaEm) {
+        throw new ApiError('NFSE_CANCELAMENTO_FAILED', mensagem, 502);
+      }
       await this.prisma.db.invoice.update({
         where: { id: invoice.id },
         data: { nfseRejectionReason: mensagem },
@@ -385,10 +476,27 @@ export class NfseService {
 
     const account = await this.accountService.getAccount(accountId);
     const taxRegime: 'MEI' | 'ME' = account.taxRegime === 'ME' ? 'ME' : 'MEI';
-    const ambiente = account.nfseAmbiente === 'producao' ? AMBIENTE_PRODUCAO : AMBIENTE_HOMOLOGACAO;
+    // Achado A29 da auditoria de 30 ago 2026: usa o ambiente ONDE a NFS-e
+    // atual vive (invoice.nfseAmbienteEmissao), não account.nfseAmbiente
+    // -- os dois podem divergir se a conta trocou de ambiente depois da
+    // emissão original (mesmo raciocínio que cancelarParaFatura já
+    // aplica). Sem isto, substituir uma nota antiga de homologação depois
+    // de a conta virar produção mandaria a DPS substituta pro webservice
+    // ERRADO, com um bloco `subst` referenciando uma chave que só existe
+    // no outro ambiente. Recusa em vez de adivinhar -- a decisão de
+    // reemitir em produção precisa ser explícita (trocar Account.nfseAmbiente
+    // primeiro), não um efeito colateral de clicar Substituir.
+    if (invoice.nfseAmbienteEmissao !== account.nfseAmbiente) {
+      throw new ApiError(
+        'NFSE_AMBIENTE_MISMATCH',
+        `Esta NFS-e foi emitida em ${invoice.nfseAmbienteEmissao === 'producao' ? 'produção' : 'homologação'}, mas a conta está configurada pra ${account.nfseAmbiente === 'producao' ? 'produção' : 'homologação'} agora — mude o ambiente da conta antes de substituir.`,
+        422,
+      );
+    }
+    const ambiente = invoice.nfseAmbienteEmissao === 'producao' ? AMBIENTE_PRODUCAO : AMBIENTE_HOMOLOGACAO;
     const chaveAntiga = invoice.nfseChaveAcesso;
 
-    const cert = this.loadValidCertificate();
+    const cert = await this.loadValidCertificate(accountId);
     const dpsNova = buildInvoiceDps({
       prestadorCnpj: cert.info.cnpj,
       taxRegime,
@@ -418,6 +526,13 @@ export class NfseService {
       resultadoNova = await client.Autorizacao({ DPS: dpsNova });
     } catch (error: any) {
       const mensagem = this.extractRejectionMessage(error, 'Falha desconhecida ao autorizar a NFS-e substituta.');
+      // Achado A31 -- mesmo guard de emitirParaFatura: não sobrescreve
+      // uma substituição que uma requisição concorrente já autorizou
+      // (chaveAcesso já teria mudado da chaveAntiga capturada acima).
+      const atual = await this.prisma.db.invoice.findUnique({ where: { id: invoice.id } });
+      if (atual?.nfseChaveAcesso && atual.nfseChaveAcesso !== chaveAntiga) {
+        throw new ApiError('NFSE_AUTORIZACAO_FAILED', mensagem, 502);
+      }
       await this.prisma.db.invoice.update({
         where: { id: invoice.id },
         data: { nfseRejectionReason: mensagem },
@@ -430,6 +545,36 @@ export class NfseService {
     // acima). Nada mais pode falhar depois disto: nfseRejectionReason:
     // null aqui é definitivo, não "só a nova deu certo" como no design
     // antigo.
+    //
+    // Achado A24: nfseNumber precisa mudar junto -- é o campo que a tela
+    // (e BillingService) exibe como "o número da NFS-e", e sem isto
+    // continuava mostrando a chave da nota CANCELADA depois da
+    // substituição. Só quando é uma substituição de verdade (produção) --
+    // mesma simetria de A28 em emitirParaFatura: substituir uma nota de
+    // TESTE (homologação) continua sem nfseNumber, senão o aviso "falta
+    // emitir NFS-e" desapareceria por causa de um teste.
+    //
+    // Achado A30: persiste ANTES de arquivar no Drive (mesmo raciocínio
+    // de emitirParaFatura/cancelarParaFatura) -- a nova já está
+    // autorizada (e a antiga já cancelada, efeito colateral da SEFIN)
+    // neste ponto; uma queda do processo não pode deixar isso sem
+    // registro só porque o Drive ainda não respondeu.
+    const isRealSubstitution = ambiente === AMBIENTE_PRODUCAO;
+    await this.prisma.db.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        nfseNumber: isRealSubstitution ? resultadoNova.response.chaveAcesso : undefined,
+        nfseChaveAcesso: resultadoNova.response.chaveAcesso,
+        nfseIdDps: resultadoNova.response.idDps,
+        nfseNumeroDps: dpsNova.infDps.nDPS,
+        nfseAmbienteEmissao: ambiente === AMBIENTE_PRODUCAO ? 'producao' : 'homologacao',
+        nfseChaveAcessoAnterior: chaveAntiga,
+        nfseRejectionReason: null,
+        nfseJustificativaCancelamento: input.justificativa,
+      },
+      include: { lines: true },
+    });
+
     const nfseXmlArchiveError = await this.archiveXmlBestEffort(
       accountId,
       invoice.projectId,
@@ -438,16 +583,7 @@ export class NfseService {
     );
     return this.prisma.db.invoice.update({
       where: { id: invoice.id },
-      data: {
-        nfseChaveAcesso: resultadoNova.response.chaveAcesso,
-        nfseIdDps: resultadoNova.response.idDps,
-        nfseNumeroDps: dpsNova.infDps.nDPS,
-        nfseAmbienteEmissao: ambiente === AMBIENTE_PRODUCAO ? 'producao' : 'homologacao',
-        nfseChaveAcessoAnterior: chaveAntiga,
-        nfseRejectionReason: null,
-        nfseXmlArchiveError,
-        nfseJustificativaCancelamento: input.justificativa,
-      },
+      data: { nfseXmlArchiveError },
       include: { lines: true },
     });
   }

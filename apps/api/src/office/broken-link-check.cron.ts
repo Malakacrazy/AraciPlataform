@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { GoogleDriveService } from './google-drive.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { runWithCronLock } from '../common/cron-lock';
 
 // Achado da auditoria: "hoje o link apodrece em silêncio" -- arquivo
 // movido/renomeado/excluído no Drive não avisa ninguém. Roda semanalmente
@@ -21,6 +22,10 @@ export class BrokenLinkCheckCron {
 
   @Cron(CronExpression.EVERY_WEEK)
   async checkAllAccounts() {
+    await runWithCronLock(this.prisma, 'broken-link-check', this.logger, () => this.run());
+  }
+
+  private async run() {
     const accountIds = await this.prisma.db.officeLink.findMany({
       where: { provider: 'DRIVE' },
       distinct: ['accountId'],

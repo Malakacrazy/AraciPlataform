@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApiError, NotFoundError } from '../common/api-error';
 import { ProjectsService } from './projects.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 export const inviteCollaboratorSchema = z.object({
   email: z.email(),
@@ -21,6 +22,7 @@ export class CollaboratorsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly projectsService: ProjectsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async listForProject(accountId: string, projectId: string) {
@@ -38,7 +40,7 @@ export class CollaboratorsService {
   // duplica, não é erro) -- @@unique([collaboratorId, projectId]) só
   // dispararia um 500 sem essa checagem antes.
   async invite(accountId: string, projectId: string, input: InviteCollaboratorInput) {
-    await this.projectsService.getProject(accountId, projectId);
+    const project = await this.projectsService.getProject(accountId, projectId);
     const email = input.email.toLowerCase();
 
     const existing = await this.prisma.db.externalCollaborator.findUnique({ where: { email } });
@@ -69,6 +71,10 @@ export class CollaboratorsService {
     const access = await this.prisma.db.collaboratorProjectAccess.create({
       data: { collaboratorId: collaborator.id, projectId },
     });
+    // Achado A65 da auditoria de 30 ago 2026 -- só no caminho em que o
+    // acesso é de fato NOVO (o idempotente acima já retornou antes de
+    // chegar aqui, então convidar de novo pro mesmo projeto não reenvia).
+    await this.notificationsService.sendCollaboratorInvite(email, collaborator.name, project.name);
     return { ...access, collaborator };
   }
 

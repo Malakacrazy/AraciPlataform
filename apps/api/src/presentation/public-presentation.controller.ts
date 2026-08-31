@@ -14,6 +14,17 @@ import {
   type MoodboardCommentInput,
 } from '../ffe/moodboards.service';
 
+// Achados A32/A45: só o que dá pra exibir com segurança inline (PDF e as
+// imagens raster comuns) -- qualquer outra coisa (HTML, SVG, o que for)
+// vira download forçado em vez de executar na origem da aplicação.
+const SAFE_INLINE_MIME_TYPES = new Set([
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+]);
+
 // Uma das famílias de rota @Public() do sistema (client-portal e
 // collaborator-portal vieram depois, ver comentário em
 // ClientPortalController) — ver auth.guard.ts/public.decorator.ts sobre
@@ -56,6 +67,16 @@ export class PublicPresentationController {
   // o Nest serializar. inline (não attachment) de propósito -- o cliente
   // só visualiza pelo portal, PDF/imagem abre direto no navegador em vez
   // de forçar download.
+  //
+  // Achados A32/A45 da auditoria de 30 ago 2026: repassar o mimeType que
+  // o Drive devolve, cru, pra um <iframe>/<img> na MESMA origem do
+  // dashboard de staff é execução de conteúdo arbitrário -- um arquivo
+  // HTML/SVG vinculado com título "contrato.pdf" (a extensão do título é
+  // só um controle de UI em apps/web, texto livre, não confirma o
+  // mimeType real) rodava script na origem da aplicação. Allowlist:
+  // qualquer coisa fora dela vira application/octet-stream +
+  // Content-Disposition: attachment (nunca inline, nunca executável),
+  // independente do que o título sugere.
   @Public()
   @Get('documents/:officeLinkId')
   async downloadDocument(
@@ -64,9 +85,12 @@ export class PublicPresentationController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const file = await this.publicPresentationService.downloadDocument(token, officeLinkId);
+    const safeMimeType = SAFE_INLINE_MIME_TYPES.has(file.mimeType) ? file.mimeType : 'application/octet-stream';
+    const disposition = safeMimeType === file.mimeType ? 'inline' : 'attachment';
     res.set({
-      'Content-Type': file.mimeType,
-      'Content-Disposition': `inline; filename="${encodeURIComponent(file.name)}"`,
+      'Content-Type': safeMimeType,
+      'Content-Disposition': `${disposition}; filename="${encodeURIComponent(file.name)}"`,
+      'X-Content-Type-Options': 'nosniff',
     });
     return new StreamableFile(file.data);
   }

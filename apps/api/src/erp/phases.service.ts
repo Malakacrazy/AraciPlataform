@@ -74,8 +74,23 @@ export class PhasesService {
       return [];
     }
 
+    // Achado A38 da auditoria de 30 ago 2026: sem provider/lastCheckedAt
+    // aqui, um vínculo de Calendar/Gmail contava como documento entregue,
+    // e um vínculo recém-criado (brokenAt null porque nunca foi
+    // verificado, não porque foi confirmado saudável) já satisfazia o
+    // checklist -- qualquer staff podia inventar um OfficeLink com
+    // documentType batendo e enganar o gate. accountId também entra aqui
+    // por defesa em profundidade de tenant (phaseId sozinho já escopa via
+    // getPhase acima, mas o índice usado é [phaseId, brokenAt]).
     const links = await this.prisma.db.officeLink.findMany({
-      where: { phaseId, brokenAt: null, documentType: { not: null } },
+      where: {
+        accountId,
+        phaseId,
+        provider: 'DRIVE',
+        brokenAt: null,
+        lastCheckedAt: { not: null },
+        documentType: { not: null },
+      },
       select: { documentType: true },
     });
     const present = new Set(links.map((l) => l.documentType));
@@ -138,13 +153,36 @@ export class PhasesService {
     });
   }
 
+  // Achado A22 da auditoria de 30 ago 2026: budget é a única superfície de
+  // dinheiro/configuração do módulo que não era admin-only (compare com
+  // ExpensesController/InvoicesController/RoleRatesController, e o
+  // próprio approve() acima), e podia ser reescrito a qualquer momento --
+  // inclusive depois do gate aprovado ou da fase já ter fatura, quando o
+  // orçado deveria estar travado como base contratual.
   async updatePhase(
     accountId: string,
     projectId: string,
     phaseId: string,
     input: UpdatePhaseInput,
   ) {
-    await this.getPhase(accountId, projectId, phaseId);
+    const phase = await this.getPhase(accountId, projectId, phaseId);
+    if (input.budget !== undefined) {
+      if (phase.approvedAt) {
+        throw new ApiError(
+          'PHASE_BUDGET_LOCKED',
+          'O gate deste estágio já foi aprovado -- o orçado não pode mais ser alterado.',
+          422,
+        );
+      }
+      const invoiced = await this.prisma.db.invoice.findFirst({ where: { phaseId } });
+      if (invoiced) {
+        throw new ApiError(
+          'PHASE_BUDGET_LOCKED',
+          'Este estágio já tem fatura -- o orçado não pode mais ser alterado.',
+          422,
+        );
+      }
+    }
     return this.prisma.db.projectPhase.update({
       where: { id: phaseId },
       data: {

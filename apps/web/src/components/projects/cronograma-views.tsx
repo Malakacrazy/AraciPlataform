@@ -27,6 +27,7 @@ export function CronogramaViews({
   invoicedPhaseIds,
   feeModel,
   documentChecklists,
+  isAdmin,
 }: {
   projectId: string;
   phases: ProjectPhase[];
@@ -37,6 +38,7 @@ export function CronogramaViews({
   // projects/[id]/page.tsx). Opcional pra não quebrar quem ainda não
   // passa isso.
   documentChecklists?: Record<string, DocumentChecklistItem[]>;
+  isAdmin: boolean;
 }) {
   const [view, setView] = useState<ViewMode>("lista");
   const invoiced = new Set(invoicedPhaseIds);
@@ -72,6 +74,7 @@ export function CronogramaViews({
             invoiced={invoiced}
             feeModel={feeModel}
             documentChecklists={documentChecklists}
+            isAdmin={isAdmin}
           />
         )}
         {view === "kanban" && <KanbanView contracted={contracted} />}
@@ -88,12 +91,14 @@ function ListaView({
   invoiced,
   feeModel,
   documentChecklists,
+  isAdmin,
 }: {
   projectId: string;
   contracted: ProjectPhase[];
   invoiced: Set<string>;
   feeModel: string;
   documentChecklists?: Record<string, DocumentChecklistItem[]>;
+  isAdmin: boolean;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -199,17 +204,23 @@ function ListaView({
                     className="rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  Orçamento (R$)
-                  <input
-                    name="budget"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    defaultValue={phase.budget ?? ""}
-                    className="w-28 rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-                  />
-                </label>
+                {isAdmin && (
+                  // Orçamento virou admin-only (achado A22 da auditoria de
+                  // 30 ago 2026: era a única superfície de dinheiro do
+                  // módulo aberta a qualquer staff, a qualquer momento,
+                  // mesmo depois do gate aprovado ou já faturado).
+                  <label className="flex flex-col gap-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    Orçamento (R$)
+                    <input
+                      name="budget"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      defaultValue={phase.budget ?? ""}
+                      className="w-28 rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                    />
+                  </label>
+                )}
                 <button type="submit" className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
                   Salvar
                 </button>

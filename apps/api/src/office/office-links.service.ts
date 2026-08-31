@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ApiError, NotFoundError } from '../common/api-error';
 import { ProjectsService } from '../erp/projects.service';
 import { ClientsService } from '../crm/clients.service';
+import { GoogleDriveService } from './google-drive.service';
 
 // externalId/url/title chegam já resolvidos pelo frontend (achado de uma
 // auditoria externa: um comentário antigo aqui dizia que isso ainda era
@@ -18,8 +19,22 @@ import { ClientsService } from '../crm/clients.service';
 export const officeLinkInputSchema = z.object({
   provider: z.enum(OfficeLinkProvider),
   externalId: z.string().min(1),
-  url: z.url(),
+  // Achado A43 da auditoria de 30 ago 2026: z.url() sozinho só valida que
+  // `new URL(...)` não lança -- não restringe protocolo, então
+  // "javascript:..." passava. office-links-section.tsx renderiza isto
+  // cru em href; só http(s) é um destino legítimo de link do Drive/
+  // Calendar/Gmail.
+  url: z.url({ protocol: /^https?$/ }),
   title: z.string().min(1).max(300),
+  // Achado A38: token EFÊMERO do Picker do navegador (drive.file, só
+  // desta chamada) -- nunca gravado no OfficeLink, só usado aqui pra
+  // confirmar que o arquivo existe de verdade antes de marcar
+  // lastCheckedAt (ver createForProject/createForClient). Ausente para
+  // provider CALENDAR/GMAIL (o Picker não existe pra eles) e pra
+  // qualquer chamador antigo que ainda não manda -- nesse caso o vínculo
+  // nasce igual a antes, só sem satisfazer o checklist até a checagem
+  // periódica confirmar.
+  driveAccessToken: z.string().optional(),
 });
 
 export type OfficeLinkInput = z.infer<typeof officeLinkInputSchema>;
@@ -44,6 +59,7 @@ export class OfficeLinksService {
     private readonly prisma: PrismaService,
     private readonly projectsService: ProjectsService,
     private readonly clientsService: ClientsService,
+    private readonly googleDriveService: GoogleDriveService,
   ) {}
 
   async listForProject(accountId: string, projectId: string) {
@@ -54,14 +70,31 @@ export class OfficeLinksService {
     });
   }
 
+  // Achado A38 da auditoria de 30 ago 2026: verifica o arquivo de verdade
+  // antes de marcar lastCheckedAt (condição que o checklist de documentos
+  // obrigatórios exige, ver phases.service.ts). Achado A33: linkedByUserId
+  // é quem de fato escolheu o arquivo -- resolveDriveAccessToken passa a
+  // preferir a credencial desta pessoa em vez de sortear qualquer admin.
+  private async prepareCreateData(userId: string, input: OfficeLinkInput) {
+    const { driveAccessToken, ...rest } = input;
+    let lastCheckedAt: Date | null = null;
+    if (rest.provider === 'DRIVE' && driveAccessToken) {
+      const exists = await this.googleDriveService.verifyFileAccessible(driveAccessToken, rest.externalId);
+      if (exists) lastCheckedAt = new Date();
+    }
+    return { ...rest, linkedByUserId: userId, lastCheckedAt };
+  }
+
   async createForProject(
     accountId: string,
+    userId: string,
     projectId: string,
     input: OfficeLinkInput,
   ) {
     await this.projectsService.getProject(accountId, projectId);
+    const data = await this.prepareCreateData(userId, input);
     return this.prisma.db.officeLink.create({
-      data: { ...input, accountId, entityType: 'PROJECT', entityId: projectId },
+      data: { ...data, accountId, entityType: 'PROJECT', entityId: projectId },
     });
   }
 
@@ -75,12 +108,14 @@ export class OfficeLinksService {
 
   async createForClient(
     accountId: string,
+    userId: string,
     clientId: string,
     input: OfficeLinkInput,
   ) {
     await this.clientsService.getClient(accountId, clientId);
+    const data = await this.prepareCreateData(userId, input);
     return this.prisma.db.officeLink.create({
-      data: { ...input, accountId, entityType: 'CLIENT', entityId: clientId },
+      data: { ...data, accountId, entityType: 'CLIENT', entityId: clientId },
     });
   }
 

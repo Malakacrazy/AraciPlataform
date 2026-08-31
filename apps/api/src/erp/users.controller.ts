@@ -16,6 +16,8 @@ import {
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { ForbiddenError } from '../common/api-error';
+import { AdminOnly } from '../auth/admin-only.decorator';
 
 // Sem POST: um User só nasce via login SSO (AuthService.ensureAccountAndUser).
 @Controller('v1/users')
@@ -47,17 +49,30 @@ export class UsersController {
     return { data: this.redactCost(user, accessLevel) };
   }
 
+  // Achado A20 da auditoria de 30 ago 2026: faltava a checagem mais básica
+  // de todas aqui -- qualquer staff conseguia dar PATCH no :id de QUALQUER
+  // colega, não só no próprio. Self-scope pra quem não é admin (mesmo
+  // padrão de GoogleCredentialsController/POST users/api-key, que nem
+  // aceitam :id).
   @Patch(':id')
   async update(
-    @SessionAccount() { accountId, accessLevel }: SessionAccountType,
+    @SessionAccount() { accountId, userId, accessLevel }: SessionAccountType,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(userUpdateSchema)) input: UserUpdateInput,
   ) {
-    // costPerHour e accessLevel só passam se quem está pedindo é admin --
-    // sem isso, staff não vê o próprio custo/hora (GET já filtra) mas
-    // ainda conseguiria escrevê-lo às cegas, e ninguém conseguiria
-    // promover/rebaixar ninguém pela API.
-    const safeInput = accessLevel === 'admin' ? input : { ...input, costPerHour: undefined, accessLevel: undefined };
+    if (accessLevel !== 'admin' && id !== userId) {
+      throw new ForbiddenError('Você só pode editar o próprio cadastro.');
+    }
+    // costPerHour, accessLevel e role só passam se quem está pedindo é
+    // admin -- sem isso, staff não vê o próprio custo/hora (GET já
+    // filtra) mas ainda conseguiria escrevê-lo às cegas, ninguém
+    // conseguiria promover/rebaixar ninguém pela API, e (achado A20)
+    // qualquer staff poderia reprecificar a própria fatura por hora
+    // trocando o próprio `role` -- createHourlyInvoice agrupa por
+    // User.role e multiplica pela RoleRate daquele papel, mesma razão
+    // pela qual RoleRatesController já é admin-only.
+    const safeInput =
+      accessLevel === 'admin' ? input : { ...input, costPerHour: undefined, accessLevel: undefined, role: undefined };
     const data = await this.usersService.updateUser(accountId, id, safeInput);
     return { data: this.redactCost(data, accessLevel) };
   }
@@ -81,5 +96,22 @@ export class UsersController {
   @HttpCode(204)
   async revokeApiKey(@SessionAccount() { userId }: SessionAccountType) {
     await this.usersService.revokeApiKey(userId);
+  }
+
+  // Achado A23 da auditoria de 30 ago 2026: até aqui só o próprio dono
+  // conseguia revogar a chave (rota acima). Sem exclusão de User nem flag
+  // de usuário desativado no schema, um admin não tinha NENHUM jeito de
+  // desligar a chave de API de outra pessoa pela API -- só mexendo direto
+  // no banco. `:id` aqui é seguro porque é @AdminOnly() (diferente do
+  // /api-key acima, que é deliberadamente self-scoped).
+  @AdminOnly()
+  @Delete(':id/api-key')
+  @HttpCode(204)
+  async revokeApiKeyForUser(
+    @SessionAccount() { accountId }: SessionAccountType,
+    @Param('id') id: string,
+  ) {
+    await this.usersService.getUser(accountId, id); // 404 se não é desta conta
+    await this.usersService.revokeApiKey(id);
   }
 }

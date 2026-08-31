@@ -66,18 +66,22 @@ export class PhasesController {
 
   // Diferente do PATCH que .../approve deliberadamente não expõe: aqui só
   // datas/orçamento, nunca approvedAt/stage/order/contracted (estrutural).
+  // startDate/dueDate continuam abertos a qualquer staff (planejamento,
+  // Gantt/Calendário) -- só budget virou admin-only (achado A22: é a
+  // única superfície de dinheiro do módulo que não era).
   @Patch(':phaseId')
   async update(
-    @SessionAccount() { accountId }: SessionAccountType,
+    @SessionAccount() { accountId, accessLevel }: SessionAccountType,
     @Param('projectId') projectId: string,
     @Param('phaseId') phaseId: string,
     @Body(new ZodValidationPipe(updatePhaseSchema)) input: UpdatePhaseInput,
   ) {
+    const safeInput = accessLevel === 'admin' ? input : { ...input, budget: undefined };
     const data = await this.phasesService.updatePhase(
       accountId,
       projectId,
       phaseId,
-      input,
+      safeInput,
     );
     return { data };
   }

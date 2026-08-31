@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApiError, NotFoundError } from '../common/api-error';
+import { round2 } from '../common/money';
 import { ProjectsService } from './projects.service';
 import { RoleRatesService } from './role-rates.service';
 
@@ -65,11 +66,29 @@ export class InvoicesService {
   // Forma de medição do PEP: "por estágio concluído e aprovado" — não dá
   // pra gerar fatura de um estágio cujo gate ainda não foi aprovado
   // (ProjectPhase.approvedAt). Isso torna a regra de negócio impossível de
-  // contornar via API, não só uma convenção de UI. Também não dá pra
-  // faturar o mesmo estágio duas vezes — antes disso só a tela impedia
-  // (escondia o botão "Faturar" quando já tinha fatura); virou regra da
-  // API porque faturamento automático por hora precisa desse invariante
-  // pra não contar a mesma TimeEntry aprovada duas vezes.
+  // contornar via API, não só uma convenção de UI.
+  //
+  // Achados A1/A2 da auditoria de 30 ago 2026
+  // (auditoria-2026-08-30-detalhada.md): o guard antigo era só
+  // check-then-act (findFirst sem transação nem lock) E era "uma fatura
+  // por fase" — as duas coisas juntas quebravam de dois jeitos opostos.
+  // (1) Corrida de verdade: duplo clique/retry cria duas faturas
+  // idênticas antes de qualquer uma ser persistida. (2) Horas aprovadas
+  // DEPOIS do primeiro faturamento do estágio (aprovação e faturamento
+  // são ações independentes) ficavam permanentemente não faturáveis,
+  // porque um segundo POST pro mesmo phaseId sempre batia em
+  // PHASE_ALREADY_INVOICED, mesmo cobrindo TimeEntry diferentes.
+  //
+  // Resolvido com dois invariantes diferentes, não um só:
+  // - pg_advisory_xact_lock por phaseId serializa qualquer criação de
+  //   fatura pro MESMO estágio (fecha a corrida, os dois fee models).
+  // - Pra hora_tecnica, "uma fatura por fase" deixou de ser a regra —
+  //   virou "uma TimeEntry nunca é faturada duas vezes"
+  //   (TimeEntry.invoiceId, ver createHourlyInvoice), o que permite
+  //   faturas complementares no mesmo estágio. Pra fee model fixo
+  //   (orçamento fechado por fase), "uma fatura por fase" continua
+  //   sendo a regra certa — não existe "hora adicional" pra justificar
+  //   uma segunda fatura ali.
   async createInvoiceForPhase(
     accountId: string,
     projectId: string,
@@ -90,105 +109,147 @@ export class InvoicesService {
         422,
       );
     }
-    const existingInvoice = await this.prisma.db.invoice.findFirst({
-      where: { phaseId },
-    });
-    if (existingInvoice) {
-      throw new ApiError(
-        'PHASE_ALREADY_INVOICED',
-        'Este estágio já tem uma fatura — o PEP fatura uma vez por estágio aprovado.',
-        422,
-      );
-    }
 
-    if (project.feeModel === 'hora_tecnica') {
-      if (input.amount !== undefined) {
+    return this.prisma.db.$transaction(async (tx) => {
+      // hashtext() é determinístico por string -- duas chamadas pro MESMO
+      // phaseId brigam pelo mesmo lock; liberado sozinho no fim da
+      // transação (commit ou rollback), nunca precisa de unlock manual.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${phaseId}))`;
+
+      if (project.feeModel === 'hora_tecnica') {
+        if (input.amount !== undefined) {
+          throw new ApiError(
+            'AMOUNT_NOT_ALLOWED',
+            'Projetos hora_técnica são faturados automaticamente a partir das horas aprovadas apontadas neste estágio — não envie um valor.',
+            422,
+          );
+        }
+
+        // Definida aqui dentro (não como método da classe) de propósito:
+        // o tipo do client de transação de um Prisma Client ESTENDIDO
+        // (this.prisma.db.$extends(...), ver PrismaService) não bate com
+        // Prisma.TransactionClient (o tipo base, não estendido) -- inferir
+        // via closure evita ter que escrever esse tipo à mão.
+        //
+        // Uma linha por (papel, tarifa) com horas apontadas neste
+        // estágio (TimeEntry billable, aprovada e AINDA NÃO consumida por
+        // outra fatura -- `invoiceId: null`, achado A2). Escopada por
+        // phaseId E projectId (achado A8: um updateTimeEntry que move o
+        // lançamento de projeto sem corrigir o phaseId antigo não deveria
+        // contar aqui, mesmo que o filtro por phaseId sozinho batesse).
+        // Preço: usa TimeEntry.approvedHourlyRate quando existe
+        // (congelada no momento da aprovação, achado A7) -- entradas
+        // aprovadas ANTES desta migração não têm esse valor gravado,
+        // então caem no fallback da RoleRate atual.
+        const entries = await tx.timeEntry.findMany({
+          where: { phaseId, projectId, billable: true, approvedAt: { not: null }, invoiceId: null },
+          include: { user: { select: { role: true } } },
+        });
+        if (entries.length === 0) {
+          throw new ApiError(
+            'NO_APPROVED_HOURS',
+            'Nenhuma hora aprovada e faturável apontada neste estágio ainda — não há o que faturar.',
+            422,
+          );
+        }
+
+        const roleRates = await this.roleRatesService.listRoleRates(accountId);
+        const rateByRole = new Map(roleRates.map((r) => [r.role, Number(r.hourlyRate)]));
+
+        // Agrupado por (papel, tarifa) — não só por papel. Com a tarifa
+        // congelada por lançamento (A7), duas entradas do MESMO papel
+        // podem legitimamente ter tarifas diferentes (a RoleRate mudou
+        // entre uma aprovação e outra); uma única linha por papel
+        // mostraria um hourlyRate que não bate com o amount de parte das
+        // horas.
+        type LineAccumulator = { role: string; hourlyRate: number; hours: number; amount: number };
+        const byRoleAndRate = new Map<string, LineAccumulator>();
+        for (const entry of entries) {
+          const role = entry.user.role;
+          const hourlyRate =
+            entry.approvedHourlyRate !== null ? Number(entry.approvedHourlyRate) : rateByRole.get(role);
+          if (hourlyRate === undefined) {
+            throw new ApiError(
+              'ROLE_RATE_MISSING',
+              `Nenhuma tarifa cadastrada para o papel "${role}" — cadastre em /role-rates antes de faturar este estágio.`,
+              422,
+            );
+          }
+          const hours = Number(entry.hours);
+          const key = `${role}:${hourlyRate}`;
+          const acc = byRoleAndRate.get(key) ?? { role, hourlyRate, hours: 0, amount: 0 };
+          acc.hours += hours;
+          // round2 por lançamento, não só no total (achado A4) -- soma de
+          // valores já arredondados evita o mesmo acúmulo de ponto
+          // flutuante que a auditoria encontrou entre RoleRate e Invoice.
+          acc.amount += round2(hours * hourlyRate);
+          byRoleAndRate.set(key, acc);
+        }
+
+        const lines = [...byRoleAndRate.values()].map((l) => ({
+          role: l.role,
+          hours: l.hours,
+          hourlyRate: l.hourlyRate,
+          amount: round2(l.amount),
+        }));
+        const amount = round2(lines.reduce((sum, l) => sum + l.amount, 0));
+
+        const invoice = await tx.invoice.create({
+          data: {
+            projectId,
+            phaseId,
+            amount,
+            status: 'pendente',
+            dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
+            lines: { create: lines },
+          },
+          include: { lines: true },
+        });
+
+        // Claim atômico: se outra transação concorrente já tivesse
+        // consumido alguma dessas TimeEntry (não deveria, o advisory
+        // lock por phaseId já serializa isso, mas o filtro
+        // invoiceId:null é a segunda linha de defesa), o count aqui
+        // viria menor que entries.length e a exceção desfaz a fatura
+        // recém-criada junto (mesma transação).
+        const claim = await tx.timeEntry.updateMany({
+          where: { id: { in: entries.map((e) => e.id) }, invoiceId: null },
+          data: { invoiceId: invoice.id },
+        });
+        if (claim.count !== entries.length) {
+          throw new ApiError(
+            'CONCURRENT_INVOICE_CONFLICT',
+            'Outra fatura consumiu parte destas horas ao mesmo tempo — tente novamente.',
+            409,
+          );
+        }
+
+        return invoice;
+      }
+
+      const existingInvoice = await tx.invoice.findFirst({ where: { phaseId } });
+      if (existingInvoice) {
         throw new ApiError(
-          'AMOUNT_NOT_ALLOWED',
-          'Projetos hora_técnica são faturados automaticamente a partir das horas aprovadas apontadas neste estágio — não envie um valor.',
+          'PHASE_ALREADY_INVOICED',
+          'Este estágio já tem uma fatura — o PEP fatura uma vez por estágio aprovado.',
           422,
         );
       }
-      return this.createHourlyInvoice(accountId, projectId, phase.id, input.dueDate);
-    }
 
-    if (input.amount === undefined) {
-      throw new ApiError('AMOUNT_REQUIRED', 'Informe o valor da fatura.', 422);
-    }
-
-    return this.prisma.db.invoice.create({
-      data: {
-        projectId,
-        phaseId,
-        amount: input.amount,
-        status: 'pendente',
-        dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
-      },
-      include: { lines: true },
-    });
-  }
-
-  // Uma linha por papel com horas apontadas neste estágio (TimeEntry
-  // billable e aprovada), precificada pela RoleRate atual do papel —
-  // mesmo motor de tarifa/papel que o Proposal usa em ./pricing.ts, só
-  // que aqui com hora de verdade em vez de hora estimada. Não existe
-  // "hora ainda não faturada" como campo — o invariante de uma fatura por
-  // estágio (ver createInvoiceForPhase) já garante que uma TimeEntry
-  // aprovada nunca é contada duas vezes.
-  private async createHourlyInvoice(
-    accountId: string,
-    projectId: string,
-    phaseId: string,
-    dueDateIso: string | undefined,
-  ) {
-    const entries = await this.prisma.db.timeEntry.findMany({
-      where: { phaseId, billable: true, approvedAt: { not: null } },
-      include: { user: { select: { role: true } } },
-    });
-    if (entries.length === 0) {
-      throw new ApiError(
-        'NO_APPROVED_HOURS',
-        'Nenhuma hora aprovada e faturável apontada neste estágio ainda — não há o que faturar.',
-        422,
-      );
-    }
-
-    const hoursByRole = new Map<string, number>();
-    for (const entry of entries) {
-      const role = entry.user.role;
-      hoursByRole.set(role, (hoursByRole.get(role) ?? 0) + Number(entry.hours));
-    }
-
-    const roleRates = await this.roleRatesService.listRoleRates(accountId);
-    const rateByRole = new Map(
-      roleRates.map((r) => [r.role, Number(r.hourlyRate)]),
-    );
-
-    const lines: { role: string; hours: number; hourlyRate: number; amount: number }[] = [];
-    for (const [role, hours] of hoursByRole) {
-      const hourlyRate = rateByRole.get(role);
-      if (hourlyRate === undefined) {
-        throw new ApiError(
-          'ROLE_RATE_MISSING',
-          `Nenhuma tarifa cadastrada para o papel "${role}" — cadastre em /role-rates antes de faturar este estágio.`,
-          422,
-        );
+      if (input.amount === undefined) {
+        throw new ApiError('AMOUNT_REQUIRED', 'Informe o valor da fatura.', 422);
       }
-      lines.push({ role, hours, hourlyRate, amount: hours * hourlyRate });
-    }
 
-    const amount = lines.reduce((sum, l) => sum + l.amount, 0);
-
-    return this.prisma.db.invoice.create({
-      data: {
-        projectId,
-        phaseId,
-        amount,
-        status: 'pendente',
-        dueDate: dueDateIso ? new Date(dueDateIso) : undefined,
-        lines: { create: lines },
-      },
-      include: { lines: true },
+      return tx.invoice.create({
+        data: {
+          projectId,
+          phaseId,
+          amount: input.amount,
+          status: 'pendente',
+          dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
+        },
+        include: { lines: true },
+      });
     });
   }
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withScheme } from "./url";
 
 // Bloqueador 12 da auditoria: em produção, apps/api é um serviço PRIVADO
 // (ver render.yaml e o comentário em apps/api/src/main.ts) -- Asaas e
@@ -11,7 +12,9 @@ import { NextRequest, NextResponse } from "next/server";
 // (asaas-access-token / zapsign-webhook-token), verificado do lado de
 // apps/api exatamente como antes -- este arquivo não sabe nem precisa
 // saber qual é o segredo.
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
+// withScheme (achado A12 da auditoria de 30 ago 2026): API_URL vem de
+// render.yaml fromService/hostport, sem protocolo.
+const API_URL = withScheme(process.env.API_URL ?? "http://localhost:3001");
 
 // Só repassa o header de segredo nomeado, não os headers todos (mesmo
 // espírito do proxy BFF em api/v1/[...path]/route.ts, que também

@@ -39,12 +39,13 @@ export class ProjectOfficeLinksController {
   @Post()
   @HttpCode(201)
   async create(
-    @SessionAccount() { accountId }: SessionAccountType,
+    @SessionAccount() { accountId, userId }: SessionAccountType,
     @Param('projectId') projectId: string,
     @Body(new ZodValidationPipe(officeLinkInputSchema)) input: OfficeLinkInput,
   ) {
     const data = await this.officeLinksService.createForProject(
       accountId,
+      userId,
       projectId,
       input,
     );
@@ -71,12 +72,13 @@ export class ClientOfficeLinksController {
   @Post()
   @HttpCode(201)
   async create(
-    @SessionAccount() { accountId }: SessionAccountType,
+    @SessionAccount() { accountId, userId }: SessionAccountType,
     @Param('clientId') clientId: string,
     @Body(new ZodValidationPipe(officeLinkInputSchema)) input: OfficeLinkInput,
   ) {
     const data = await this.officeLinksService.createForClient(
       accountId,
+      userId,
       clientId,
       input,
     );

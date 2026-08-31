@@ -107,72 +107,92 @@ export default async function TeamPage({
                 </p>
               )}
 
-              <form action={updateUser.bind(null, user.id)} className="mt-3 flex flex-wrap items-end gap-3">
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-zinc-500 dark:text-zinc-400">Papel</span>
-                  <input
-                    name="role"
-                    defaultValue={user.role}
-                    className="w-48 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-zinc-500 dark:text-zinc-400">Especialidade</span>
-                  <input
-                    name="specialty"
-                    defaultValue={user.specialty ?? ""}
-                    className="w-40 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-                  />
-                </label>
-                {isAdmin && (
+              {/* Achado A20 da auditoria de 30 ago 2026: este formulário aparecia
+                  pra QUALQUER colega, em QUALQUER linha -- staff editava o
+                  cadastro de outra pessoa. Agora só aparece na própria linha
+                  (self-service) ou pra admin (edita qualquer um), o mesmo
+                  self-scope que o backend agora exige. */}
+              {(isAdmin || user.id === me.userId) && (
+                <form action={updateUser.bind(null, user.id)} className="mt-3 flex flex-wrap items-end gap-3">
+                  {isAdmin ? (
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span className="text-zinc-500 dark:text-zinc-400">Papel</span>
+                      <input
+                        name="role"
+                        defaultValue={user.role}
+                        className="w-48 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                      />
+                    </label>
+                  ) : (
+                    // Papel virou admin-only (achado A20: é a chave de
+                    // precificação da fatura por hora) -- só exibido, não
+                    // editável, na própria linha do staff.
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">Papel: {user.role}</p>
+                  )}
                   <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-zinc-500 dark:text-zinc-400">Custo-hora (R$)</span>
+                    <span className="text-zinc-500 dark:text-zinc-400">Especialidade</span>
                     <input
-                      name="costPerHour"
+                      name="specialty"
+                      defaultValue={user.specialty ?? ""}
+                      className="w-40 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                    />
+                  </label>
+                  {isAdmin && (
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span className="text-zinc-500 dark:text-zinc-400">Custo-hora (R$)</span>
+                      <input
+                        name="costPerHour"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        defaultValue={user.costPerHour ?? ""}
+                        className="w-32 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
+                      />
+                    </label>
+                  )}
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="text-zinc-500 dark:text-zinc-400">Capacidade (h/semana)</span>
+                    <input
+                      name="weeklyCapacityHours"
                       type="number"
                       min="0"
-                      step="0.01"
-                      defaultValue={user.costPerHour ?? ""}
+                      step="0.5"
+                      defaultValue={user.weeklyCapacityHours}
                       className="w-32 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
                     />
                   </label>
-                )}
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-zinc-500 dark:text-zinc-400">Capacidade (h/semana)</span>
-                  <input
-                    name="weeklyCapacityHours"
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    defaultValue={user.weeklyCapacityHours}
-                    className="w-32 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-                  />
-                </label>
-                {isAdmin && (
-                  <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-zinc-500 dark:text-zinc-400">Acesso</span>
-                    <select
-                      name="accessLevel"
-                      key={user.accessLevel}
-                      defaultValue={user.accessLevel}
-                      disabled={user.id === me.userId}
-                      title={user.id === me.userId ? "Você não pode alterar seu próprio nível de acesso." : undefined}
-                      className="w-32 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-50"
-                    >
-                      <option value="staff">Staff</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                  </label>
-                )}
-                <button
-                  type="submit"
-                  className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
-                >
-                  Salvar
-                </button>
-              </form>
+                  {isAdmin && (
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span className="text-zinc-500 dark:text-zinc-400">Acesso</span>
+                      <select
+                        name="accessLevel"
+                        key={user.accessLevel}
+                        defaultValue={user.accessLevel}
+                        disabled={user.id === me.userId}
+                        title={user.id === me.userId ? "Você não pode alterar seu próprio nível de acesso." : undefined}
+                        className="w-32 rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-50"
+                      >
+                        <option value="staff">Staff</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </label>
+                  )}
+                  <button
+                    type="submit"
+                    className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
+                  >
+                    Salvar
+                  </button>
+                </form>
+              )}
+              {!isAdmin && user.id !== me.userId && (
+                <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                  Papel: {user.role}
+                  {user.specialty ? ` · ${user.specialty}` : ""} · Capacidade: {user.weeklyCapacityHours}h/semana
+                </p>
+              )}
 
-              {user.id === me.userId && <ApiKeyPanel hasKey={Boolean(user.apiKeyHash)} />}
+              {user.id === me.userId && <ApiKeyPanel hasKey={user.hasApiKey} />}
 
               {user.id === me.userId && (
                 <GoogleSyncPanel

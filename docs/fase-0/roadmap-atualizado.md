@@ -3261,6 +3261,649 @@ linha):
   desta rodada e da auditoria de 30 ago foi revisada (auth, billing Asaas,
   quadro/tldraw, motor de precificação, FF&E backend).
 
+## Correção — regra de negócio de dinheiro/faturamento (A1-A9 do relatório completo)
+
+Rodada pedida pelo usuário depois da auditoria de 30 ago 2026: "comece por
+regra de negócio de dinheiro/faturamento" (seção A1-A9 de
+`../auditoria-2026-08-30-detalhada.md`). Os 9 achados dessa seção — 5 Altos,
+2 Médios, 1 Baixo — foram corrigidos nesta rodada.
+
+- **A1 (fatura duplicada) + A2 (hora aprovada tarde nunca faturável)** —
+  corrigidos JUNTOS porque a correção óbvia de cada um isolado quebraria o
+  outro: `@@unique([phaseId])` (proposta do relatório pro A1) impediria a
+  fatura complementar que o A2 exige. Resolvido com dois invariantes
+  diferentes: `pg_advisory_xact_lock(hashtext(phaseId))` dentro de uma
+  transação serializa qualquer criação de fatura pro mesmo estágio (fecha a
+  corrida do A1, nos dois fee models); pra hora_tecnica, "uma fatura por
+  fase" deixou de ser a regra — virou "uma `TimeEntry` nunca é faturada
+  duas vezes" (`TimeEntry.invoiceId`, novo campo), o que permite fatura
+  complementar cobrindo só as horas aprovadas depois do primeiro
+  faturamento (resolve o A2). Fee model fixo continua com "uma fatura por
+  fase" de verdade — não existe "hora adicional" que justifique uma
+  segunda fatura ali.
+- **A7 (RoleRate não congelada)** — `TimeEntry.approvedHourlyRate` (novo
+  campo) grava a tarifa vigente no momento em que `approveTimeEntry` roda,
+  não na hora de faturar. `createHourlyInvoice` usa essa tarifa congelada
+  quando existe; cai no fallback da `RoleRate` atual só para entradas
+  aprovadas antes desta migração (nunca tiveram o campo preenchido).
+  Consequência que exigiu atenção: duas entradas do MESMO papel podem
+  legitimamente ter tarifas diferentes agora (a `RoleRate` mudou entre uma
+  aprovação e outra) — `InvoiceLine` passou a agrupar por (papel, tarifa),
+  não só por papel, senão um `hourlyRate` exibido não bateria com o
+  `amount` de parte das horas.
+- **A4 (sem arredondamento monetário)** — `round2` (novo helper em
+  `common/money.ts`) aplicado na fronteira de escrita: em
+  `RoleRatesService.calcularTarifaAPartirDoCusto` antes do upsert, e em
+  `createHourlyInvoice`/`approveCartToInvoiceDraft` por linha e no total
+  (soma de valores já arredondados, não arredondamento só no fim, pra não
+  reproduzir o mesmo acúmulo de ponto flutuante que a auditoria achou).
+  **Não alterada** a precisão da coluna `Decimal` no schema (proposta do
+  relatório) — mudar o tipo re-arredondaria valores HISTÓRICOS já
+  gravados no banco de verdade, uma alteração de dado que não é desta
+  rodada pra decidir sozinho.
+- **A5 (aprovação de horas sem gate)** — `@AdminOnly()` em
+  `POST /time-entries/:id/approve`. **Deliberadamente sem** bloquear
+  `entry.userId === approverUserId`: o próprio relatório (seção "5
+  correções em que a versão óbvia piora") avisa que isso quebraria o
+  faturamento pra um estúdio de uma pessoa só — o caso real de hoje.
+  `updateTimeEntry`/`deleteTimeEntry` passaram a escopar por dono
+  (qualquer staff só mexe no próprio lançamento; admin continua podendo
+  mexer em qualquer um).
+- **A6 (checkout de FF&E duplicado)** — mesmo padrão do A1/A2: `updateMany`
+  condicional (`clientApproved: false`) dentro de uma transação, com o
+  `count` resultante tendo que bater com a quantidade pedida antes de criar
+  o Invoice. `@AdminOnly()` no endpoint (mesma classe de decisão financeira
+  do `PhaseInvoiceController`).
+- **A8 (`phaseId` órfão depois de mudar de projeto)** — `updateTimeEntry`
+  agora zera `phaseId` quando `projectId` muda e nenhum `phaseId` novo vem
+  junto, em vez de deixar apontando pra uma fase do projeto antigo.
+  `createHourlyInvoice` também passou a escopar por `phaseId` E
+  `projectId` junto, como segunda linha de defesa.
+- **A9 (crons sem eleição de líder)** — `runWithCronLock` (novo helper em
+  `common/cron-lock.ts`) usa `pg_try_advisory_xact_lock` — global pro
+  banco, não por conexão — em volta do corpo dos 4 `@Cron`. Quem chega
+  primeiro roda; quem chega depois sai sem executar, sem ficar esperando.
+  Não exigiu tabela nova.
+- **A3 (sinais fracos de retenção LGPD)** — `listRetentionCandidateClients`
+  passou a trazer `timeEntries`/`invoices`/`phases` de cada projeto do
+  cliente, e o cron passou a considerar também `Activity` de
+  `PROJECT`/`OPPORTUNITY` (antes só `CLIENT`) no cálculo de última
+  atividade; `status === 'ativo'` virou `status !== 'encerrado'` (um
+  projeto pausado não é "cliente abandonado"). `anonymizeClient` ganhou
+  uma trava de verdade: recusa com 422 se o cliente tiver fatura não paga,
+  ou NFS-e emitida dentro do prazo de guarda fiscal configurado — antes
+  disso, um aviso errado do cron conseguia destruir o dado sem nenhuma
+  segunda checagem.
+- Verificado: typecheck + Jest limpos (api e web). Suíte de smoke
+  estendida com ~10 asserções novas provando os comportamentos NOVOS de
+  verdade (fatura complementar de A2, tarifa congelada de A7, bloqueio de
+  A5/A6, trava de A3), não só ausência de regressão — rodada contra uma
+  API local de pé, 358 passaram/6 falharam (mesmas 6 falhas pré-existentes
+  de sempre, confirmadas idênticas antes/depois). Achado no processo,
+  registrado à parte por não ser sobre o código: um processo `nest start
+  --watch` de uma rodada anterior desta sessão sobreviveu a um `TaskStop`
+  e ficou ocupando a porta 3001 em segundo plano, fazendo uma primeira
+  bateria de verificação rodar contra código ANTIGO sem avisar (só o
+  `EADDRINUSE` no log do processo novo denunciou) -- refeita do zero
+  depois de matar o processo de verdade (`taskkill /F`) e confirmar a
+  porta livre antes de cada tentativa de subir o servidor.
+
+## Correção — autenticação/autorização do staff (A19-A23 do relatório completo)
+
+Sequência direta da rodada anterior (A1-A9): usuário disse "keep going".
+A19 já tinha sido fechado como parte do achado A5 da rodada anterior
+(mesmo `@AdminOnly()` em `POST /time-entries/:id/approve` cobre os dois).
+Os 4 achados restantes desta seção (`A20-A23`) foram corrigidos aqui.
+
+- **A20 (`PATCH /v1/users/:id` sem self-scope)** — faltava a checagem mais
+  básica: qualquer staff dava PATCH no cadastro de QUALQUER colega, não só
+  no próprio (a tela em `/team` nem escondia o formulário). Agora exige
+  `id === session.userId` pra quem não é admin, e `role` passou a ser
+  admin-only junto de `costPerHour`/`accessLevel` -- `role` é a chave de
+  precificação da fatura por hora (`createHourlyInvoice` agrupa por
+  `User.role` × `RoleRate.hourlyRate`), mesma razão pela qual
+  `RoleRatesController` já é admin-only. UI: o formulário de editar
+  colega só aparece na própria linha ou pra admin; campo "Papel" só é
+  editável por admin, aparece como texto simples pro próprio staff.
+- **A21 (`/v1/bi/executivo` sem gate)** — `@AdminOnly()` só no handler
+  `executivo`, não na classe: `capacidade`/`ffe` continuam abertos, porque
+  alimentam `/dashboard/capacidade` que staff legitimamente usa (a
+  auditoria cita esse exato erro de "gate na classe inteira" como
+  correção que piora o problema). Link "Dashboard" no nav virou
+  `adminOnly: true`, mesmo padrão já usado em Tarifas/Financeiro/Log.
+- **A22 (`budget` de fase sem gate)** — `budget` virou admin-only (strip
+  silencioso na borda HTTP, mesmo padrão de `costPerHour`) e travado com
+  `PHASE_BUDGET_LOCKED` depois que o gate é aprovado OU a fase já tem
+  fatura -- `startDate`/`dueDate` continuam abertos a qualquer staff
+  (planejamento/Gantt/Calendário não deveria travar). UI: campo
+  "Orçamento" no cronograma só aparece pra admin.
+- **A23 (chave de API sobrevive à remoção do allow-list)** — o ramo
+  `x-api-key` do `AuthGuard` não aplicava `isEmailAllowed`, ao contrário
+  do ramo Bearer; sem rota de exclusão de `User` nem flag de usuário
+  desativado, remover alguém de `ALLOWED_EMAILS` fechava o login Google
+  mas deixava a chave de API dessa pessoa funcionando pra sempre. Corrigido
+  aplicando a mesma checagem nos dois ramos. Também adicionada
+  `DELETE /v1/users/:id/api-key` (admin-only) -- antes só o próprio dono
+  conseguia revogar a própria chave, um admin não tinha NENHUM jeito de
+  desligar a chave de outra pessoa pela API.
+- Verificado: typecheck + Jest limpos (api e web). Suíte de smoke
+  estendida com 9 asserções novas provando os comportamentos de verdade
+  (self-scope de A20 com strip silencioso de `role`, gate por rota de
+  A21, strip + lock de A22, revogação admin de A23) -- 367 passaram/6
+  falharam (mesmas 6 falhas pré-existentes de sempre). Processo repetido
+  desta vez com o cuidado aprendido na rodada anterior: `netstat`/
+  `taskkill /F` confirmados ANTES de cada tentativa de subir o servidor,
+  não só depois -- outro zumbi de uma rodada anterior desta sessão foi
+  encontrado e morto antes de gerar o mesmo problema de novo.
+
+## Correção — deploy/infra: da exposição crítica do Supabase aos gaps de CI (A10-A18)
+
+Terceira rodada seguida da mesma auditoria de 30 ago 2026 ("keep going").
+Cobre a seção "Deploy, Docker, Render, Supabase, CI e manuseio de
+segredos" inteira -- o achado `CRÍTICO` do relatório inteiro (A10) e os 8
+achados de infraestrutura ao redor dele (A11-A18).
+
+- **A10 (crítico) — Data API do Supabase expõe o banco inteiro** — o
+  mesmo projeto Supabase hospeda o schema da aplicação E o Realtime do
+  quadro (cuja `anon key` vai deliberadamente pro bundle do navegador).
+  Sem RLS em nenhuma tabela, essa mesma chave pública lê/escreve
+  qualquer coisa via PostgREST (`/rest/v1`) — Client (CPF/e-mail/
+  telefone), Invoice, GoogleCredential. Escrito
+  `docs/fase-0/supabase-rls-lockdown.sql` (RLS + REVOKE + `alter default
+  privileges` em `anon`/`authenticated`, cobrindo inclusive o token de
+  convidado do quadro com `role: "authenticated"` descrito no relatório
+  completo) — **deliberadamente não é uma migration Prisma**: SQL puro
+  pra rodar manualmente no SQL Editor do Supabase, mesmo padrão de
+  `supabase-realtime-policy.sql`, porque não faz sentido contra o
+  Postgres local de dev e não deveria disparar sozinho a cada deploy
+  (mesmo raciocínio do achado A18 abaixo). **Não aplicado a nenhum
+  projeto real nesta sessão** — falta ainda a AÇÃO do usuário, só
+  possível no painel: desligar a Data API (a correção mais barata e mais
+  eficaz das quatro) e considerar separar o projeto do Realtime.
+- **A11 (Postgres sem TLS forçado) + A15 (guia recomendava a conexão
+  errada)** — corrigidos juntos por serem a mesma seção do runbook.
+  `packages/db/src/index.ts` agora falha no boot se `DATABASE_URL` for
+  um host remoto sem `sslmode=` (silencioso antes: a aplicação
+  funcionava igual sem TLS nenhum). Runbook e `render.yaml` corrigidos
+  pra recomendar o **pooler** (6543), não a conexão direta (5432) — a
+  justificativa antiga ("conflito com prepared statements") é do engine
+  Rust do Prisma, que não se aplica ao `@prisma/adapter-pg` usado aqui;
+  a conexão direta também só resolve em IPv6 sem o add-on pago do
+  Supabase, contra a saída IPv4 do Render.
+- **A12 (URLs sem esquema)** — `fromService` do Render entrega hostname
+  puro (`araci-api:3001`), mas o código sempre concatenou como origem
+  completa. Novo helper `withScheme()` (`apps/web/src/lib/url.ts`,
+  `apps/api/src/common/url.ts`) prefixa `http://` quando falta, aplicado
+  nos 6 pontos de consumo (proxy BFF, healthcheck, webhook passthrough,
+  os dois magic-link de portal). Sem isso, o healthcheck do `araci-web`
+  nunca ficaria saudável no primeiro deploy.
+- **A13 (chave de criptografia do Google em formato errado)** —
+  `render.yaml` trocado de `generateValue: true` (produz base64) pra
+  `sync: false` (o código exige hex de 32 bytes). `main.ts` agora chama
+  `loadKey()` no boot e avisa alto se o formato estiver errado, em vez
+  de só descobrir na primeira tentativa de conectar uma credencial
+  Google.
+- **A14 (Codex sem sandbox num job com permissão de escrita)** —
+  `--dangerously-bypass-approvals-and-sandbox` trocado por `--sandbox
+  workspace-write --ask-for-approval never` nos dois usos do agente
+  Codex em `pr-visual-recap.yml`. `continue-on-error: true` já protegia
+  os dois passos — se o sandbox não inicializar neste runner, o passo
+  falha e é pulado, nunca um bypass silencioso.
+- **A16 (.dockerignore não recursivo)** — `*.pfx`/`*.p12`/`*.pem`/`*.key`
+  só casavam na raiz do contexto de build; um certificado numa subpasta
+  seria ignorado pelo git (nada no diff) e assado numa camada da imagem
+  sem aviso. Adicionadas as variantes `**/`.
+- **A17 (CI nunca roda os testes)** — `ci.yml` fazia build + typecheck,
+  nunca `jest`, apesar de `turbo.json` já declarar a task `test` e
+  existirem specs reais (`pricing.spec.ts`, `google-drive.service.spec.ts`,
+  etc.). Adicionado `npx turbo run test` depois do build, e
+  `permissions: contents: read` no topo (o job nunca precisa escrever
+  nada). Verificado rodando local: 34/34 testes, `apps/web` pulado
+  (sem task `test`) sem quebrar o comando.
+- **A18 (migration destrutiva sem confirmação)** — uma migration já
+  mergeada faz `DROP TABLE` sem backfill; o `preDeployCommand` aplicaria
+  isso sem confirmação contra o MESMO Supabase de desenvolvimento (dado
+  real, não um banco zerado). Nada a desfazer na migration em si — o
+  runbook ganhou um passo 0.5 (backup do Supabase antes do primeiro
+  Apply) e uma regra pra qualquer `DROP` futuro precisar de migração de
+  dados explícita antes.
+- Verificado: typecheck limpo (api, web, packages/db) e Jest 34/34
+  (confirma que o boot-check de TLS do A11 não quebra o Postgres local
+  de dev, que não é um host remoto). `npx turbo run test` verificado
+  rodando da raiz do monorepo — é exatamente o comando novo do CI.
+  Smoke suite: 367 passaram/6 falharam, mesma baseline de sempre — como
+  esperado, nada nesta rodada toca lógica de negócio testável pelo
+  smoke-test (é tudo infra/CI/docs). Zumbi do `nest start --watch` de
+  uma rodada anterior encontrado e morto (de novo) antes de começar —
+  `netstat`/`taskkill /F` seguem sendo checados antes de toda tentativa
+  de subir o servidor nesta sessão.
+
+## Correção — corretude fiscal da NFS-e: emissão/substituição/cancelamento (A24-A31)
+
+Quarta rodada seguida da mesma auditoria de 30 ago 2026 ("keep going").
+Cobre a seção de corretude fiscal do relatório completo — os métodos
+`emitirParaFatura`/`substituirParaFatura`/`cancelarParaFatura` de
+`nfse.service.ts`.
+
+- **A24 (substituição não atualizava `nfseNumber`)** — `substituirParaFatura`
+  já atualizava `nfseChaveAcesso`/`nfseIdDps`/etc. da NFS-e nova, mas
+  deixava `nfseNumber` com o valor da NFS-e ANTIGA (substituída). Corrigido
+  espelhando o mesmo campo que `emitirParaFatura` já grava.
+- **A26 (`emitirParaFatura` regredia fatura `paga` de volta pra `emitida`)**
+  — reemitir a NFS-e de uma fatura já paga (ex.: correção depois do
+  pagamento) sobrescrevia `status` incondicionalmente. Agora só grava
+  `status: 'emitida'` quando o status atual NÃO é `paga`.
+- **A28 (emissão de homologação tratada como emissão real)** — o maior
+  achado desta rodada. Antes, emitir em ambiente de HOMOLOGAÇÃO (teste,
+  sem validade fiscal) já marcava a fatura como `emitida`, gravava
+  `nfseNumber` e disparava o guard `NFSE_ALREADY_ISSUED` contra qualquer
+  nova tentativa — ou seja, um teste travava a emissão real depois.
+  Introduzido o conceito `isRealEmission`/`isRealSubstitution`
+  (`ambiente === producao`): `status`/`issuedAt`/`nfseNumber` só são
+  gravados numa emissão real; `nfseChaveAcesso`/`nfseIdDps`/
+  `nfseAmbienteEmissao` continuam sendo gravados sempre (rastreabilidade).
+  O guard `NFSE_ALREADY_ISSUED` agora só dispara se a NFS-e existente foi
+  emitida em produção — reemitir depois de um teste em homologação é
+  legítimo. UI (`/projects/[id]`) ganhou um aviso explícito "NFS-e de
+  TESTE — sem validade fiscal" pra homologação, distinto da emissão real.
+- **A29 (substituição usava o ambiente ATUAL da conta, não o da emissão
+  original)** — se a conta trocasse de homologação pra produção (ou
+  vice-versa) entre a emissão e a substituição, `substituirParaFatura`
+  chamava a SEFIN no ambiente errado — substituir uma NFS-e real de
+  produção como se fosse homologação (ou o oposto). Corrigido lendo
+  `invoice.nfseAmbienteEmissao` (o ambiente de quando a NFS-e ATUAL foi
+  emitida) em vez de `account.nfseAmbiente`; se divergirem, novo erro
+  `NFSE_AMBIENTE_MISMATCH` (422) orienta a mudar o ambiente da conta
+  antes de substituir.
+- **A30 (parcial — janela de dados irreconciliáveis entre SEFIN e banco)**
+  — a chamada de rede pro Google Drive (arquivar o XML) acontecia ANTES
+  de persistir os campos críticos da resposta da SEFIN; um crash entre as
+  duas deixava uma NFS-e autorizada de verdade na SEFIN sem nenhum
+  registro no banco. Persistência do resultado fiscal movida pra ANTES do
+  arquivamento nos três métodos — encolhe a janela vulnerável, não
+  elimina (reconciliação via `ConsultarDPS` fica fora do escopo desta
+  rodada).
+- **A31 (corrida entre requisições concorrentes sobrescrevia o motivo de
+  rejeição)** — duas chamadas concorrentes pro mesmo `POST .../nfse`
+  podiam fazer a que rejeitou (por último) sobrescrever
+  `nfseRejectionReason` por cima do sucesso já persistido pela outra. Nos
+  três `catch`, antes de gravar a rejeição a invoice é relida do banco —
+  se já tiver sido autorizada/cancelada/substituída por uma chamada
+  concorrente vencedora, a rejeição não é gravada por cima.
+- **A27 (regressão introduzida por A30, corrigida na mesma rodada)** — com
+  o arquivamento movido pra depois, uma falha nele (Drive fora do ar,
+  token revogado) parava de aparecer em lugar nenhum pro usuário.
+  Adicionado `Invoice.nfseXmlArchiveError` e exibição na tela do projeto.
+- Verificado: build limpo (`nest build`, `next build`) e Jest 34/34
+  (`nfse.service.spec.ts` incluso). Re-verificação real contra a SEFIN
+  Nacional Homologação via `apps/api/scripts/verify-nfse-invoice.ts`
+  reescrito pra bater com a semântica nova de A28 (homologação não seta
+  `status`/`nfseNumber`, duplicidade em homologação vira rejeição de
+  verdade da SEFIN em vez do guard client-side) e um bloco novo pro guard
+  de A29 — todos os checks passaram, incluindo uma rejeição `E0014`
+  (DPS duplicado) genuína da própria SEFIN confirmando o novo
+  comportamento esperado. Suíte de smoke: 368 passaram/6 falharam (mesma
+  baseline de sempre — as 6 continuam as pré-existentes, nenhuma nova).
+  Duas correções feitas no próprio `smoke-test.ts` nesta rodada, sem
+  relação com a lógica fiscal em si: o token JWT que o script forja pra
+  rodar a suíte inteira tinha `expiresIn: 60s` fixo desde sempre — com o
+  arquivo crescendo a cada rodada de auditoria, a suíte já estava
+  chegando perto desse limite e passou a expirar no meio da execução
+  (aumentado pra 15m, é só um token de teste do próprio script, não tem
+  relação com o TTL real de 60s do JWT interno de produção); e um fixture
+  de teste de A23 gravava um `apiKeyHash` LITERAL fixo no banco — se
+  qualquer rodada anterior tivesse crashado depois desse ponto sem chegar
+  na própria limpeza, a linha órfã ficava pra trás e colidia (unique
+  constraint) com a rodada seguinte (corrigido pra incluir
+  `Date.now()`, mesmo padrão já usado por `fakeChaveAcesso` ali do lado).
+
+## Correção — gestão documental no Drive e vazamentos de frontend (A32-A47)
+
+Quinta rodada seguida da mesma auditoria de 30 ago 2026 ("keep going" /
+"Keep going till finish the document"). Cobre as duas seções "Gestão
+documental no Drive" e "Frontend: fronteiras de erro, server actions,
+sessão e vazamento de dados" inteiras -- 16 achados.
+
+- **A32 + A45 (bytes do Drive servidos inline, mesma origem, sem
+  allowlist)** -- o achado mais sério da rodada: `Content-Type`/
+  `Content-Disposition` vinham crus do Drive pro navegador, na MESMA
+  origem do dashboard de staff, sem `X-Content-Type-Options`. Um arquivo
+  HTML/SVG vinculado com título "contrato.pdf" (a extensão do título é só
+  UI, texto livre) rodava script na origem da aplicação, com a sessão de
+  quem abrisse. Corrigido com allowlist (`PublicPresentationController.
+  downloadDocument`): só PDF/imagens raster passam como `inline`, tudo o
+  resto vira `application/octet-stream` + `attachment`, sempre com
+  `nosniff` -- independente do que a extensão do título sugere.
+  `next.config.ts` ganhou `headers()` com `nosniff`/`Referrer-Policy`/
+  `X-Frame-Options` globais (baixo risco de quebrar algo); uma CSP
+  completa (`default-src` etc.) ficou deliberadamente de fora -- exige
+  testar cada página de verdade num navegador pra não quebrar Supabase
+  Realtime/Google OAuth/Sentry sem aviso, o que esta sessão não consegue
+  verificar.
+- **A46 (proxy de documento sem validação de segmento)** -- a mesma
+  guarda de `/api/v1/[...path]/route.ts` (allowlist de caracteres, recusa
+  `..`) não existia na rota de download do link de apresentação, que é
+  alcançável por qualquer visitante sem sessão. Aplicada a mesma regex;
+  aproveitado pra também aplicar `withScheme` (gap do achado A12 de uma
+  rodada anterior, que nasceu depois desta rota existir).
+- **A33 (credencial de Drive "qualquer admin" incompatível com
+  drive.file)** -- drive.file é concessão por (app, usuário, arquivo); a
+  credencial de outro admin responde 404 pro arquivo que alguém mais
+  vinculou, e o código confundia isso com "apagado de verdade". Novo
+  `OfficeLink.linkedByUserId` (migration
+  `20260831202944_add_office_link_linked_by_and_indexes`) guarda quem de
+  fato criou cada vínculo (a pessoa do Picker, ou quem resolveu a
+  credencial na hora de provisionar pasta/arquivar XML);
+  `resolveDriveAccessToken` passa a preferir essa credencial, com
+  `orderBy` determinístico no fallback "qualquer admin". Coberto por
+  teste novo em `google-drive.service.spec.ts`.
+- **A34 (checagem de vínculos quebrados: um erro aborta a conta inteira e
+  perde notificação pra sempre)** -- `getFile` lançando por rate
+  limit/5xx/token expirado no meio da varredura subia até o cron, que só
+  logava e pulava a conta -- os vínculos já processados ficavam com
+  `brokenAt` gravado mas a notificação nunca saía, e o vínculo com erro
+  virava "quebrado" pra sempre no próximo ciclo (`isBroken && !brokenAt`
+  já seria falso). Cada `getFile` agora tem seu próprio try/catch:
+  indeterminado (erro) não marca quebrado nem aborta a conta, só pula pro
+  próximo -- a varredura sempre completa e sempre notifica o que achou
+  nesta execução. Coberto por teste novo.
+- **A36 (duas chamadas concorrentes duplicam a árvore de pastas)** --
+  `ensureProjectFolderTree` lia e criava sem transação nem constraint.
+  Dois índices únicos PARCIAIS na mesma migration (`documentType =
+  'pasta_projeto'`/`'pasta_fase'` -- não representável em `@@unique` do
+  schema.prisma, daí SQL puro) fazem a segunda gravação estourar P2002 em
+  vez de duplicar; o catch relê a linha do vencedor em vez de lançar.
+  Escrevendo o teste, achei e corrigi um bug que eu mesmo tinha acabado
+  de introduzir nesta correção: a recuperação da pasta RAIZ (não das de
+  fase, que já estavam certas) lia a linha existente mas esquecia de
+  incluí-la no valor de retorno -- `archiveFiscalXml` (arquivamento do
+  XML fiscal) não encontraria a pasta raiz pra quem tivesse perdido essa
+  corrida específica.
+- **A38 (checklist de documentos obrigatórios aceita vínculo nunca
+  verificado, de qualquer provider, com externalId inventado)** --
+  `getDocumentChecklist` agora exige `provider: DRIVE` e `lastCheckedAt`
+  preenchido (não só `brokenAt: null`, que também é `null` num vínculo
+  recém-criado nunca checado) -- sem isso, qualquer staff inventava um
+  `OfficeLink` com `documentType` batendo e enganava a admin a aprovar um
+  gate sem o documento de verdade. Pra não deixar todo vínculo
+  permanentemente insatisfeito até o cron semanal passar, o token EFÊMERO
+  do próprio Picker do navegador (nunca persistido) agora viaja até
+  `office-links.service.ts` numa chamada só, que confirma o arquivo
+  contra a Drive API e grava `lastCheckedAt` na hora -- fechando o A38 e
+  reforçando o A33 (`linkedByUserId` vem do mesmo request) numa penada só.
+- **A39 (FK `phaseId` sem índice, exatamente a coluna do checklist)** --
+  `@@index([phaseId, brokenAt])` na mesma migration; `accountId` também
+  entrou no `where` do checklist por defesa em profundidade de tenant.
+- **A35 (grant offline carrega `gmail.readonly`/`calendar.events` que
+  nada usa)** -- `GoogleCredentialsService.getAccessToken` só é consumido
+  por `GoogleDriveService`; reduzido a só `drive.file`. Um vazamento do
+  banco + chave de criptografia não dá mais leitura de e-mail/escrita de
+  agenda de graça.
+- **A37 (refresh token na query string do revoke)** -- ia na URL (query
+  string é o lugar mais provável de segredo acabar em log de proxy/APM),
+  mesmo já mandando `Content-Type` urlencoded com corpo vazio. Movido pro
+  corpo com `URLSearchParams`, mesmo padrão já usado em `getAccessToken`.
+- **A43 (URL de OfficeLink sem allowlist de esquema)** -- `z.url()`
+  sozinho não restringe protocolo; `javascript:...` passava e
+  `office-links-section.tsx` renderizava cru em `href`. Corrigido nos
+  dois lados: `z.url({ protocol: /^https?$/ })` na API, e um `safeHref()`
+  no frontend que renderiza texto simples (não `<a>`) pra qualquer coisa
+  fora de http(s) -- proteção incondicional, não depende de ninguém
+  bypassar a API pra existir (vínculos antigos já gravados continuam
+  seguros de renderizar).
+- **A41 (GET /absences vazava costPerHour de todo mundo)** -- terceira
+  superfície com `include: { user: true }` sem redação, depois de
+  Users/Allocations. Trocado por `select` explícito (só `id`/`name`, que
+  é tudo que a tela usa) em vez de mais um `redactCost` -- uma coluna
+  sensível nova no User não vaza por padrão de novo.
+- **A47 (GET /users vazava apiKeyHash de todo mundo)** -- mesmo raciocínio
+  de A41: `UsersService` trocado pra `select` explícito com um booleano
+  derivado `hasApiKey` no lugar do hash. `AllocationsController.
+  redactCost` (que já existia pro costPerHour do mesmo vazamento) ganhou
+  a mesma remoção de `apiKeyHash` -- ali o `include` é grande demais
+  (projeto+fases+cliente aninhados) pra valer a pena migrar pra `select`
+  nesta rodada.
+- **A44 (exportação LGPD "Meus dados" nunca funciona)** -- defeito
+  funcional puro, não achado de segurança: `portal/verify/route.ts` grava
+  o cookie `client_session` com `Path=/portal`, mas a rota de export
+  vivia em `/api/portal/data-export` -- fora do escopo do cookie pelo
+  algoritmo de path-match do RFC 6265, então o navegador nunca o
+  enviava e a rota sempre devolvia 401. Estava assim desde que a
+  funcionalidade nasceu (falha fechada, nunca gerou alerta). Rota movida
+  pra `/portal/data-export`, dentro do escopo do cookie.
+- **A42 (dashboard executivo expõe a staff o financeiro que outros 3
+  controllers escondem)** -- já estava fechado NO SERVIDOR pelo achado
+  A21 de uma rodada anterior (mesmo `bi.controller.ts`, mesmo
+  `@AdminOnly()` só em `/executivo`); faltava só a página tratar o 403
+  graciosamente (mesmo padrão de `financeiro/page.tsx`) pra quem abrisse
+  `/dashboard` direto por URL/bookmark em vez de passar pelo nav (que já
+  esconde o link).
+- **A40 (JWT do Supabase com `role: authenticated` entregue a
+  visitante anônimo)** -- avaliado sem mudança de código nesta rodada: a
+  exposição real (`/rest/v1` devolvendo o banco inteiro pra quem tiver o
+  token) já está fechada, na CAMADA DE DADOS, pelo RLS+REVOKE de
+  `docs/fase-0/supabase-rls-lockdown.sql` (achado crítico A10, escrito
+  numa rodada anterior) -- uma vez aplicado, nenhum JWT com `role:
+  authenticated`, deste token ou de qualquer outro, lê nada de `/rest/
+  v1` independente da claim que carregue. **`supabase-rls-lockdown.sql`
+  continua não aplicado a nenhum projeto real** (ação do usuário, painel
+  do Supabase) -- até lá, A40 continua tecnicamente aberto na prática,
+  mesmo com o código pronto. A refinação adicional que o achado sugere
+  (papel de banco dedicado só pra Realtime, sem GRANT nenhum nas tabelas
+  do app, em vez de reusar `authenticated`) foi deliberadamente NÃO
+  implementada: exigiria criar role/GRANT num projeto Supabase real e
+  reconfigurar a autorização do Realtime de um jeito que esta sessão não
+  consegue testar (Postgres local não tem o schema `realtime`) -- o risco
+  de quebrar a sincronização ao vivo silenciosamente, sem conseguir
+  verificar, pesou mais que o ganho de defesa-em-profundidade adicional
+  quando a exposição de dados de verdade já está fechada em outra
+  camada.
+- Verificado: build limpo (`nest build`, `next build`). Jest 37/37 (3
+  testes novos em `google-drive.service.spec.ts` cobrindo A33/A34/A36 --
+  escrevê-los pegou o bug real de A36 descrito acima antes de qualquer
+  execução manual). Smoke suite: 368 passaram/6 falharam, mesma baseline
+  de sempre (as 4 falhas de `GOOGLE_DRIVE_NOT_CONNECTED` já eram
+  conhecidas -- são justamente a superfície desta rodada num ambiente sem
+  credencial Google real). Uma correção no próprio `smoke-test.ts`: o
+  fixture do checklist de documentos obrigatórios criava o vínculo sem
+  `lastCheckedAt` (a suíte não tem um token de Picker de verdade pra
+  passar) -- ajustado pra simular a verificação direto no banco, mesmo
+  padrão já usado pra certificado/credencial fiscal ausentes neste
+  ambiente. `netstat`/`taskkill /F` seguem sendo checados antes de toda
+  tentativa de subir o servidor; desta vez o processo antigo respondia
+  normal (não era zumbi), mas foi reiniciado do zero mesmo assim porque
+  `OfficeLinksService` ganhou uma dependência nova via DI
+  (`GoogleDriveService`) que hot-reload não é garantia suficiente de
+  verificar.
+
+## Correção — portais voltados ao cliente, quadro colaborativo, portal do consultor e isolamento multi-inquilino (A48-A71)
+
+Sexta rodada seguida da mesma auditoria de 30 ago 2026 ("keep going" /
+"Keep going till finish the document"). Cobre as quatro últimas seções do
+relatório completo inteiras -- 24 achados (A48-A71) mais dois itens que só
+apareciam no Apêndice B (reverificação da auditoria anterior), sem número
+de achado próprio na lista principal.
+
+**Portal do cliente / link de apresentação (A48-A56):**
+- **A48/A67 (export LGPD do portal devolvia composição interna de preço,
+  motivo de perda, notas internas)** -- o achado mais sério da rodada:
+  `ClientsService.exportClientData` (ferramenta de STAFF) era reaproveitado
+  cru pelo portal do cliente, entregando `baseCost`/`adjustedCost`/
+  `complexityMultiplier`/`packageDiscountPercent`/`lostReason` e as
+  `Activity` internas pro próprio cliente. Nova
+  `exportClientDataForSubject` com `select` explícito (nunca a composição
+  de preço, nunca Activity) -- `exportClientData` original preservado
+  intacto pra tela de staff.
+- **A53 (achado corrigido só pela metade numa rodada anterior)** -- ao
+  corrigir C-03, `supplier` continuou nos dois `select` de
+  `public-presentation.service.ts` (um deles nem foi pego pelo
+  `replace_all` da primeira tentativa, por indentação diferente -- achado
+  e corrigido dentro da própria verificação desta rodada).
+- **A49 (`clientApproved` carregava dois significados)** -- aprovação do
+  cliente E "já faturado" no mesmo campo; item aprovado pelo link público
+  saía do carrinho de FF&E pra sempre, sem nenhum Invoice existir. Novo
+  `ProductSpecification.invoicedAt`, guarda de corrida do checkout movida
+  pra ele; `clientApproved` volta a significar só "o cliente aprovou".
+  Tabela de especificações ganhou um terceiro estado ("Aprovado
+  (aguardando fatura)") em vez de só Aguardando/Aprovado.
+- **A50 (delete/anonimização de Client não limpava as tabelas do
+  portal)** -- `ClientMagicLink`/`ClientSession` têm FK `ON DELETE
+  RESTRICT`; um cliente que já pediu magic link virava indeletável, e uma
+  sessão emitida antes de anonimizar continuava válida por até 7 dias
+  depois do "apagamento" LGPD. Limpas nas duas transações.
+- **A52 (unique de `Client.email` sem migração de dados)** -- linhas
+  gravadas com maiúscula antes da constraint nunca mais casavam no login
+  do magic link (comparação exata desde então). Migração de dados
+  corretiva (`lower(email)`), deliberadamente SEM consolidar duplicatas
+  automaticamente -- estoura e falha alto se existir uma colisão de
+  verdade, em vez de decidir sozinha qual registro é o titular.
+- **A55 (índices de FK do portal)** -- `ClientMagicLink`/`ClientSession`
+  sem `@@index([clientId])`.
+- **A56/A69 (endpoint de lead sem limite de tamanho e escrevendo em
+  Client de outra pessoa por e-mail)** -- `name`/`phone` sem `.max()`;
+  pior, `consentedAt` de um Client JÁ EXISTENTE era sobrescrito a partir
+  de uma rota `@Public`, sem prova nenhuma de posse do e-mail -- alguém
+  que soubesse o e-mail de um cliente real destruía o registro da base
+  legal LGPD dele a qualquer momento. Consentimento agora só é gravado na
+  CRIAÇÃO; busca do Client escopada por `accountId` (defesa em
+  profundidade -- `email` ainda é `@unique` global, redesenho pra
+  `@@unique([accountId, email])` deliberadamente fora do escopo: sem
+  segundo tenant real hoje, o ganho não paga o redesenho do login do
+  magic link que dependeria disso).
+- **A51/A58/A59 (snapshot do quadro: sem limite de tamanho, sem
+  validação, sem tratamento de erro -- em conjunto, um vetor de negação
+  de serviço)** -- três achados com a mesma causa raiz corrigidos juntos:
+  `moodboardSnapshotInputSchema` trocado de `z.unknown()` pra forma
+  mínima real de um `TLStoreSnapshot` (`store`/`schema.schemaVersion`);
+  corpo HTTP limitado a 5MB nos dois lados (`main.ts` +
+  `next.config.ts`, mesmo número documentado nos dois); `loadSnapshot`
+  no cliente ganhou try/catch com degradação pra quadro vazio em vez de
+  derrubar a página inteira; `flush()` (save com debounce) ganhou
+  `.catch()` com aviso visível na tela em vez de unhandled rejection
+  silenciosa. Rate limit novo (`/present/` POST, 60/min) fecha o resto do
+  A51 (aprovar/desaprovar em loop gerando e-mail ilimitado). Comentário
+  desatualizado que afirmava "o link de apresentação nunca escreve"
+  corrigido -- é decisão de produto real (cliente colabora no quadro).
+- **A60 (revogar convidado do quadro não invalida o JWT do Realtime já
+  emitido)** -- TTL de 2h reduzido pra 15min; `revoke()` também apaga a
+  `WhiteboardGuestSession` do convidado (força reautenticação, embora não
+  invalide sozinho o JWT bearer -- renovação periódica ficou
+  deliberadamente fora do escopo: exigiria um caminho de servidor pro
+  client renovar sozinho, e a degradação graciosa que o canal já tem pra
+  falha de sincronização faz o custo residual ser só "sem tempo real
+  depois de 15min", nunca perda de dado).
+- **A61 (client Supabase Realtime era um singleton de módulo)** --
+  `setAuth` trocava o token da CONEXÃO INTEIRA; duas pranchas na mesma
+  página (FF&E, apresentação) faziam a última montada sobrescrever o
+  token das outras. Um client por canal agora, criado dentro de
+  `createBoardChannel`.
+- **A62 (tabelas novas do quadro sem índice de FK)** -- mesmo padrão já
+  corrigido no resto do schema, reaberto nos cinco models do quadro.
+- Verificado com um teste novo em `google-drive.service.spec.ts` (não
+  desta seção, mas escrito nesta mesma sessão de verificação) e as
+  correções acima confirmadas via build + smoke suite abaixo.
+
+**Portal do consultor externo (A63-A66):**
+- **A63 (Activity/notas internas iam inteiras e retroativas pro
+  consultor)** -- sem filtro nenhum, todo histórico do projeto (inclusive
+  escrito meses antes do consultor existir) chegava no portal read-only
+  dele. Novo `Activity.visibleToCollaborator` (default false, opt-in
+  explícito, mesmo padrão de `OfficeLink.visibleToClient`) -- checkbox
+  "Visível para consultores externos" no formulário de nota (só aparece
+  pra `entityType: PROJECT`), rótulo explícito na nota já marcada.
+- **A64 (deleteProject não limpava `CollaboratorProjectAccess`)** --
+  mesma classe do achado A-02 de uma rodada anterior, reaberta na tabela
+  nova; `MoodboardsService.deleteMoodboard` já tratava o caso análogo
+  (`WhiteboardGuestAccess`) e o comentário lá até citava o padrão
+  explicitamente sem ninguém ter voltado pra aplicá-lo aqui.
+- **A65 (convite de consultor não notifica ninguém)** -- `invite()`
+  criava o acesso e retornava; o convidado nunca descobria que o portal
+  existia. Novo e-mail apontando pra `/colaborador/login` (nunca um magic
+  link direto -- esse continua de vida curta e emitido só sob pedido
+  próprio), só no caminho em que o acesso é de fato novo (idempotente não
+  reenvia).
+- **A66 (magic link do consultor consumido por GET -- TOCTOU + queimado
+  por scanner de e-mail)** -- corrigido o núcleo do achado (a corrida de
+  verdade): `findUnique` + `update` separados trocados por um
+  `updateMany` condicional numa instrução só, tanto no
+  collaborator-portal quanto no client-portal (mesmo desenho, achado
+  citado como valendo pros dois). A parte de UX (trocar o consumo de GET
+  por uma página com botão que faz POST, pra sobreviver a
+  prefetch/Safe Links) foi deliberadamente **NÃO implementada** -- exigia
+  uma página nova + Server Action nas duas superfícies, e o risco real
+  (alguém fica "preso" pedindo link de novo) é de confiabilidade, não de
+  segurança, já que o TOCTOU (a parte que criava DUAS sessões de 7 dias)
+  está fechado.
+
+**Isolamento multi-inquilino (A68-A71):** avaliação geral da auditoria
+confirma que não há vazamento entre contas em lugar nenhum hoje -- os
+quatro achados aqui são sobre o dia em que uma SEGUNDA conta existir,
+não sobre um buraco alcançável agora.
+- **A68 (certificado fiscal/CNPJ é global de processo, nunca validado
+  contra `Account.cnpj`)** -- `loadValidCertificate` passou a validar
+  (quando `Account.cnpj` está preenchido) que o CNPJ do certificado bate
+  com o da conta da fatura, com um `ApiError` explícito em vez de deixar
+  a NFS-e sair no nome errado. `emitirTeste()` (sem fatura/conta no meio)
+  continua sem essa checagem, de propósito.
+- **A69** -- ver A56 acima (mesmo achado, seções diferentes da auditoria).
+- **A70 (bootstrap de login resolve o inquilino com `account.findFirst()`
+  sem vínculo nenhum com o e-mail)** -- hoje seguro só porque nunca existe
+  mais de uma Account. Substituído por uma leitura de até 2 linhas com
+  guarda: se alguma vez existir mais de uma Account, `ensureAccountAndUser`
+  agora FALHA ALTO (erro explícito) em vez de silenciosamente atribuir o
+  próximo login novo à conta errada. Resolução determinística de verdade
+  (domínio/convite por conta) fica pra quando uma segunda conta for uma
+  possibilidade real.
+- **A71 (cooldown de aviso de certificado vencendo era checado sem
+  filtro de conta)** -- uma notificação recente de QUALQUER conta
+  suprimia o aviso de TODAS; movido pra dentro do loop por conta, mesmo
+  padrão já usado por `getLastNotifiedAtByClientIds`.
+
+**Dois itens do Apêndice B (reverificação da auditoria anterior, sem
+achado próprio na lista principal) corrigidos nesta rodada por
+completude:**
+- **"Bloqueador 15" (lado web nunca falha o boot)** -- `apps/api`já tinha
+  fail-fast desde uma rodada anterior; `apps/web/src/instrumentation.ts`
+  só fazia `console.error` e CONTINUAVA subindo sem
+  `NEXTAUTH_SECRET`/`API_URL`/`INTERNAL_API_SECRET` (healthcheck verde,
+  login e toda chamada à API falhando em runtime). `process.exit(1)`
+  extraído pra `validate-env.ts` à parte -- Turbopack acusa
+  `process.exit` como API incompatível com o Edge Runtime mesmo dentro
+  de um branch morto pra edge no mesmo arquivo; import dinâmico só no
+  branch nodejs (mesmo padrão já usado pro `sentry.server.config` ali do
+  lado) resolve sem esse aviso.
+- **FKs sem índice nos models mais novos que a própria varredura de
+  índices não cobriu** -- `ExternalCollaborator.accountId`,
+  `CollaboratorProjectAccess.projectId` (o `@@unique` começa por
+  `collaboratorId`, não serve pra busca por `projectId` sozinho),
+  `CollaboratorMagicLink.collaboratorId`, `CollaboratorSession.
+  collaboratorId`, `ProductImage.productId`, `StudioFixedCost.accountId`.
+
+- Verificado: build limpo (`nest build`, `next build` -- o segundo sem
+  nenhum warning depois da correção do Edge Runtime). Jest 37/37. Smoke
+  suite rodada MÚLTIPLAS vezes nesta rodada por causa de duas classes de
+  regressão real que a própria suíte pegou: (1) o fixture de snapshot do
+  quadro (`fakeSnapshot`) não tinha a forma mínima que A59 passou a
+  exigir -- corrigido em três pontos; (2) o teste de revogação de
+  convidado do quadro esperava o comportamento ANTIGO (403, sessão ainda
+  válida) que A60 deliberadamente mudou (401, sessão invalidada) --
+  comentário e asserção atualizados pra refletir o comportamento novo,
+  correto. Resultado final: 371 passaram/6 falharam, mesma baseline de
+  sempre. Descoberta operacional nesta rodada: o repositório vive dentro
+  de uma pasta sincronizada pelo OneDrive, cujo sync em segundo plano
+  dispara eventos de mudança de arquivo espúrios que o watcher do `nest
+  start --watch` capta como "recompilar" no MEIO de uma execução da
+  smoke suite, derrubando a conexão em andamento (`ECONNRESET`) sem
+  nenhuma edição real ter acontecido -- descoberto depois de duas
+  tentativas de smoke suite falharem por esse motivo. Mitigação usada
+  pro resto desta rodada: build + `start:prod` (sem watch) só pra rodar a
+  verificação, servidor devolvido a `dev`/`--watch` no final pro uso
+  interativo normal. Vale considerar registrar isso como uma nota
+  permanente de ambiente (ex.: excluir a pasta do repo da sincronização
+  do OneDrive, ou usar `start:prod` como padrão pra rodar a smoke suite
+  daqui pra frente) -- não fiz a mudança permanente porque é uma decisão
+  de ambiente do usuário, não do código.
+
 ## Fase 5 — Beta & go-live
 
 Sem mudança de escopo. Vale só registrar que "migração de dados

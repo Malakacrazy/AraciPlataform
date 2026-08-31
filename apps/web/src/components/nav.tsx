@@ -3,7 +3,11 @@ import type { AccessLevel, NotificationsResponse } from "@/lib/types";
 import { NotificationBell } from "./notifications/notification-bell";
 
 const LINKS = [
-  { href: "/dashboard", label: "Dashboard" },
+  // adminOnly (achado A21 da auditoria de 30 ago 2026): /dashboard chama
+  // GET /bi/executivo, que agora é @AdminOnly() -- devolvia receita/
+  // despesa/margem do estúdio inteiro a qualquer staff, e "realizado" por
+  // projeto era derivável em costPerHour de um colega específico.
+  { href: "/dashboard", label: "Dashboard", adminOnly: true },
   { href: "/clients", label: "Clientes" },
   { href: "/opportunities", label: "Pipeline" },
   { href: "/role-rates", label: "Tarifas", adminOnly: true },

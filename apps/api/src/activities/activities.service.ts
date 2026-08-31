@@ -8,6 +8,12 @@ import { OpportunitiesService } from '../crm/opportunities.service';
 
 export const activityInputSchema = z.object({
   body: z.string().min(1).max(4000),
+  // Achado A63 da auditoria de 30 ago 2026 -- opt-in explícito, default
+  // false quando omitido (nunca sai do estúdio a menos que quem escreve
+  // marque). Só faz sentido de verdade pra nota de PROJETO (só projeto
+  // tem CollaboratorProjectAccess), mas aceito no schema geral pra não
+  // duplicar -- Client/Opportunity simplesmente nunca leem este campo.
+  visibleToCollaborator: z.boolean().optional(),
 });
 
 export type ActivityInput = z.infer<typeof activityInputSchema>;
@@ -72,7 +78,14 @@ export class ActivitiesService {
     input: ActivityInput,
   ) {
     return this.prisma.db.activity.create({
-      data: { accountId, authorId, entityType, entityId, body: input.body },
+      data: {
+        accountId,
+        authorId,
+        entityType,
+        entityId,
+        body: input.body,
+        visibleToCollaborator: input.visibleToCollaborator ?? false,
+      },
       include: { author: { select: { id: true, name: true, email: true } } },
     });
   }
@@ -110,6 +123,27 @@ export class ActivitiesService {
     if (clientIds.length === 0) return new Map();
     const rows = await this.prisma.db.activity.findMany({
       where: { entityType: 'CLIENT', entityId: { in: clientIds } },
+      orderBy: { createdAt: 'desc' },
+      select: { entityId: true, createdAt: true },
+    });
+    const lastActivityAt = new Map<string, Date>();
+    for (const row of rows) {
+      if (!lastActivityAt.has(row.entityId)) {
+        lastActivityAt.set(row.entityId, row.createdAt);
+      }
+    }
+    return lastActivityAt;
+  }
+
+  // Mesmo espírito de getLastActivityAtByClientIds, só que pra entityType
+  // PROJECT -- achado A3 da auditoria de 30 ago 2026: o cron de retenção
+  // LGPD só olhava Activity de entityType CLIENT, mas é na timeline do
+  // PROJETO (não do cliente) que a equipe registra o dia a dia real do
+  // trabalho.
+  async getLastActivityAtByProjectIds(projectIds: string[]): Promise<Map<string, Date>> {
+    if (projectIds.length === 0) return new Map();
+    const rows = await this.prisma.db.activity.findMany({
+      where: { entityType: 'PROJECT', entityId: { in: projectIds } },
       orderBy: { createdAt: 'desc' },
       select: { entityId: true, createdAt: true },
     });

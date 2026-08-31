@@ -28,30 +28,63 @@ export const userUpdateSchema = z.object({
 
 export type UserUpdateInput = z.infer<typeof userUpdateSchema>;
 
+// Achado A47 da auditoria de 30 ago 2026: findMany/findFirst sem select
+// devolviam o User inteiro, inclusive apiKeyHash (sha-256 da chave de
+// API) -- atravessava a fronteira staff/admin sem necessidade nenhuma
+// (a única tela que consome isto só faz `Boolean(user.apiKeyHash)` pro
+// próprio usuário). `hasApiKey` abaixo expõe exatamente esse booleano,
+// nunca o hash. Só os campos que as telas realmente usam (ver
+// apps/web/src/lib/types.ts User) -- uma coluna sensível nova no User não
+// vaza por padrão de novo.
+const USER_SELECT = {
+  id: true,
+  accountId: true,
+  name: true,
+  email: true,
+  role: true,
+  specialty: true,
+  costPerHour: true,
+  weeklyCapacityHours: true,
+  accessLevel: true,
+  createdAt: true,
+} as const;
+
+function withHasApiKey<T extends { apiKeyHash?: string | null }>({ apiKeyHash, ...user }: T) {
+  return { ...user, hasApiKey: apiKeyHash != null };
+}
+
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  listUsers(accountId: string) {
-    return this.prisma.db.user.findMany({
+  async listUsers(accountId: string) {
+    const users = await this.prisma.db.user.findMany({
       where: { accountId },
+      select: { ...USER_SELECT, apiKeyHash: true },
       orderBy: { name: 'asc' },
     });
+    return users.map(withHasApiKey);
   }
 
   async getUser(accountId: string, id: string) {
     const user = await this.prisma.db.user.findFirst({
       where: { id, accountId },
+      select: { ...USER_SELECT, apiKeyHash: true },
     });
     if (!user) {
       throw new NotFoundError('Colaborador');
     }
-    return user;
+    return withHasApiKey(user);
   }
 
   async updateUser(accountId: string, id: string, input: UserUpdateInput) {
     await this.getUser(accountId, id);
-    return this.prisma.db.user.update({ where: { id }, data: input });
+    const user = await this.prisma.db.user.update({
+      where: { id },
+      data: input,
+      select: { ...USER_SELECT, apiKeyHash: true },
+    });
+    return withHasApiKey(user);
   }
 
   // A chave de API (usada pela extensão Captura para autenticar POST

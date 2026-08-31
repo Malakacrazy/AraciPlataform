@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service';
 import { UnauthorizedError, ForbiddenError, NotFoundError } from '../common/api-error';
-import { MoodboardsService, type MoodboardCommentAuthorType } from '../ffe/moodboards.service';
+import { MoodboardsService, type MoodboardCommentAuthorType, type MoodboardSnapshotInput } from '../ffe/moodboards.service';
 
 export const verifyLogtoLoginSchema = z.object({
   email: z.email(),
@@ -138,7 +138,7 @@ export class WhiteboardGuestPortalService {
     return moodboard;
   }
 
-  async saveSnapshot(sessionToken: string, moodboardId: string, snapshot: unknown) {
+  async saveSnapshot(sessionToken: string, moodboardId: string, snapshot: MoodboardSnapshotInput['snapshot']) {
     await this.requireAccess(sessionToken, moodboardId);
     const accountId = await this.accountIdForMoodboard(moodboardId);
     return this.moodboardsService.saveSnapshot(accountId, moodboardId, { snapshot });

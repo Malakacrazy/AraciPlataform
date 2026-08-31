@@ -19,11 +19,19 @@ import { STATE_COOKIE } from "../state-cookie";
 // novo especificamente pra garantir que ele volte desta vez. Mesmo
 // escopo (drive.file) do Picker em google-client.ts -- reconectar aqui
 // não pede nada que a pessoa já não tivesse visto lá.
-const SYNC_SCOPES = [
-  "https://www.googleapis.com/auth/calendar.events",
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/drive.file",
-].join(" ");
+//
+// Achado A35 da auditoria de 30 ago 2026: calendar.events (leitura E
+// escrita) e gmail.readonly (escopo "restrito" pelo Google) eram pedidos
+// e guardados de qualquer jeito, mas o único consumidor de
+// GoogleCredentialsService.getAccessToken é GoogleDriveService -- nenhum
+// código server-side usa Calendar/Gmail com esta credencial (o
+// events.watch/users.watch citados no comentário acima nunca foram
+// implementados). Um vazamento do banco + da chave de criptografia dava
+// ao atacante leitura da caixa de e-mail inteira e escrita na agenda de
+// todo admin conectado, sem nenhuma funcionalidade real usando isso hoje.
+// Reduzido ao que o servidor de fato consome; se o watch de Calendar/
+// Gmail for implementado de verdade, pedir esses escopos separados então.
+const SYNC_SCOPES = ["https://www.googleapis.com/auth/drive.file"].join(" ");
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);

@@ -31,9 +31,13 @@ export async function addActivity(entityType: EntityType, entityId: string, form
   if (!body) {
     throw new Error("Escreva algo antes de adicionar a nota.");
   }
+  // Achado A63 da auditoria de 30 ago 2026 -- checkbox só aparece pra
+  // entityType PROJECT (ver ActivityTimeline), ausente vira false no
+  // schema do lado da API de qualquer jeito.
+  const visibleToCollaborator = formData.get("visibleToCollaborator") === "on";
   await call(
     `${ENTITY_PATH[entityType]}/${entityId}/activities`,
-    { method: "POST", body: JSON.stringify({ body }) },
+    { method: "POST", body: JSON.stringify({ body, visibleToCollaborator }) },
     entityType,
     entityId,
   );

@@ -22,10 +22,18 @@
 # de verdade durante o expediente dificilmente fica uma semana inteira
 # sem nenhum acesso. DATABASE_URL entra como `sync: false` abaixo
 # (Supabase → Project Settings → Database → Connection string).
-# IMPORTANTE: usar a connection string DIRETA (porta 5432), não o
-# pooler/transaction mode (porta 6543) -- apps/api é processo Node de
-# vida longa (não serverless), e o pooler é ajustado pra conexão curta,
-# entra em conflito com prepared statements do Prisma nesse cenário.
+# IMPORTANTE (corrigido -- achados A11/A15 da auditoria de 30 ago 2026,
+# docs/auditoria-2026-08-30-detalhada.md): usar a connection string do
+# POOLER (porta 6543), não a direta (5432). A justificativa antiga aqui
+# ("conflito com prepared statements do Prisma") é sobre o ENGINE Rust do
+# Prisma -- packages/db usa @prisma/adapter-pg (node-postgres), que não
+# tem esse conflito com o Supavisor em modo transação. Além disso o
+# endpoint direto só resolve em IPv6 sem o add-on IPv4 pago do Supabase,
+# e a saída de rede do Render é IPv4 -- a instrução antiga apontava pro
+# caminho com MAIOR chance de simplesmente não conectar. SEMPRE com
+# `?sslmode=require` no final -- pg tem ssl:false por padrão e a string
+# do painel do Supabase não traz sslmode nenhum;
+# packages/db/src/index.ts falha no boot se isso faltar num host remoto.
 #
 # NÃO testado contra uma conta Render de verdade (sem acesso a uma nesta
 # sessão) -- os nomes de campo abaixo seguem a documentação pública do
@@ -49,14 +57,22 @@ services:
     # separado).
     preDeployCommand: npm run db:migrate:deploy
     envVars:
-      # Connection string DIRETA do Supabase (porta 5432), não o pooler
-      # (6543) -- ver comentário no topo do arquivo pro porquê.
+      # Connection string do POOLER do Supabase (porta 6543) com
+      # ?sslmode=require -- ver comentário no topo do arquivo pro porquê
+      # (achados A11/A15 da auditoria de 30 ago 2026).
       - key: DATABASE_URL
         sync: false
       - key: PORT
         value: 3001
       - key: INTERNAL_API_SECRET
         generateValue: true
+      # Achado A12 da auditoria de 30 ago 2026: fromService/property:host
+      # entrega o hostname SEM protocolo ("araci-web.onrender.com"), e o
+      # código concatenava direto -- corrigido com um withScheme() nos
+      # pontos de consumo (apps/api/src/common/url.ts,
+      # apps/web/src/lib/url.ts), que prefixa http:// quando falta. Mantido
+      # fromService (não sync: false) porque agora é seguro e continua
+      # atualizando sozinho se o hostname interno mudar.
       - key: WEB_URL
         fromService:
           type: web
@@ -66,8 +82,14 @@ services:
         value: studioaraci.com.br
       - key: ALLOWED_EMAILS
         sync: false
+      # sync: false, não generateValue (achado A13 da auditoria de 30 ago
+      # 2026): generateValue produz base64 (~44 chars), mas
+      # google-credential-crypto.ts exige hex de 32 bytes (64 chars) --
+      # com generateValue, TODA integração Google quebra no primeiro uso
+      # (loadKey() lança), não no boot. Gere com `openssl rand -hex 32`
+      # e cole aqui, como .env.example já instrui.
       - key: GOOGLE_CREDENTIAL_ENCRYPTION_KEY
-        generateValue: true
+        sync: false
       # MESMO par OAuth declarado no serviço araci-web -- não é
       # duplicação por engano: GoogleCredentialsService.getAccessToken
       # troca o refresh_token guardado por um access_token pra chamar a
@@ -153,6 +175,8 @@ services:
         sync: false
       - key: NEXT_PUBLIC_GOOGLE_APP_ID
         sync: false
+      # Sem protocolo (achado A12) -- ver comentário no WEB_URL do
+      # araci-api acima pro porquê isso é seguro (withScheme()).
       - key: API_URL
         fromService:
           type: pserv

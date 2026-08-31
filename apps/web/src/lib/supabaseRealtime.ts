@@ -23,31 +23,34 @@ import { createClient, type RealtimeChannel } from "@supabase/supabase-js";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-let client: ReturnType<typeof createClient> | null = null;
+export interface BoardChannel {
+  channel: RealtimeChannel;
+  // Achado A61 da auditoria de 30 ago 2026 -- ver comentário abaixo:
+  // devolvido pra quem chama poder desligar ESTE client específico no
+  // cleanup, em vez de só dar unsubscribe no canal.
+  disconnect: () => void;
+}
 
-function getSupabaseClient() {
+// Achado A61 da auditoria de 30 ago 2026: um client Supabase de módulo
+// (singleton) + setAuth trocando o token da CONEXÃO REALTIME INTEIRA (não
+// do canal) parte da premissa de "um quadro por vez na página" -- falsa
+// nas duas superfícies que renderizam mais de uma prancha ao mesmo tempo
+// (ffe/page.tsx faz moodboards.map(...), present/[token]/page.tsx faz
+// boards.map(...)): a última prancha a montar sobrescrevia o token de
+// todas as outras, cujos canais passavam a falhar a policy silenciosamente
+// (só um console.warn de CHANNEL_ERROR, que ninguém lê em produção) --
+// diagnóstico natural ("a policy não foi aplicada") apontava pro lugar
+// errado. Um client por CANAL (não mais um singleton de módulo) elimina a
+// disputa: cada prancha tem sua própria conexão Realtime com seu próprio
+// token, sem nenhuma pisar na auth da outra.
+export function createBoardChannel(moodboardId: string, realtimeToken: string): BoardChannel {
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error(
       "NEXT_PUBLIC_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_ANON_KEY não configurados -- sincronização ao vivo do quadro indisponível.",
     );
   }
-  if (!client) {
-    client = createClient(supabaseUrl, supabaseAnonKey);
-  }
-  return client;
-}
-
-// Um canal por prancha -- todo mundo olhando o mesmo Moodboard.id entra
-// no mesmo canal, independente de ser staff (tela do projeto), cliente
-// (link de apresentação) ou convidado (portal do quadro via Logto). A
-// diferença agora é que cada um chega com um token que prova que pode
-// estar ali, emitido pela própria superfície depois de checar o acesso.
-export function createBoardChannel(moodboardId: string, realtimeToken: string): RealtimeChannel {
-  const supabase = getSupabaseClient();
-  // setAuth troca a anon key pelo JWT em TODA conexão realtime deste
-  // client -- é a API que o supabase-js expõe pra isso; como o
-  // componente abre um quadro por vez, não há sobreposição de tokens de
-  // quadros diferentes na mesma página.
-  supabase.realtime.setAuth(realtimeToken);
-  return supabase.channel(`moodboard:${moodboardId}`, { config: { private: true } });
+  const client = createClient(supabaseUrl, supabaseAnonKey);
+  client.realtime.setAuth(realtimeToken);
+  const channel = client.channel(`moodboard:${moodboardId}`, { config: { private: true } });
+  return { channel, disconnect: () => client.realtime.disconnect() };
 }

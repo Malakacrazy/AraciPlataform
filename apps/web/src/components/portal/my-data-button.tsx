@@ -3,16 +3,20 @@
 import { useState } from "react";
 
 // Lacuna da matriz (LGPD, "Meus dados" self-service) -- fetch client-side
-// pra /api/portal/data-export (rota própria, não o proxy BFF genérico --
-// ver comentário lá), que já autentica pelo cookie client_session
+// pra /portal/data-export (rota própria, não o proxy BFF genérico -- ver
+// comentário lá), que já autentica pelo cookie client_session
 // automaticamente (same-origin, httpOnly, enviado pelo navegador sozinho).
+// Achado A44 da auditoria de 30 ago 2026: a rota vivia em
+// /api/portal/data-export -- fora do path (Path=/portal) do cookie de
+// sessão do cliente, então o navegador nunca o enviava e isto sempre
+// devolvia 401 (ver o route.ts atual pra detalhe do RFC 6265).
 export function MyDataButton() {
   const [error, setError] = useState<string | null>(null);
 
   async function handleExport() {
     setError(null);
     try {
-      const res = await fetch("/api/portal/data-export");
+      const res = await fetch("/portal/data-export");
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         throw new Error(body?.error?.message ?? "Não foi possível exportar seus dados.");

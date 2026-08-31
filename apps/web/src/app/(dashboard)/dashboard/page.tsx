@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
-import { apiGet } from "@/lib/api";
+import { apiGet, ApiError } from "@/lib/api";
 import type { VisaoExecutiva } from "@/lib/types";
 import { DashboardTabs } from "@/components/dashboard/dashboard-tabs";
 import { ExportProjetosCsv } from "@/components/dashboard/export-projetos-csv";
@@ -22,7 +22,27 @@ export default async function DashboardPage({
   if (from) query.set("from", from);
   if (to) query.set("to", to);
 
-  const data = await apiGet<VisaoExecutiva>(`bi/executivo?${query.toString()}`);
+  // Achado A42 da auditoria de 30 ago 2026: o gate de verdade (403 em
+  // /v1/bi/executivo pra quem não é admin) já existe desde o achado A21
+  // da rodada anterior, e o nav já esconde este link de quem não é admin
+  // -- mas quem digitasse/abrisse um bookmark de /dashboard direto caía
+  // no error boundary genérico (ApiError não tratada) em vez da mensagem
+  // "sem permissão" que financeiro/page.tsx já usa pro mesmo caso.
+  let data: VisaoExecutiva;
+  try {
+    data = await apiGet<VisaoExecutiva>(`bi/executivo?${query.toString()}`);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 403) {
+      return (
+        <main className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-12">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            Sua conta não tem permissão para ver o dashboard executivo.
+          </p>
+        </main>
+      );
+    }
+    throw err;
+  }
 
   const maiorEstagio = Math.max(1, ...data.pipeline.porEstagio.map((e) => e.quantidade));
   const maiorRecebido = Math.max(1, ...data.tendencia.map((m) => m.recebido));

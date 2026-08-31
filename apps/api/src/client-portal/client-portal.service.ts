@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service';
 import { UnauthorizedError } from '../common/api-error';
+import { withScheme } from '../common/url';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PresentationLinksService } from '../presentation/presentation-links.service';
 import { ClientsService } from '../crm/clients.service';
@@ -80,7 +81,11 @@ export class ClientPortalService {
     if (!webUrl) {
       this.logger.warn('WEB_URL não configurado -- magic link será gerado com http://localhost:3000, inútil fora de dev.');
     }
-    const link = `${webUrl ?? 'http://localhost:3000'}/portal/verify?token=${token}`;
+    // withScheme (achado A12 da auditoria de 30 ago 2026): WEB_URL vem de
+    // render.yaml fromService/host, sem protocolo -- sem isto, o link no
+    // e-mail vira algo como "araci-web.onrender.com/portal/verify?...",
+    // que o cliente de e-mail trata como caminho relativo, não um link.
+    const link = `${withScheme(webUrl ?? 'http://localhost:3000')}/portal/verify?token=${token}`;
 
     try {
       await this.notificationsService.sendClientMagicLink(client.email, client.name, link);
@@ -96,19 +101,29 @@ export class ClientPortalService {
   // Token de uso único: consumido aqui, uma tentativa de reuso (link
   // clicado duas vezes, aba antiga reaberta) cai no mesmo 401 de um
   // token que nunca existiu.
+  // Achado A66 da auditoria de 30 ago 2026 (mesmo desenho documentado em
+  // collaborator-portal.service.ts): findUnique + update separados é um
+  // TOCTOU -- duas requisições concorrentes com o mesmo token (o clique
+  // real do cliente e um prefetch/scanner de e-mail que segue o link
+  // antes dele) passavam as duas pela checagem de consumedAt null e
+  // criavam DUAS ClientSession de 7 dias a partir de um link "de uso
+  // único". updateMany condicional numa instrução só é atômico.
   async consumeMagicLink(input: ConsumeTokenInput) {
     const magicLink = await this.prisma.db.clientMagicLink.findUnique({
       where: { token: input.token },
       include: { client: true },
     });
-    if (!magicLink || magicLink.consumedAt || magicLink.expiresAt < new Date()) {
+    if (!magicLink || magicLink.expiresAt < new Date()) {
       throw new UnauthorizedError('Link inválido, já usado ou expirado.');
     }
 
-    await this.prisma.db.clientMagicLink.update({
-      where: { id: magicLink.id },
+    const claim = await this.prisma.db.clientMagicLink.updateMany({
+      where: { id: magicLink.id, consumedAt: null },
       data: { consumedAt: new Date() },
     });
+    if (claim.count !== 1) {
+      throw new UnauthorizedError('Link inválido, já usado ou expirado.');
+    }
 
     const sessionToken = randomUUID();
     await this.prisma.db.clientSession.create({
@@ -157,7 +172,11 @@ export class ClientPortalService {
     if (!client) {
       throw new UnauthorizedError('Sessão inválida ou expirada — entre novamente.');
     }
-    return this.clientsService.exportClientData(client.accountId, session.clientId);
+    // Achados A48/A67 da auditoria de 30 ago 2026: exportClientData (a
+    // versão de staff) devolvia a composição interna de preço, o motivo
+    // de perda e as notas internas da equipe pro próprio cliente --
+    // exportClientDataForSubject é a projeção segura pro titular.
+    return this.clientsService.exportClientDataForSubject(client.accountId, session.clientId);
   }
 
   // Um link de apresentação por projeto é criado sob demanda na

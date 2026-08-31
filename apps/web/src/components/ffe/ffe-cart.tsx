@@ -9,8 +9,21 @@ function lineTotal(spec: ProductSpecification): number {
   return spec.quantity * Number(spec.unitPrice) * (1 + Number(spec.markupPercent ?? 0));
 }
 
-export function FfeCart({ projectId, specs }: { projectId: string; specs: ProductSpecification[] }) {
-  const pending = specs.filter((s) => !s.clientApproved);
+export function FfeCart({
+  projectId,
+  specs,
+  isAdmin,
+}: {
+  projectId: string;
+  specs: ProductSpecification[];
+  isAdmin: boolean;
+}) {
+  // Achado A49 da auditoria de 30 ago 2026: filtrar por clientApproved
+  // fazia um item aprovado pelo link público sumir do carrinho pra
+  // sempre, mesmo sem fatura nenhuma existir -- invoicedAt é o sinal
+  // certo de "já faturado" (clientApproved continua marcando "cliente
+  // aprovou", agora independente disto).
+  const pending = specs.filter((s) => !s.invoicedAt);
   const pendingIds = pending
     .map((s) => s.id)
     .sort()
@@ -91,14 +104,20 @@ export function FfeCart({ projectId, specs }: { projectId: string; specs: Produc
         <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
           Total selecionado: R$ {total.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
         </span>
-        <button
-          type="button"
-          onClick={handleCheckout}
-          disabled={isSubmitting || hasMissingPrice}
-          className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
-        >
-          {isSubmitting ? "Aprovando…" : "Aprovar selecionados"}
-        </button>
+        {isAdmin ? (
+          <button
+            type="button"
+            onClick={handleCheckout}
+            disabled={isSubmitting || hasMissingPrice}
+            className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
+          >
+            {isSubmitting ? "Aprovando…" : "Aprovar selecionados"}
+          </button>
+        ) : (
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">
+            Só um admin pode aprovar e faturar o carrinho.
+          </span>
+        )}
       </div>
       {hasMissingPrice && (
         <p className="text-xs text-amber-600 dark:text-amber-400">

@@ -9,6 +9,11 @@ export interface CreateOfficeLinkInput {
   externalId: string;
   url: string;
   title: string;
+  // Achado A38 da auditoria de 30 ago 2026: token EFÊMERO do Picker
+  // (drive.file, só desta sessão do navegador) -- repassado direto pro
+  // apps/api confirmar o arquivo antes de contar pro checklist de
+  // documentos obrigatórios; nunca persistido (nem aqui, nem lá).
+  driveAccessToken?: string;
 }
 
 type EntityType = "PROJECT" | "CLIENT";

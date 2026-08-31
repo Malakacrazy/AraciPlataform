@@ -26,6 +26,15 @@ import {
   type GmailMessageSummary,
 } from "@/lib/google-client";
 
+// Achado A43 da auditoria de 30 ago 2026: mesmo com o esquema restrito a
+// http(s) na API (officeLinkInputSchema), esta é a segunda camada --
+// vínculos gravados antes da correção continuam no banco, e renderizar
+// url cru em href sem checagem nenhuma é o defeito incondicional que o
+// achado aponta (não depende de bypassar a API pra existir).
+function safeHref(url: string): string | undefined {
+  return /^https?:\/\//i.test(url) ? url : undefined;
+}
+
 type EntityType = "PROJECT" | "CLIENT";
 
 interface Props {
@@ -109,8 +118,12 @@ export function OfficeLinksSection({
   const [eventEnd, setEventEnd] = useState(() => toDateTimeLocalValue(new Date(Date.now() + 2 * 60 * 60 * 1000)));
   const [eventDescription, setEventDescription] = useState("");
 
-  async function createLink(provider: OfficeLinkProvider, picked: { externalId: string; url: string; title: string }) {
-    await createOfficeLink(entityType, entityId, { provider, ...picked });
+  async function createLink(
+    provider: OfficeLinkProvider,
+    picked: { externalId: string; url: string; title: string },
+    driveAccessToken?: string,
+  ) {
+    await createOfficeLink(entityType, entityId, { provider, ...picked, driveAccessToken });
   }
 
   async function handleLinkDrive() {
@@ -120,7 +133,10 @@ export function OfficeLinksSection({
       const token = await getGoogleAccessToken(DRIVE_SCOPE, userEmail ?? undefined);
       const file = await openDrivePicker(token);
       if (!file) return; // usuário cancelou o Picker
-      await createLink("DRIVE", file);
+      // Achado A38 da auditoria de 30 ago 2026: repassa o mesmo token do
+      // Picker pro servidor confirmar o arquivo antes de contar pro
+      // checklist de documentos obrigatórios (ver office-links.service.ts).
+      await createLink("DRIVE", file, token);
     } catch (err) {
       setError(errorMessage(err, "Falha ao vincular arquivo do Drive."));
     } finally {
@@ -316,15 +332,22 @@ export function OfficeLinksSection({
           {links.map((link) => (
             <li key={link.id} className="rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800">
               <div className="flex items-center justify-between gap-3">
-                <a
-                  href={link.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="truncate text-zinc-900 hover:underline dark:text-zinc-50"
-                >
-                  <span className="mr-2 text-xs uppercase text-zinc-500 dark:text-zinc-400">{link.provider}</span>
-                  {link.title}
-                </a>
+                {safeHref(link.url) ? (
+                  <a
+                    href={safeHref(link.url)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="truncate text-zinc-900 hover:underline dark:text-zinc-50"
+                  >
+                    <span className="mr-2 text-xs uppercase text-zinc-500 dark:text-zinc-400">{link.provider}</span>
+                    {link.title}
+                  </a>
+                ) : (
+                  <span className="truncate text-zinc-900 dark:text-zinc-50">
+                    <span className="mr-2 text-xs uppercase text-zinc-500 dark:text-zinc-400">{link.provider}</span>
+                    {link.title}
+                  </span>
+                )}
                 <div className="flex shrink-0 items-center gap-2">
                   {link.brokenAt && (
                     <span className="rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">

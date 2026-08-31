@@ -66,6 +66,12 @@ export class ProjectsService {
     // aberto no futuro.
     // Activity é o mesmo padrão polimórfico do OfficeLink (achado A-02 da
     // auditoria) -- limpa junto, mesma razão.
+    // Achado A64 da auditoria de 30 ago 2026: mesma classe do A-02 acima,
+    // reaberta na tabela nova -- CollaboratorProjectAccess tem FK real
+    // pra Project SEM onDelete (default RESTRICT), e não era limpa aqui.
+    // MoodboardsService.deleteMoodboard já trata o caso análogo
+    // (WhiteboardGuestAccess) com o mesmo comentário "não é cascade,
+    // limpo explicitamente antes".
     await this.prisma.db.$transaction([
       this.prisma.db.officeLink.deleteMany({
         where: { accountId, entityType: 'PROJECT', entityId: id },
@@ -73,6 +79,7 @@ export class ProjectsService {
       this.prisma.db.activity.deleteMany({
         where: { accountId, entityType: 'PROJECT', entityId: id },
       }),
+      this.prisma.db.collaboratorProjectAccess.deleteMany({ where: { projectId: id } }),
       this.prisma.db.project.delete({ where: { id } }),
     ]);
   }

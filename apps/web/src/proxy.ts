@@ -29,6 +29,13 @@ const RULES: Array<{ prefix: string; methods: string[]; limit: number }> = [
   { prefix: "/lead", methods: ["POST"], limit: 10 },
   { prefix: "/portal/login", methods: ["POST"], limit: 10 },
   { prefix: "/colaborador/login", methods: ["POST"], limit: 10 },
+  // Achado A51 da auditoria de 30 ago 2026: as Server Actions da página
+  // pública de apresentação (aprovar/desaprovar especificação, comentar,
+  // salvar snapshot do quadro) fazem POST pro próprio path /present/
+  // <token> -- de fora do matcher, nada limitava quem tivesse o link de
+  // ficar alternando aprovar/desaprovar (um e-mail via Resend a cada
+  // transição, sem teto) ou submetendo snapshot repetidamente.
+  { prefix: "/present/", methods: ["POST"], limit: 60 },
   // Troca de token por sessão: UUID v4 não é adivinhável por força bruta
   // (122 bits), mas limitar corta o ruído e o custo de quem tentar.
   { prefix: "/portal/verify", methods: ["GET"], limit: 30 },
@@ -105,5 +112,6 @@ export const config = {
     "/colaborador/verify",
     "/api/quadro/:path*",
     "/api/webhooks/:path*",
+    "/present/:path*",
   ],
 };

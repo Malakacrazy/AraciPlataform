@@ -63,14 +63,28 @@ export function CollaborativeBoard({
   const [comments, setComments] = useState(initialComments);
   const [commentBody, setCommentBody] = useState("");
   const [sending, setSending] = useState(false);
+  // Achado A58/A59 da auditoria de 30 ago 2026: nem carregar nem salvar o
+  // snapshot tinham tratamento de erro -- uma rejeição (snapshot
+  // corrompido/de versão incompatível do tldraw, ou um save que falhou)
+  // virava exceção não tratada, sem nenhum sinal na tela.
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (initialSnapshot) {
+    if (!initialSnapshot) return;
+    try {
       loadSnapshot(store, initialSnapshot as TLStoreSnapshot);
+    } catch (err) {
+      // Achado A59: loadSnapshot lançando dentro de um useEffect sobe até
+      // o error boundary e derruba a página inteira (FF&E do estúdio ou
+      // /present do cliente) de forma persistente -- degrada pra store
+      // vazio em vez disso; o conteúdo original continua no banco
+      // (só não é exibido), então nada é perdido além da exibição.
+      console.error(`[quadro] snapshot inválido, abrindo com o quadro vazio: ${(err as Error).message}`);
+      setSaveError("Não foi possível abrir o conteúdo salvo desta prancha — ela foi aberta em branco.");
     }
   }, [store, initialSnapshot]);
 
-  const channelRef = useRef<ReturnType<typeof createBoardChannel> | null>(null);
+  const channelRef = useRef<ReturnType<typeof createBoardChannel>["channel"] | null>(null);
 
   useEffect(() => {
     // Sem token não há canal privado -- degrada pra "sem sincronização ao
@@ -79,13 +93,14 @@ export function CollaborativeBoard({
     if (!realtimeToken) {
       return;
     }
-    let channel: ReturnType<typeof createBoardChannel>;
+    let board: ReturnType<typeof createBoardChannel>;
     try {
-      channel = createBoardChannel(boardId, realtimeToken);
+      board = createBoardChannel(boardId, realtimeToken);
     } catch (err) {
       console.warn((err as Error).message);
       return;
     }
+    const { channel } = board;
     channelRef.current = channel;
 
     channel.on("broadcast", { event: "board" }, ({ payload }: { payload: BroadcastPayload }) => {
@@ -120,6 +135,11 @@ export function CollaborativeBoard({
 
     return () => {
       channel.unsubscribe();
+      // Achado A61: desliga o CLIENT desta prancha (não um singleton
+      // compartilhado) -- cada CollaborativeBoard tem o seu próprio desde
+      // a correção, então isto nunca afeta a conexão de outra prancha
+      // montada na mesma página.
+      board.disconnect();
       channelRef.current = null;
     };
   }, [store, boardId, realtimeToken, onRefreshComments]);
@@ -131,7 +151,18 @@ export function CollaborativeBoard({
     // ferramenta selecionada) é por pessoa, salvar isso serviria só pra
     // empurrar a câmera de quem salvou por último em cima de todo mundo
     // que reabrir a prancha depois.
-    const flush = () => onSaveSnapshot(getSnapshot(store).document);
+    // Achado A58: onSaveSnapshot é uma promise (server action) chamada
+    // sem .catch() -- um 413 (corpo grande demais, ver SNAPSHOT_BODY_LIMIT
+    // em main.ts) ou qualquer outra falha de rede virava unhandled
+    // rejection no console, sem NENHUM sinal na tela: a pessoa desenhava
+    // achando que estava salvo, fechava a aba, e o trabalho sumia.
+    const flush = () =>
+      onSaveSnapshot(getSnapshot(store).document)
+        .then(() => setSaveError(null))
+        .catch((err) => {
+          console.error(`[quadro] falha ao salvar o snapshot: ${(err as Error).message}`);
+          setSaveError("Não foi possível salvar as últimas alterações desta prancha.");
+        });
 
     const unlisten = store.listen(
       (entry) => {
@@ -189,6 +220,11 @@ export function CollaborativeBoard({
 
   return (
     <div className="flex flex-col gap-3">
+      {saveError && (
+        <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+          {saveError}
+        </p>
+      )}
       <div style={{ position: "relative", height: 560 }} className="overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
         <Tldraw store={store} />
       </div>

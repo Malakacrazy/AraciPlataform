@@ -33,7 +33,12 @@ async function mintToken(email: string) {
   const secretKey = new TextEncoder().encode(SECRET);
   return new SignJWT({ email })
     .setProtectedHeader({ alg: "HS256" })
-    .setExpirationTime("60s")
+    // 15m, não 60s: isso é só um token de teste que este script forja
+    // direto (não passa pelo mint-por-requisição real de apps/web), e o
+    // suite inteiro roda sequencial sob o mesmo token — precisa sobrar
+    // tempo pra suite crescer sem os checks do fim começarem a falhar
+    // por token expirado no meio da execução.
+    .setExpirationTime("15m")
     .sign(secretKey);
 }
 
@@ -578,6 +583,22 @@ async function main() {
     oppsDoMesmoCliente?.length === 2,
     oppsDoMesmoCliente
   );
+  report(
+    "...mas NÃO sobrescreve consentedAt de um Client já existente (achado A69: sem prova de posse do e-mail)",
+    clientesDoLead?.[0]?.consentedAt === clienteDoLead?.consentedAt,
+    { antes: clienteDoLead?.consentedAt, depois: clientesDoLead?.[0]?.consentedAt }
+  );
+
+  const leadNomeGigantescoRes = await fetch(`${BASE_URL}/v1/leads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "x".repeat(121), email: "lead-nome-gigante@example.com", consent: true }),
+  });
+  report(
+    "POST /v1/leads com name > 120 chars → 400 VALIDATION_ERROR (achado A56)",
+    leadNomeGigantescoRes.status === 400,
+    await leadNomeGigantescoRes.json().catch(() => null)
+  );
 
   const duplicateEmailRes = await api("/v1/clients", {
     method: "POST",
@@ -730,6 +751,22 @@ async function main() {
     invoiceSemHorasRes.body
   );
 
+  // O usuário deste smoke test nasce com role 'admin' (ver auth.service.ts).
+  // RoleRate é dado de referência da conta inteira e sobrevive de propósito
+  // entre execuções do smoke suite (mesma convenção já valendo pra
+  // "Arquiteto Líder (RT)" acima) -- então uma execução anterior pode já
+  // ter deixado uma tarifa cadastrada pro papel 'admin'. Reseta na unha
+  // ANTES de aprovar a hora abaixo (achado A7 da auditoria de 30 ago 2026:
+  // approveTimeEntry agora congela a tarifa vigente em
+  // TimeEntry.approvedHourlyRate no momento da aprovação -- resetar DEPOIS
+  // de aprovar não provaria mais ROLE_RATE_MISSING nenhum, porque a tarifa
+  // já teria sido congelada antes do reset e o fallback nem seria
+  // consultado). A tarifa de verdade é recriada mais abaixo mesmo, então
+  // isso não é "limpeza de resíduo", é garantir a pré-condição do teste
+  // independente do histórico do banco.
+  const smokeUser = await prisma.user.findUnique({ where: { email: EMAIL } });
+  await prisma.roleRate.deleteMany({ where: { accountId: smokeUser!.accountId, role: "admin" } });
+
   const horasFaturaveisRes = await api("/v1/time-entries", {
     method: "POST",
     body: JSON.stringify({
@@ -753,10 +790,16 @@ async function main() {
     invoiceComHoraNaoAprovadaRes.body
   );
 
+  // Aprovada SEM nenhuma RoleRate pro papel 'admin' cadastrada (reset
+  // acima) -- approveTimeEntry não bloqueia por isso (achado A7):
+  // approvedHourlyRate fica null, e o 422 ROLE_RATE_MISSING só aparece
+  // de verdade na hora de faturar, testado logo abaixo.
   const aprovarHorasFaturaveisRes = await api(`/v1/time-entries/${horasFaturaveisId}/approve`, { method: "POST" });
   report(
-    "POST /time-entries/:id/approve (horas a faturar) → 200",
-    aprovarHorasFaturaveisRes.status === 200 && !!aprovarHorasFaturaveisRes.body?.data?.approvedAt,
+    "POST /time-entries/:id/approve (horas a faturar, sem RoleRate ainda) → 200, approvedHourlyRate fica null",
+    aprovarHorasFaturaveisRes.status === 200 &&
+      !!aprovarHorasFaturaveisRes.body?.data?.approvedAt &&
+      aprovarHorasFaturaveisRes.body?.data?.approvedHourlyRate === null,
     aprovarHorasFaturaveisRes.body
   );
 
@@ -769,17 +812,6 @@ async function main() {
     invoiceComAmountRes.status === 422 && invoiceComAmountRes.body?.error?.code === "AMOUNT_NOT_ALLOWED",
     invoiceComAmountRes.body
   );
-
-  // O usuário deste smoke test nasce com role 'admin' (ver auth.service.ts).
-  // RoleRate é dado de referência da conta inteira e sobrevive de propósito
-  // entre execuções do smoke suite (mesma convenção já valendo pra
-  // "Arquiteto Líder (RT)" acima) -- então uma execução anterior pode já
-  // ter deixado uma tarifa cadastrada pro papel 'admin'. Reseta na unha
-  // antes de provar o caminho de erro; a tarifa de verdade é recriada duas
-  // linhas abaixo mesmo, então isso não é "limpeza de resíduo", é garantir
-  // a pré-condição do teste independente do histórico do banco.
-  const smokeUser = await prisma.user.findUnique({ where: { email: EMAIL } });
-  await prisma.roleRate.deleteMany({ where: { accountId: smokeUser!.accountId, role: "admin" } });
 
   const invoiceSemTarifaRes = await api(`/v1/projects/${projectId}/phases/${firstPhase.id}/invoice`, {
     method: "POST",
@@ -819,14 +851,61 @@ async function main() {
   );
   const invoiceId = invoiceRes.body?.data?.id;
 
-  const invoiceDuplicadaRes = await api(`/v1/projects/${projectId}/phases/${firstPhase.id}/invoice`, {
+  // Achado A2 da auditoria de 30 ago 2026: "uma fatura por fase" deixou de
+  // ser a regra pra hora_tecnica -- as 5h já faturadas acima estão
+  // consumidas (TimeEntry.invoiceId setado), então faturar de novo AGORA
+  // (sem nenhuma hora nova aprovada) bate em NO_APPROVED_HOURS, não mais
+  // PHASE_ALREADY_INVOICED (esse código continua existindo, só que agora é
+  // exclusivo do fee model fixo -- ver bloco de invoice de FF&E/orçamento
+  // fechado, que não passa por aqui).
+  const invoiceSemHorasNovasRes = await api(`/v1/projects/${projectId}/phases/${firstPhase.id}/invoice`, {
     method: "POST",
     body: JSON.stringify({}),
   });
   report(
-    "Faturar o mesmo estágio de novo → 422 PHASE_ALREADY_INVOICED",
-    invoiceDuplicadaRes.status === 422 && invoiceDuplicadaRes.body?.error?.code === "PHASE_ALREADY_INVOICED",
-    invoiceDuplicadaRes.body
+    "Faturar de novo sem hora nova aprovada → 422 NO_APPROVED_HOURS (não mais PHASE_ALREADY_INVOICED, achado A2)",
+    invoiceSemHorasNovasRes.status === 422 && invoiceSemHorasNovasRes.body?.error?.code === "NO_APPROVED_HOURS",
+    invoiceSemHorasNovasRes.body
+  );
+
+  // Prova de verdade da fatura COMPLEMENTAR (o motivo de A1/A2 existirem):
+  // horas aprovadas DEPOIS do primeiro faturamento do mesmo estágio agora
+  // geram uma SEGUNDA fatura, cobrindo só as horas novas -- antes desta
+  // correção, essas horas ficavam permanentemente não faturáveis.
+  const horasComplementaresRes = await api("/v1/time-entries", {
+    method: "POST",
+    body: JSON.stringify({
+      projectId,
+      phaseId: firstPhase.id,
+      date: new Date().toISOString(),
+      hours: 3,
+      activityType: "projeto",
+    }),
+  });
+  const horasComplementaresId = horasComplementaresRes.body?.data?.id;
+  await api(`/v1/time-entries/${horasComplementaresId}/approve`, { method: "POST" });
+
+  const invoiceComplementarRes = await api(`/v1/projects/${projectId}/phases/${firstPhase.id}/invoice`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  report(
+    "Aprovar hora NOVA no mesmo estágio já faturado e faturar de novo → 201, fatura COMPLEMENTAR só com a hora nova (achado A2)",
+    invoiceComplementarRes.status === 201 &&
+      invoiceComplementarRes.body?.data?.id !== invoiceId &&
+      Number(invoiceComplementarRes.body?.data?.amount) === 240 &&
+      invoiceComplementarRes.body?.data?.lines?.length === 1 &&
+      Number(invoiceComplementarRes.body.data.lines[0].hours) === 3,
+    invoiceComplementarRes.body
+  );
+  const invoiceOriginalAposComplementoRes = await api(`/v1/invoices/${invoiceId}`);
+  report(
+    "A fatura ORIGINAL não muda quando a complementar é criada -- ainda 5h/R$400",
+    invoiceOriginalAposComplementoRes.status === 200 &&
+      Number(invoiceOriginalAposComplementoRes.body?.data?.amount) === 400 &&
+      invoiceOriginalAposComplementoRes.body?.data?.lines?.length === 1 &&
+      Number(invoiceOriginalAposComplementoRes.body.data.lines[0].hours) === 5,
+    invoiceOriginalAposComplementoRes.body
   );
 
   const invoicesListRes = await api(`/v1/invoices?projectId=${projectId}`);
@@ -905,14 +984,37 @@ async function main() {
     substituirSemEmissaoRes.body
   );
 
+  // Achado A28 da auditoria de 30 ago 2026: o guard NFSE_ALREADY_ISSUED
+  // só bloqueia emissão REAL (nfseAmbienteEmissao === 'producao') --
+  // homologação é só um teste, e emitir de novo é legítimo (permite
+  // repetir/trocar pra produção depois). Sem nfseAmbienteEmissao: 'producao'
+  // aqui, esta fixture não simula mais "já emitida de verdade" nenhuma,
+  // e a chamada passaria batido pelo guard até esbarrar (ou não) num guard
+  // mais adiante -- por isso o fixture precisa dos dois campos agora.
   const fakeChaveAcesso = `fake-chave-smoke-test-${Date.now()}`;
-  await prisma.invoice.update({ where: { id: invoiceId }, data: { nfseChaveAcesso: fakeChaveAcesso } });
+  await prisma.invoice.update({
+    where: { id: invoiceId },
+    data: { nfseChaveAcesso: fakeChaveAcesso, nfseAmbienteEmissao: "producao" },
+  });
   const nfseJaEmitidaRes = await api(`/v1/invoices/${invoiceId}/nfse`, { method: "POST" });
   report(
-    "POST /invoices/:id/nfse numa fatura que já tem nfseChaveAcesso → 422 NFSE_ALREADY_ISSUED, sem chamar a SEFIN",
+    "POST /invoices/:id/nfse numa fatura que já tem nfseChaveAcesso (produção) → 422 NFSE_ALREADY_ISSUED, sem chamar a SEFIN",
     nfseJaEmitidaRes.status === 422 && nfseJaEmitidaRes.body?.error?.code === "NFSE_ALREADY_ISSUED",
     nfseJaEmitidaRes.body
   );
+  // ...e em homologação (achado A28: tratada como teste, não bloqueia) --
+  // a próxima checagem alcançada é a de sempre (documento do cliente).
+  await prisma.invoice.update({ where: { id: invoiceId }, data: { nfseAmbienteEmissao: "homologacao" } });
+  const nfseJaEmitidaHomologacaoRes = await api(`/v1/invoices/${invoiceId}/nfse`, { method: "POST" });
+  report(
+    "POST /invoices/:id/nfse numa fatura com chave de HOMOLOGAÇÃO → não bloqueia por NFSE_ALREADY_ISSUED (achado A28)",
+    nfseJaEmitidaHomologacaoRes.body?.error?.code !== "NFSE_ALREADY_ISSUED",
+    nfseJaEmitidaHomologacaoRes.body
+  );
+  // Só reseta o ambiente aqui -- nfseChaveAcesso continua = fakeChaveAcesso
+  // porque os testes de cancelamento logo abaixo dependem dela pra
+  // alcançar o guard de NFSE_ALREADY_CANCELED (em vez de NFSE_NOT_ISSUED).
+  await prisma.invoice.update({ where: { id: invoiceId }, data: { nfseAmbienteEmissao: "producao" } });
 
   const cancelarMotivoInvalidoRes = await api(`/v1/invoices/${invoiceId}/nfse/cancelar`, {
     method: "POST",
@@ -1699,9 +1801,35 @@ async function main() {
   const specsAfterCheckoutRes = await api(`/v1/areas/${areaId}/specifications`);
   const spec1AfterCheckout = specsAfterCheckoutRes.body?.data?.find((s: any) => s.id === spec1Id);
   report(
-    "Fluxo automático: checkout marca a especificação como clientApproved",
-    spec1AfterCheckout?.clientApproved === true,
+    // Achado A49 da auditoria de 30 ago 2026: checkout marcava
+    // clientApproved -- passou a marcar invoicedAt, que é o sinal certo
+    // de "já virou fatura" (clientApproved volta a significar só "o
+    // cliente aprovou pelo link público", ver spec1 mais abaixo).
+    "Fluxo automático: checkout marca a especificação como invoicedAt (achado A49)",
+    !!spec1AfterCheckout?.invoicedAt,
     spec1AfterCheckout
+  );
+
+  // Achado A6 da auditoria de 30 ago 2026: repetir o checkout da MESMA
+  // especificação (já faturada) faturava o mesmo mobiliário duas vezes --
+  // nada além da UI impedia. Agora o updateMany condicional dentro da
+  // transação barra com 422, e nenhum Invoice novo é criado.
+  const invoicesAntesDoRecheckoutRes = await api(`/v1/invoices?projectId=${projectId}`);
+  const totalInvoicesAntesDoRecheckout = invoicesAntesDoRecheckoutRes.body?.data?.length;
+  const recheckoutRes = await api(`/v1/projects/${projectId}/ffe-checkout`, {
+    method: "POST",
+    body: JSON.stringify({ specificationIds: [spec1Id] }),
+  });
+  report(
+    "Checkout de novo da MESMA especificação já aprovada → 422 SPECS_ALREADY_APPROVED, não fatura de novo (achado A6)",
+    recheckoutRes.status === 422 && recheckoutRes.body?.error?.code === "SPECS_ALREADY_APPROVED",
+    recheckoutRes.body
+  );
+  const invoicesDepoisDoRecheckoutRes = await api(`/v1/invoices?projectId=${projectId}`);
+  report(
+    "...e o número de faturas do projeto não mudou (nenhuma fatura duplicada foi criada)",
+    invoicesDepoisDoRecheckoutRes.body?.data?.length === totalInvoicesAntesDoRecheckout,
+    invoicesDepoisDoRecheckoutRes.body
   );
 
   const ffeInvoiceListRes = await api(`/v1/invoices?projectId=${projectId}`);
@@ -1727,7 +1855,18 @@ async function main() {
   );
   const moodboardId = moodboardRes.body?.data?.id;
 
-  const fakeSnapshot = { document: { shapeFake: true }, marker: "smoke-test-snapshot" };
+  // Achado A59 da auditoria de 30 ago 2026: moodboardSnapshotInputSchema
+  // passou a exigir a forma mínima de um TLStoreSnapshot de verdade
+  // (store como mapa, schema.schemaVersion numérico) -- store/schema
+  // aqui são o suficiente pra passar na validação; document/marker
+  // continuam soltos fora do formato oficial só pra este smoke-test
+  // confirmar round-trip (.loose() aceita campos extras).
+  const fakeSnapshot = {
+    store: { "shape:fake": { id: "shape:fake", type: "geo" } },
+    schema: { schemaVersion: 2 },
+    document: { shapeFake: true },
+    marker: "smoke-test-snapshot",
+  };
   const saveSnapshotRes = await api(`/v1/moodboards/${moodboardId}/snapshot`, {
     method: "PATCH",
     body: JSON.stringify({ snapshot: fakeSnapshot }),
@@ -1920,8 +2059,14 @@ async function main() {
     headers: { "X-Whiteboard-Guest-Session": guestSessionToken },
   });
   report(
-    "Depois de revogado, GET .../boards/:id direto → 403 (mesma sessão, ainda válida)",
-    guestAfterRevokeRes.status === 403,
+    // Achado A60 da auditoria de 30 ago 2026: revoke() passou a apagar
+    // também as WhiteboardGuestSession do convidado (antes só tirava o
+    // WhiteboardGuestAccess, deixando a sessão de portal viva) -- a
+    // MESMA sessão agora vem inválida (401), não só sem acesso a este
+    // quadro específico (403, que seria o caso de convite pra outro
+    // quadro nunca ter existido).
+    "Depois de revogado, GET .../boards/:id direto → 401, sessão de portal foi invalidada junto (achado A60)",
+    guestAfterRevokeRes.status === 401,
     await guestAfterRevokeRes.json().catch(() => null)
   );
 
@@ -1988,6 +2133,11 @@ async function main() {
   report(
     "Link público: markupPercent e sourceUrl nunca aparecem no payload (achado C-03)",
     publicSpec1?.markupPercent === undefined && publicSpec1?.product?.sourceUrl === undefined,
+    publicSpec1
+  );
+  report(
+    "Link público: product.supplier também nunca aparece (achado A53 -- C-03 tinha ficado incompleto)",
+    publicSpec1?.product?.supplier === undefined,
     publicSpec1
   );
 
@@ -2109,7 +2259,10 @@ async function main() {
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ snapshot: { marker: "editado-pelo-cliente" } }),
+      // Achado A59: mesma forma mínima exigida em fakeSnapshot acima.
+      body: JSON.stringify({
+        snapshot: { store: {}, schema: { schemaVersion: 2 }, marker: "editado-pelo-cliente" },
+      }),
     },
   );
   report(
@@ -3239,6 +3392,12 @@ async function main() {
     classifyLinkRes.status === 200,
     classifyLinkRes.body
   );
+  // lastCheckedAt simulado direto no banco (achado A38 da auditoria de 30
+  // ago 2026: getDocumentChecklist agora exige isto, não só brokenAt
+  // null) -- mesmo padrão de nfseCanceladaEm/nfseChaveAcesso acima, já
+  // que confirmar de verdade contra o Drive exigiria um token real do
+  // Picker que este ambiente não tem.
+  await prisma.officeLink.update({ where: { id: satisfyingLinkId }, data: { lastCheckedAt: new Date() } });
 
   const checklistAfterRes = await api(`/v1/projects/${projectId}/phases/${thirdPhase.id}/document-checklist`);
   report(
@@ -3318,6 +3477,172 @@ async function main() {
 
   const staffInvoicesRes = await apiAsStaff("/v1/invoices");
   report("GET /invoices como staff → 403 FORBIDDEN", staffInvoicesRes.status === 403, staffInvoicesRes.body);
+
+  // Achado A5 da auditoria de 30 ago 2026: qualquer staff editava/apagava
+  // o lançamento de horas de QUALQUER colega (só o tenant era checado) e
+  // conseguia se autoaprovar. Testado aqui contra uma entrada do ADMIN
+  // (dono != staff) e uma entrada do PRÓPRIO staff, pra provar os dois
+  // lados da regra: bloqueia o lançamento alheio, permite o próprio.
+  const adminTimeEntryParaTesteRes = await api("/v1/time-entries", {
+    method: "POST",
+    body: JSON.stringify({
+      projectId,
+      phaseId: firstPhase.id,
+      date: new Date().toISOString(),
+      hours: 1,
+      activityType: "administrativo",
+    }),
+  });
+  const adminTimeEntryParaTesteId = adminTimeEntryParaTesteRes.body?.data?.id;
+
+  const staffEditaLancamentoAlheioRes = await apiAsStaff(`/v1/time-entries/${adminTimeEntryParaTesteId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ hours: 99 }),
+  });
+  report(
+    "PATCH /time-entries/:id de OUTRA pessoa como staff → 403 FORBIDDEN (achado A5)",
+    staffEditaLancamentoAlheioRes.status === 403,
+    staffEditaLancamentoAlheioRes.body
+  );
+
+  const staffApagaLancamentoAlheioRes = await apiAsStaff(`/v1/time-entries/${adminTimeEntryParaTesteId}`, {
+    method: "DELETE",
+  });
+  report(
+    "DELETE /time-entries/:id de OUTRA pessoa como staff → 403 FORBIDDEN, não apaga (achado A5)",
+    staffApagaLancamentoAlheioRes.status === 403,
+    staffApagaLancamentoAlheioRes.body
+  );
+
+  const staffProprioLancamentoRes = await apiAsStaff("/v1/time-entries", {
+    method: "POST",
+    body: JSON.stringify({
+      projectId,
+      phaseId: firstPhase.id,
+      date: new Date().toISOString(),
+      hours: 2,
+      activityType: "administrativo",
+    }),
+  });
+  const staffProprioLancamentoId = staffProprioLancamentoRes.body?.data?.id;
+
+  const staffEditaProprioLancamentoRes = await apiAsStaff(`/v1/time-entries/${staffProprioLancamentoId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ hours: 3 }),
+  });
+  report(
+    "PATCH no PRÓPRIO lançamento como staff → 200 (achado A5 só bloqueia lançamento alheio)",
+    staffEditaProprioLancamentoRes.status === 200 && Number(staffEditaProprioLancamentoRes.body?.data?.hours) === 3,
+    staffEditaProprioLancamentoRes.body
+  );
+
+  const staffAprovaProprioLancamentoRes = await apiAsStaff(`/v1/time-entries/${staffProprioLancamentoId}/approve`, {
+    method: "POST",
+  });
+  report(
+    "POST /time-entries/:id/approve como staff → 403 FORBIDDEN (achado A5: aprovação é admin-only, mesmo a própria)",
+    staffAprovaProprioLancamentoRes.status === 403,
+    staffAprovaProprioLancamentoRes.body
+  );
+
+  const staffApagaProprioLancamentoRes = await apiAsStaff(`/v1/time-entries/${staffProprioLancamentoId}`, {
+    method: "DELETE",
+  });
+  report(
+    "DELETE no PRÓPRIO lançamento como staff → 204",
+    staffApagaProprioLancamentoRes.status === 204,
+    staffApagaProprioLancamentoRes.body
+  );
+
+  // Achado A20 da auditoria de 30 ago 2026: qualquer staff reescrevia o
+  // cadastro de QUALQUER colega, inclusive `role` (chave de precificação
+  // da fatura por hora). Testado contra o registro do ADMIN (dono != staff).
+  const staffEditaCadastroAlheioRes = await apiAsStaff(`/v1/users/${smokeUser!.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ specialty: "Forjado pelo staff" }),
+  });
+  report(
+    "PATCH /users/:id de OUTRA pessoa como staff → 403 FORBIDDEN (achado A20)",
+    staffEditaCadastroAlheioRes.status === 403,
+    staffEditaCadastroAlheioRes.body
+  );
+
+  const staffEditaProprioRoleRes = await apiAsStaff(`/v1/users/${staffUserId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ role: "Sócio", specialty: "Renderista" }),
+  });
+  report(
+    "PATCH no PRÓPRIO cadastro como staff → 200, mas `role` é ignorado silenciosamente (achado A20: role é admin-only)",
+    staffEditaProprioRoleRes.status === 200 &&
+      staffEditaProprioRoleRes.body?.data?.specialty === "Renderista" &&
+      staffEditaProprioRoleRes.body?.data?.role !== "Sócio",
+    staffEditaProprioRoleRes.body
+  );
+
+  // Achado A21: /v1/bi/executivo virou admin-only, mas capacidade/ffe
+  // continuam abertos -- gate por rota, não pela classe inteira (a
+  // própria auditoria avisa que gatear a classe quebraria /dashboard/capacidade).
+  const staffBiExecutivoRes = await apiAsStaff("/v1/bi/executivo");
+  report(
+    "GET /bi/executivo como staff → 403 FORBIDDEN (achado A21)",
+    staffBiExecutivoRes.status === 403,
+    staffBiExecutivoRes.body
+  );
+  const staffBiCapacidadeRes = await apiAsStaff("/v1/bi/capacidade");
+  report(
+    "GET /bi/capacidade como staff → 200 (achado A21 não gateia isto -- staff usa /dashboard/capacidade)",
+    staffBiCapacidadeRes.status === 200,
+    staffBiCapacidadeRes.body
+  );
+
+  // Achado A22: budget virou admin-only (strip silencioso, mesmo padrão
+  // de costPerHour) e travado depois do gate aprovado. thirdPhase nunca
+  // foi aprovada neste run -- serve pra provar o strip sem esbarrar no
+  // lock; firstPhase já está aprovada -- serve pra provar o lock.
+  const staffBudgetRes = await apiAsStaff(`/v1/projects/${projectId}/phases/${thirdPhase.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ budget: 999999 }),
+  });
+  report(
+    "PATCH budget de fase como staff → 200, mas budget é ignorado silenciosamente (achado A22)",
+    staffBudgetRes.status === 200 && Number(staffBudgetRes.body?.data?.budget) !== 999999,
+    staffBudgetRes.body
+  );
+  const adminBudgetAposAprovacaoRes = await api(`/v1/projects/${projectId}/phases/${firstPhase.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ budget: 1 }),
+  });
+  report(
+    "PATCH budget como ADMIN num estágio já aprovado → 422 PHASE_BUDGET_LOCKED (achado A22)",
+    adminBudgetAposAprovacaoRes.status === 422 && adminBudgetAposAprovacaoRes.body?.error?.code === "PHASE_BUDGET_LOCKED",
+    adminBudgetAposAprovacaoRes.body
+  );
+
+  // Achado A23: admin agora consegue revogar a chave de API de OUTRA
+  // pessoa (antes só o próprio dono conseguia, mesmo um admin não tinha
+  // como desligar a chave de um colega pela API).
+  // Precisa ser única por run -- um valor fixo colide (P2002) com a linha
+  // órfã que uma run anterior tenha deixado pra trás caso tenha crashado
+  // antes de chegar na própria limpeza (mesmo padrão de fakeChaveAcesso acima).
+  await prisma.user.update({ where: { id: staffUserId }, data: { apiKeyHash: `chave-fake-so-pra-testar-revogacao-${Date.now()}` } });
+  const revokeApiKeyDeOutroComoStaffRes = await apiAsStaff(`/v1/users/${smokeUser!.id}/api-key`, { method: "DELETE" });
+  report(
+    "DELETE /users/:id/api-key como staff → 403 FORBIDDEN (achado A23: revogar chave alheia é admin-only)",
+    revokeApiKeyDeOutroComoStaffRes.status === 403,
+    revokeApiKeyDeOutroComoStaffRes.body
+  );
+  const revokeApiKeyDeOutroComoAdminRes = await api(`/v1/users/${staffUserId}/api-key`, { method: "DELETE" });
+  report(
+    "DELETE /users/:id/api-key como admin → 204 (achado A23: admin agora consegue revogar chave alheia)",
+    revokeApiKeyDeOutroComoAdminRes.status === 204,
+    revokeApiKeyDeOutroComoAdminRes.body
+  );
+  const staffApiKeyHashDepoisRes = await prisma.user.findUnique({ where: { id: staffUserId }, select: { apiKeyHash: true } });
+  report(
+    "...e a chave do staff foi mesmo revogada no banco",
+    staffApiKeyHashDepoisRes?.apiKeyHash === null,
+    staffApiKeyHashDepoisRes
+  );
 
   const staffAccountRes = await apiAsStaff("/v1/account");
   report("GET /account como staff → 403 FORBIDDEN", staffAccountRes.status === 403, staffAccountRes.body);
@@ -3597,6 +3922,41 @@ async function main() {
       Array.isArray(exportRes.body?.data?.opportunities),
     exportRes.body
   );
+
+  // Achado A3 da auditoria de 30 ago 2026: anonymizeClient confiava só no
+  // julgamento de quem clicou -- nada impedia anonimizar um cliente com
+  // fatura não paga em aberto. Project/Invoice criados direto via Prisma
+  // (não existe POST /projects sem passar pela conversão de Opportunity
+  // ganha) -- mesmo precedente já usado acima pra fixtures de teste.
+  const clienteComFaturaAbertaRes = await api("/v1/clients", {
+    method: "POST",
+    body: JSON.stringify({ name: "Cliente com fatura aberta (teste retenção LGPD)" }),
+  });
+  const clienteComFaturaAbertaId = clienteComFaturaAbertaRes.body?.data?.id;
+  const projetoParaFaturaAberta = await prisma.project.create({
+    data: {
+      accountId: smokeUser!.accountId,
+      clientId: clienteComFaturaAbertaId,
+      name: "Projeto teste retenção LGPD",
+      status: "ativo",
+      feeModel: "hora_tecnica",
+    },
+  });
+  const faturaAbertaParaTeste = await prisma.invoice.create({
+    data: { projectId: projetoParaFaturaAberta.id, amount: 500, status: "pendente" },
+  });
+  const anonymizeComFaturaAbertaRes = await api(`/v1/clients/${clienteComFaturaAbertaId}/anonymize`, {
+    method: "POST",
+  });
+  report(
+    "POST /clients/:id/anonymize com fatura não paga em aberto → 422 CLIENT_HAS_OPEN_INVOICE (achado A3)",
+    anonymizeComFaturaAbertaRes.status === 422 &&
+      anonymizeComFaturaAbertaRes.body?.error?.code === "CLIENT_HAS_OPEN_INVOICE",
+    anonymizeComFaturaAbertaRes.body
+  );
+  await prisma.invoice.delete({ where: { id: faturaAbertaParaTeste.id } });
+  await prisma.project.delete({ where: { id: projetoParaFaturaAberta.id } });
+  await api(`/v1/clients/${clienteComFaturaAbertaId}`, { method: "DELETE" });
 
   const anonymizeRes = await api(`/v1/clients/${lgpdClient?.id}/anonymize`, { method: "POST" });
   report(

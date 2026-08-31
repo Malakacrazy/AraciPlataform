@@ -19,8 +19,26 @@ export class AuthService {
       return existingUser;
     }
 
-    const existingAccount = await this.prisma.db.account.findFirst();
-    const account = existingAccount ?? (await this.prisma.db.account.create({ data: { name: 'Studio Araci' } }));
+    // Achado A70 da auditoria de 30 ago 2026: account.findFirst() é o
+    // único ponto do código que decide QUEM é a conta sem escopar nada --
+    // todo o resto do isolamento (os ~300 filtros where: { accountId })
+    // depende do accountId que sai daqui. Hoje é seguro só porque nunca
+    // existe mais de uma Account (o único account.create do repositório é
+    // a linha abaixo, guardada por existingAccounts.length === 0) -- no
+    // dia em que uma segunda Account nascer por outro caminho (script de
+    // onboarding, seed), findFirst() continuaria funcionando SEM ERRO
+    // NENHUM, só devolvendo o inquilino errado pro próximo login novo.
+    // Falha alto em vez de silenciosamente escolher uma linha -- decisão
+    // determinística de qual conta pertence a qual e-mail (domínio,
+    // convite) é um redesenho maior, fora do escopo desta correção; o
+    // guard aqui só impede a query certa virar errada em silêncio.
+    const existingAccounts = await this.prisma.db.account.findMany({ take: 2 });
+    if (existingAccounts.length > 1) {
+      throw new Error(
+        'Mais de uma Account existe, mas ensureAccountAndUser ainda resolve o inquilino por account.findFirst() -- resolução determinística (domínio/convite por conta) precisa existir antes de logins novos serem seguros.',
+      );
+    }
+    const account = existingAccounts[0] ?? (await this.prisma.db.account.create({ data: { name: 'Studio Araci' } }));
 
     // Quem cria a conta pela primeira vez é o admin -- todo mundo que
     // entra depois (existingAccount já existia) começa como staff e
@@ -33,7 +51,7 @@ export class AuthService {
         email,
         name,
         role: 'admin',
-        accessLevel: existingAccount ? 'staff' : 'admin',
+        accessLevel: existingAccounts.length > 0 ? 'staff' : 'admin',
       },
     });
   }

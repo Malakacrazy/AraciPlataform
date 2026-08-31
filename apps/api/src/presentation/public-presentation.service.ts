@@ -5,7 +5,7 @@ import { NotFoundError } from '../common/api-error';
 import { NotificationsService } from '../notifications/notifications.service';
 import { setAuditActor } from '../audit/audit-context';
 import { GoogleDriveService } from '../office/google-drive.service';
-import { MoodboardsService, type MoodboardCommentInput } from '../ffe/moodboards.service';
+import { MoodboardsService, type MoodboardCommentInput, type MoodboardSnapshotInput } from '../ffe/moodboards.service';
 
 // Só clientApproved/clientComment — nunca productId/quantity/unitPrice/
 // markupPercent. O cliente aprova e comenta; preço e quantidade
@@ -82,7 +82,13 @@ export class PublicPresentationService {
                 markupPercent: true,
                 clientApproved: true,
                 clientComment: true,
-                product: { select: { id: true, name: true, supplier: true, imageUrl: true } },
+                // Achado A53 da auditoria de 30 ago 2026: o select do
+                // achado C-03 tirou sourceUrl/custo/markup mas deixou
+                // `supplier` passar -- nome do fornecedor ao lado do
+                // preço já com markup é o suficiente pro cliente cotar o
+                // mesmo item na fonte (desintermediação), exatamente o
+                // que C-03 existia pra evitar.
+                product: { select: { id: true, name: true, imageUrl: true } },
               },
             },
           },
@@ -176,7 +182,7 @@ export class PublicPresentationService {
     return this.moodboardsService.getMoodboard(accountId, moodboardId);
   }
 
-  async saveMoodboardSnapshot(token: string, moodboardId: string, snapshot: unknown) {
+  async saveMoodboardSnapshot(token: string, moodboardId: string, snapshot: MoodboardSnapshotInput['snapshot']) {
     const link = await this.getLinkOrThrow(token);
     const accountId = await this.getOwnMoodboardAccountId(link.projectId, moodboardId);
     return this.moodboardsService.saveSnapshot(accountId, moodboardId, { snapshot });
@@ -239,7 +245,8 @@ export class PublicPresentationService {
         markupPercent: true,
         clientApproved: true,
         clientComment: true,
-        product: { select: { id: true, name: true, supplier: true, imageUrl: true } },
+        // Achado A53 -- mesmo motivo do select em getPresentation acima.
+        product: { select: { id: true, name: true, imageUrl: true } },
       },
     });
 

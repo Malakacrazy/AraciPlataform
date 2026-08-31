@@ -76,6 +76,16 @@ export class AuthGuard implements CanActivate {
       if (!user) {
         throw new UnauthorizedError();
       }
+      // Achado A23 da auditoria de 30 ago 2026: o ramo Bearer abaixo já
+      // aplicava isEmailAllowed antes de aceitar a sessão; este ramo não
+      // aplicava. Como não existe rota de exclusão de User nem flag de
+      // usuário desativado, o único jeito de desligar alguém hoje é
+      // removê-lo de ALLOWED_EMAILS/ALLOWED_EMAIL_DOMAINS -- sem esta
+      // checagem aqui, isso fechava o login Google mas deixava a chave de
+      // API de quem foi desligado funcionando pra sempre.
+      if (!isEmailAllowed(user.email)) {
+        throw new ForbiddenError();
+      }
       if (isAdminOnly && user.accessLevel !== 'admin') {
         throw new ForbiddenError();
       }

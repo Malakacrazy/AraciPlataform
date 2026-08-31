@@ -34,6 +34,14 @@ export function ActivityTimeline({ entityType, entityId, activities, currentUser
                 </span>
               </div>
               <p className="mt-1 whitespace-pre-wrap text-zinc-700 dark:text-zinc-300">{activity.body}</p>
+              {entityType === "PROJECT" && activity.visibleToCollaborator && (
+                // Achado A63 da auditoria de 30 ago 2026 -- rótulo
+                // explícito: quem lê o histórico depois sabe que esta
+                // nota específica sai do estúdio (consultor externo).
+                <span className="mt-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-400">
+                  visível para consultores externos
+                </span>
+              )}
               {activity.author.email === currentUserEmail && (
                 <form action={deleteActivity.bind(null, entityType, entityId, activity.id)} className="mt-1">
                   <button type="submit" className="text-xs text-zinc-500 hover:text-red-600 dark:text-zinc-400">
@@ -53,6 +61,16 @@ export function ActivityTimeline({ entityType, entityId, activities, currentUser
           placeholder="Adicionar nota…"
           className="rounded-md border border-zinc-300 bg-transparent px-3 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
         />
+        {entityType === "PROJECT" && (
+          // Achado A63 da auditoria de 30 ago 2026: antes, TODA nota de
+          // projeto ia pro consultor externo convidado depois, sem quem
+          // escreve ter ideia disso. Opt-in explícito, desmarcado por
+          // padrão (mesmo espírito de OfficeLink.visibleToClient).
+          <label className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+            <input type="checkbox" name="visibleToCollaborator" />
+            Visível para consultores externos deste projeto
+          </label>
+        )}
         <button
           type="submit"
           className="self-start rounded-md bg-zinc-900 px-3 py-1.5 text-xs text-white dark:bg-zinc-50 dark:text-zinc-900"

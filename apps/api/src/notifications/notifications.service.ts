@@ -390,4 +390,26 @@ export class NotificationsService {
       html: `<p>Olá, ${escapeHtml(collaboratorName)}.</p><p>Clique no link abaixo para acessar o(s) projeto(s) em que você foi convidado como consultor externo. Válido por 15 minutos.</p><p><a href="${link}">${link}</a></p>`,
     });
   }
+
+  // Achado A65 da auditoria de 30 ago 2026: CollaboratorsService.invite
+  // criava o acesso e retornava, sem avisar ninguém -- o convidado nunca
+  // descobria que o portal existia. Aponta pra /colaborador/login (login
+  // é sempre a etapa 1: digitar o e-mail), NÃO um magic link direto --
+  // esse continua de vida curta (15min) e emitido só sob pedido do
+  // próprio consultor, como já é hoje (ver sendCollaboratorMagicLink
+  // acima). Erro engolido igual a notifySpecificationApproved: o convite
+  // em si já foi persistido antes desta chamada, um Resend fora do ar não
+  // deveria desfazer isso nem quebrar a resposta pro admin.
+  async sendCollaboratorInvite(to: string, collaboratorName: string, projectName: string) {
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3000';
+    try {
+      await sendEmail({
+        to: [to],
+        subject: 'Você foi convidado como consultor externo — Studio Araci',
+        html: `<p>Olá, ${escapeHtml(collaboratorName)}.</p><p>Você foi convidado a colaborar no projeto "${escapeHtml(projectName)}" no Studio Araci.</p><p>Acesse <a href="${webUrl}/colaborador/login">${webUrl}/colaborador/login</a> com este e-mail para receber seu link de acesso.</p>`,
+      });
+    } catch (error) {
+      this.logger.warn(`Falha ao enviar e-mail de convite de consultor externo: ${(error as Error).message}`);
+    }
+  }
 }

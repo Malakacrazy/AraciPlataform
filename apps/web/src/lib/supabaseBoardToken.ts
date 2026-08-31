@@ -23,7 +23,24 @@ import { SignJWT } from "jose";
 // larga que isso. A policy que consome esta claim está em
 // docs/fase-0/supabase-realtime-policy.sql -- precisa ser aplicada no
 // projeto Supabase pra que isto tenha efeito.
-const TOKEN_TTL = "2h"; // > que uma sessão de desenho típica, << que a sessão de 7 dias do portal
+//
+// Achado A60 da auditoria de 30 ago 2026: revoke() de um convite (fim de
+// contrato, pessoa desligada) apaga só WhiteboardGuestAccess -- o JWT
+// deste módulo é bearer puro, sem nenhuma referência ao convite/sessão
+// que a revogação consulta, então um convidado revogado continuava
+// escutando E transmitindo no canal por até 2h depois de revogado. 15min
+// encolhe a janela de 2h pra 15min (WhiteboardGuestsService.revoke()
+// também passou a apagar as WhiteboardGuestSession do convidado, ver
+// lá) -- não elimina de vez porque o token continua bearer (fecharia de
+// verdade com renovação periódica reautorizando a cada emissão, ou uma
+// claim de revogação consultável pela policy; deliberadamente não
+// implementado aqui: exigiria um caminho de servidor pro client-side
+// renovar sozinho enquanto a aba fica aberta, e a degradação graciosa
+// já existente pra falha de canal -- ver createBoardChannel -- faz o
+// custo de NÃO ter isso ser só "sincronização ao vivo para depois de
+// 15min", não perda de dado nenhuma, já que o save em si vai direto pro
+// apps/api, nunca pelo canal).
+const TOKEN_TTL = "15m";
 
 export function boardTopic(moodboardId: string): string {
   return `moodboard:${moodboardId}`;

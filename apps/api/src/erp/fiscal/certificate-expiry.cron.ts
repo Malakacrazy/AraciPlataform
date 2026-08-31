@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { loadCertificateFileFromEnv } from './nfse-client';
 import { readCertificateInfo } from './nfse-certificate-info';
+import { runWithCronLock } from '../../common/cron-lock';
 
 const AVISAR_DIAS_ANTES = 60;
 const COOLDOWN_DIAS = 25; // não reavisa toda semana dentro da mesma janela -- lembra de novo a cada ~mês
@@ -28,6 +29,10 @@ export class CertificateExpiryCron {
 
   @Cron(CronExpression.EVERY_WEEK)
   async checkCertificateExpiry() {
+    await runWithCronLock(this.prisma, 'certificate-expiry', this.logger, () => this.run());
+  }
+
+  private async run() {
     let validTo: Date;
     try {
       const cert = loadCertificateFileFromEnv();
@@ -46,21 +51,26 @@ export class CertificateExpiryCron {
       return;
     }
 
+    // Achado A71 da auditoria de 30 ago 2026: o cooldown era checado uma
+    // vez, GLOBAL entre contas -- qualquer notificação recente de
+    // QUALQUER conta suprimia o aviso de TODAS, inclusive uma conta nova
+    // que nunca tivesse sido avisada nesta janela. A escrita já era
+    // por-conta (notifyCertificateExpiring), só a leitura que decide se
+    // escreve não era. Mesmo padrão por-conta que
+    // NotificationsService.getLastNotifiedAtByClientIds já usa.
     const cooldownSince = new Date(Date.now() - COOLDOWN_DIAS * MS_PER_DAY);
-    const recentlyNotified = await this.prisma.db.notification.findFirst({
-      where: { type: 'certificate_expiring', createdAt: { gte: cooldownSince } },
-    });
-    if (recentlyNotified) {
-      this.logger.log(`Certificado A1 vence em ${daysRemaining} dia(s), mas já avisado recentemente -- não reavisa.`);
-      return;
-    }
-
     const accounts = await this.prisma.db.account.findMany({ select: { id: true } });
+    let notified = 0;
     await Promise.all(
-      accounts.map((account) =>
-        this.notificationsService.notifyCertificateExpiring(account.id, { validTo, daysRemaining }),
-      ),
+      accounts.map(async (account) => {
+        const recentlyNotified = await this.prisma.db.notification.findFirst({
+          where: { accountId: account.id, type: 'certificate_expiring', createdAt: { gte: cooldownSince } },
+        });
+        if (recentlyNotified) return;
+        await this.notificationsService.notifyCertificateExpiring(account.id, { validTo, daysRemaining });
+        notified++;
+      }),
     );
-    this.logger.log(`Certificado A1 vence em ${daysRemaining} dia(s) -- ${accounts.length} conta(s) avisada(s).`);
+    this.logger.log(`Certificado A1 vence em ${daysRemaining} dia(s) -- ${notified} de ${accounts.length} conta(s) avisada(s) (demais em cooldown).`);
   }
 }

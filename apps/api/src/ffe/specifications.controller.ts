@@ -19,6 +19,7 @@ import {
 import { SessionAccount } from '../auth/session-account.decorator';
 import type { SessionAccount as SessionAccountType } from '../auth/session-account.interface';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { AdminOnly } from '../auth/admin-only.decorator';
 
 @Controller('v1/areas/:areaId/specifications')
 export class AreaSpecificationsController {
@@ -92,6 +93,10 @@ const checkoutSchema = z.object({
 export class FfeCheckoutController {
   constructor(private readonly specificationsService: SpecificationsService) {}
 
+  // Achado A6 da auditoria de 30 ago 2026: este endpoint cria Invoice
+  // (orçamento de mobiliário aprovado pelo cliente), mesma classe de
+  // decisão financeira que já é @AdminOnly() em PhaseInvoiceController.
+  @AdminOnly()
   @Post()
   @HttpCode(201)
   async checkout(

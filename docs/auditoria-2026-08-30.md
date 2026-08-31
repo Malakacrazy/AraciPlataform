@@ -89,6 +89,14 @@ cara e não fecha o buraco. Ordem recomendada:
 > Confirmar no painel antes de agir: se a Data API já estiver desligada, o
 > achado cai para baixo. Essa configuração não está no repositório.
 
+> **Atualização de 31 ago 2026**: itens 2+3 (REVOKE + RLS) estão prontos
+> em `docs/fase-0/supabase-rls-lockdown.sql`, mas **não aplicados** a
+> nenhum projeto real ainda -- é SQL pra rodar manualmente no SQL Editor
+> do Supabase, não uma migration automática (mesmo raciocínio de manter
+> ações de infraestrutura fora do `preDeployCommand`, ver achado A18).
+> Itens 1 (desligar a Data API) e 4 (separar o projeto do Realtime)
+> continuam sendo decisão exclusiva sua, só no painel.
+
 ## 2. Cinco correções em que a versão óbvia piora
 
 Ler antes de pegar qualquer item da lista de achados.
@@ -244,5 +252,5 @@ equipe e não regra de acesso. Consequência concreta: qualquer staff marca
   seção de NFS-e do roadmap e a legenda da tela de pipeline.
 - **O relatório completo**, com os 71 achados detalhados (mecanismo, cenário de
   falha e correção por achado), os 55 itens reverificados e os 13 verdictos
-  integrais, foi entregue separadamente em Markdown — este documento é o resumo
-  acionável.
+  integrais, está em `auditoria-2026-08-30-detalhada.md` — este documento é o
+  resumo acionável.
