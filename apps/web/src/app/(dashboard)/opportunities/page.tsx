@@ -21,7 +21,7 @@ export default async function OpportunitiesPage() {
     <main className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-12">
       <div>
         <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">Pipeline de Oportunidades</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">Captação multicanal, estágios customizáveis.</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">Arraste o cartão entre as colunas. Marcar como ganho converte em projeto automaticamente.</p>
       </div>
 
       <OpportunitiesBoard opportunities={opportunities} />

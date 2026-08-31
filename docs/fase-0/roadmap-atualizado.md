@@ -310,14 +310,55 @@ não um detalhe de implementação.
     de um projeto de teste sem relação com a integração em si; não valeu
     a pena forçar.
 
-Com isso, a Fase 2 está tecnicamente completa: os dois bloqueios que
-existiam (senha do certificado de teste, escolha de fornecedor de
-Boleto/Pix) foram resolvidos. O que resta depende só de decisão/dado de
-negócio da Giulia — não de código: (a) confirmação da consultoria
-contábil sobre o código de tributação nacional real de arquitetura,
-município/endereço/inscrição municipal, antes de qualquer emissão de
-NFS-e de produção; (b) migração formal MEI→ME quando ela de fato
-acontecer (o simulador de Fator R já está pronto pra esse momento).
+Com isso, os dois bloqueios que existiam (senha do certificado de teste,
+escolha de fornecedor de Boleto/Pix) foram resolvidos.
+
+> **Atualização de 30 ago 2026** (ver `../auditoria-2026-08-30.md`). Este
+> parágrafo afirmava que a Fase 2 estava "tecnicamente completa" e que o
+> que restava não era código. Estava errado: a emissão existia só como
+> endpoint de teste, sem nenhum caminho da `Invoice` até a DPS. Vale
+> registrar o erro porque é fácil de repetir — uma emissão autorizada em
+> Homologação foi lida como "integração pronta", quando o que ela prova é
+> que certificado, assinatura e webservice funcionam.
+>
+> **Construído depois, e hoje existe de verdade:**
+> `POST /v1/invoices/:id/nfse` → `NfseService.emitirParaFatura`, com DPS
+> montada a partir da fatura real, guarda de idempotência *antes* da chamada
+> à SEFIN, `@unique` em `Invoice.nfseChaveAcesso`, rejeição persistida em
+> `nfseRejectionReason`, gate de ambiente por `Account.nfseAmbiente`
+> (admin-only, com fallback seguro para homologação — não por variável de
+> ambiente), cancelamento, substituição e arquivamento do XML no Drive.
+>
+> **Defeitos que a auditoria encontrou nesse caminho** — nenhum invalida a
+> emissão simples; todos afetam os fluxos em volta dela:
+>
+> - Emitir sobre fatura **já paga** regride o status para `emitida` e apaga
+>   a receita realizada dos números do BI (`nfse.service.ts:245`).
+> - ~~A substituição deriva o `nDPS` de `Date.now()`, abandonando a
+>   idempotência de reenvio que o comentário na mesma classe documenta como
+>   invariante.~~ **Corrigido em 31 ago 2026** — semeado de `chaveAntiga`
+>   em vez de `Date.now()`, re-verificado contra a Homologação real da
+>   SEFIN Nacional (ver seção "Correção — revisão de código externa" mais
+>   abaixo).
+> - A substituição não atualiza `nfseNumber`: a tela segue exibindo a chave
+>   da nota substituída (cancelada).
+> - A substituição usa o ambiente **atual** da conta em vez do ambiente onde
+>   a nota substituída vive (`nfse.service.ts:388`).
+> - Nota emitida em homologação é registrada como emissão real e apaga o
+>   sinal de "falta emitir NFS-e".
+> - Resposta perdida depois da autorização deixa a fatura irreconciliável:
+>   não há caminho de consulta, e o arquivamento no Drive roda *entre* a
+>   autorização e o `update`.
+> - Certificado e CNPJ do emissor são globais de processo, nunca derivados
+>   da `Account` da fatura.
+
+Continuam valendo as duas dependências de negócio: (a) confirmação da
+consultoria contábil sobre o código de tributação nacional real de
+arquitetura, município/endereço/inscrição municipal, antes de qualquer
+emissão de NFS-e de produção; (b) migração formal MEI→ME quando ela de fato
+acontecer (o simulador de Fator R já está pronto pra esse momento, e
+enquanto o estúdio for MEI o código em uso é `170201`/Datilografia, porque
+arquitetura não pode ser emitida como MEI).
 
 ## Fase 3 — FF&E
 
@@ -3123,6 +3164,102 @@ o tipo em `@nfewizard/types` quanto o passthrough em
   `CANCELAMENTO_POR_SUBSTITUICAO` sozinha, 0,3s depois da nova DPS ser
   autorizada — prova de que o cancelamento automático de verdade
   acontece, não só que a chamada não foi rejeitada.
+
+## Correção — revisão de código externa (`/code-review`, 10 achados + 3 adicionais)
+
+Rodada do `/code-review` num subagente em background, escopo pedido pelo
+usuário: "revise a documentação, há muitos desencontros, nada é seguro,
+código é a fonte da verdade" — ou seja, tratar `docs/` como possivelmente
+desatualizado e o código como autoridade. O agente devolveu 10 achados
+ranqueados por severidade; os 10 foram corrigidos e verificados nesta
+rodada:
+
+1. **`AllocationsController.list` vazava `costPerHour`** pra staff — a
+   lista embute o `User` inteiro; `UsersController` já redige o campo, mas
+   `AllocationsController` não. Corrigido com o mesmo `redactCost`.
+2. **`updateTimeEntry` não revalidava `projectId`/`phaseId`** contra a
+   conta — um PATCH com o id de outra conta passava pela FK do Prisma
+   (que só confere que a linha existe, não o tenant) e movia o lançamento
+   pra fora da conta original. Corrigido com a mesma validação que
+   `createTimeEntry` já fazia.
+3. **`POST`/`DELETE /v1/absences` sem `@AdminOnly()`** — o comentário do
+   service já dizia "mesmo raciocínio de `AllocationsService`", mas a
+   trava nunca chegou ao controller. Adicionada.
+4. **`updateOfficeLink` gravava `phaseId: ''` direto na FK** — o doc do
+   schema já dizia que string vazia desvincula a fase, mas o código nunca
+   convertia pra `null` antes do Prisma, resultando em violação de FK em
+   vez de desvincular. Corrigido.
+5. **Nenhuma alocação era barrada por sobrecarga pelo lado do servidor** —
+   o cálculo de pico (sweep-line) só existia no frontend como aviso
+   visual; uma chamada direta à API passava por cima dele. Adicionado o
+   mesmo cálculo em `AllocationsService.createAllocation`, rejeitando com
+   `ALLOCATION_OVER_CAPACITY` quando excede `User.weeklyCapacityHours`.
+6. **`useMemo` de `rankedUsers` (formulário de alocação) não listava
+   `absencesByUser`** nas dependências — uma ausência nova registrada não
+   atualizava a disponibilidade mostrada até algum outro campo mudar.
+7. **`archiveFiscalXml` resolvia o token de acesso do Drive duas vezes**
+   quando a árvore de pastas do projeto ainda não existia — corrigido pra
+   resolver uma vez e repassar pra `ensureProjectFolderTree`. Achado um
+   bug real ao corrigir isto: o loop de criação de pasta por fase ainda
+   lia o parâmetro `accessToken` (agora opcional) em vez do token
+   resolvido, o que teria quebrado silenciosamente assim que o parâmetro
+   virasse opcional.
+8. **Sem teste cobrindo o contrato "nunca bloqueia a ação fiscal"** do
+   arquivamento — adicionado `nfse.service.spec.ts` (testa
+   `archiveXmlBestEffort` direto, via cast, sem precisar de certificado
+   nem client SEFIN) e 3 testes novos em `google-drive.service.spec.ts`
+   pra `archiveFiscalXml`.
+9. **Nota do runbook sobre o disco `araci-fiscal-xml` estava
+   desatualizada** — ainda descrevia o arquivamento como feature futura,
+   quando já tinha sido implementado (via Drive, não via disco) na rodada
+   anterior. Corrigida.
+10. **`POST .../phases/:phaseId/approve` sem `@AdminOnly()`** — aprovar um
+    gate destrava faturamento do estágio e o início do próximo; mesma
+    classe de decisão gerencial que já é admin-only em
+    Allocations/Absences.
+
+Verificado: typecheck limpo (api e web), Jest 34/34 (28 + 6 novos), e a
+suíte de smoke rodada **duas vezes de verdade** (antes e depois das
+correções, via `git stash`) contra a API local de pé — mesmo resultado
+348 passaram/6 falharam nas duas rodadas, confirmando que as 6 falhas são
+pré-existentes (uma credencial real do Drive esquecida conectada neste
+banco de dev compartilhado, mais duas lacunas conhecidas sem relação),
+não regressão desta rodada.
+
+**Investigação de acompanhamento** (perguntei ao agente "algo mais que
+você não reportou?"): revelou 3 achados adicionais, corrigidos na
+sequência:
+
+- **`weeklyCapacityHours` rejeitava `0`** (`z.number().positive()`) apesar
+  da tela de Equipe já aceitar 0 como "temporariamente fora de alocação"
+  (`min="0"` no input). Trocado pra `.nonnegative()`.
+- **`ProjectMembersController` sem `@AdminOnly()`** — mesma classe de
+  achado do item 10 acima, numa segunda rota. Adicionado o gate, e a tela
+  do projeto passou a esconder o formulário de adicionar/remover membro
+  pra quem não é admin (mesmo padrão de `isAdmin` já usado em
+  `team/planning/page.tsx`), pra não mostrar um controle que só resultaria
+  em 403.
+- **`substituirParaFatura` semeava `nDpsVariant` de `Date.now()`**, não de
+  `chaveAntiga` — quebrava a mesma idempotência de reenvio que
+  `emitirParaFatura` já garante na reemissão (que semeia de
+  `nfseCanceladaEm.getTime()`, estável). Uma queda de rede depois da SEFIN
+  autorizar mas antes da resposta chegar produziria uma SEGUNDA DPS no
+  retry, em vez de a SEFIN rejeitar como duplicata. Corrigido pra semear
+  de `chaveAntiga` (estável entre retries da mesma substituição, diferente
+  a cada substituição de verdade). **Re-verificado contra a Homologação
+  real da SEFIN Nacional** — emitir → cancelar → reemitir → substituir, os
+  4 passos confirmados de novo depois da mudança.
+
+Itens que a mesma investigação encontrou e **deliberadamente não foram
+corrigidos nesta rodada** (aguardando priorização, ver
+`../auditoria-2026-08-30.md` pra uma lista mais ampla de achados na mesma
+linha):
+
+- `nfseNumber` não é atualizado numa substituição — a tela segue exibindo
+  a chave da nota cancelada.
+- `ProjectMembersController` à parte, nenhuma outra área do sistema além
+  desta rodada e da auditoria de 30 ago foi revisada (auth, billing Asaas,
+  quadro/tldraw, motor de precificação, FF&E backend).
 
 ## Fase 5 — Beta & go-live
 

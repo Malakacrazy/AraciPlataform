@@ -4,20 +4,46 @@ Plataforma de gestão integrada (Office, CRM, ERP Arquitetura, FF&E) para
 um estúdio de arquitetura e design de interiores. Contexto completo do
 produto em `Plataforma_Giulia_Plano_de_Desenvolvimento.docx`.
 
-Este repositório está na Fase 0 (Descoberta & Arquitetura) do roadmap
-descrito no plano — scaffold inicial, não um produto funcional.
+O repositório cobre hoje as Fases 0 a 5 do roadmap descrito no plano. CRM,
+ERP Arquitetura, FF&E, financeiro, BI, portal do cliente, portal do
+consultor externo e quadro colaborativo estão implementados com API e
+tela; a NFS-e é emitida de verdade pela plataforma; e existe caminho de
+deploy (Docker multi-stage, `render.yaml`, CI).
+
+**Antes de publicar, leia `docs/auditoria-2026-08-30.md`.** A revisão mais
+recente encontrou um achado crítico de infraestrutura (a Data API do
+projeto Supabase que hospeda o banco), lacunas de autorização entre staff
+(`@AdminOnly` aplicado rota a rota deixa o mesmo dado acessível por outra
+porta) e invariantes de dinheiro ausentes (sem arredondamento monetário,
+"uma fatura por fase" sem constraint no banco). O blueprint de deploy
+também nunca foi aplicado e tem três defeitos conhecidos que impedem a
+primeira subida.
 
 ## Estrutura
 
 ```
-apps/web/       Next.js (App Router, TypeScript) — login (NextAuth) + proxy BFF, sem lógica de negócio
-apps/api/       NestJS — API própria (CRM/ERP/FF&E), porta 3001
-packages/db/    Prisma + PostgreSQL — schema de dados compartilhado, consumido pelos dois apps
-docs/fase-0/    ADR de stack, notas do modelo de dados, questionário de descoberta
+apps/web/       Next.js (App Router, TypeScript) — login (NextAuth), proxy BFF e portais públicos
+apps/api/       NestJS — API própria (CRM/ERP/FF&E/fiscal), porta 3001
+packages/db/    Prisma + PostgreSQL — schema compartilhado (40 modelos, 38 migrações)
+docs/           auditoria-2026-08-30.md — estado real do código, medido contra a matriz
+docs/fase-0/    ADRs, modelo de dados, roadmap, runbook de deploy no Render
+scripts/        check-deploy-config.mjs — CI confere se render.yaml bate com o que o código lê
+render.yaml     blueprint dos dois serviços (web público, api privada)
 ```
 
 Backend separado de frontend desde a ADR 0002 (`docs/fase-0/adr-0002-nestjs-turborepo.md`)
 — o navegador nunca fala com `apps/api` diretamente, só com o proxy em `apps/web`.
+Isso deixou de ser só arquitetura e passou a ser requisito de deploy: `apps/api`
+sobe sem CORS e sem bind de host, e o `apps/web` fala com ela por `http://`
+carregando um JWT interno de 60 s. Só o `apps/web` pode receber o domínio
+público, e a API tem de rodar em **exatamente uma instância** (os `@Cron` são
+in-process e não têm eleição de líder).
+
+Há **quatro superfícies de sessão** distintas, com credenciais separadas e sem
+aceitação cruzada: staff (NextAuth/Google), cliente (magic link), consultor
+externo (`x-collaborator-session`) e convidado de quadro (Logto). O inventário
+das rotas abertas fica em `apps/api/src/auth/public.decorator.ts` — mantenha-o
+em sincronia, ele é checklist de segurança.
 
 ## Rodando localmente
 
@@ -53,18 +79,40 @@ lançar uma versão que resolva isso.
 
 ## Smoke test
 
-`npm run smoke-test` roda os dois: `apps/api/scripts/smoke-test.ts` (64
-checks, cobertura completa de regra de negócio — cliente → oportunidade →
-proposta com motor de precificação → marcar como ganha → projeto e 5
-fases do PEP criados automaticamente, vínculos de Office (Drive/Calendar)
-com limpeza automática ao excluir o dono, além de casos de erro
-401/404/400/409)
-bate direto em `apps/api` forjando o token interno via `jose`; e
-`apps/web/scripts/smoke-test.ts` (5 checks) prova só o proxy BFF, forjando
-um cookie de sessão do NextAuth com o mesmo `NEXTAUTH_SECRET`. Nenhum dos
-dois abre navegador nem depende do fluxo OAuth real.
+`npm run smoke-test` roda os dois: `apps/api/scripts/smoke-test.ts` (355
+checks — cliente → oportunidade → proposta com motor de precificação →
+marcar como ganha → projeto e 5 fases do PEP criados automaticamente;
+gates de aprovação, faturamento por fase, timesheet, tarefas, alocação,
+ausências, FF&E até o checkout, links de apresentação, portal do cliente,
+portal do consultor, quadro/convidados, emissão e substituição de NFS-e,
+documentos do Drive, permissões admin/staff, notificações, log de
+auditoria e webhooks de Asaas/ZapSign, além de casos de erro
+401/403/404/400/409) bate direto em `apps/api` forjando o token interno
+via `jose`; e `apps/web/scripts/smoke-test.ts` (6 checks) prova só o proxy
+BFF, forjando um cookie de sessão do NextAuth com o mesmo
+`NEXTAUTH_SECRET`. Nenhum dos dois abre navegador nem depende do fluxo
+OAuth real.
+
+Duas ressalvas antes de confiar num verde:
+
+- **O CI não roda esta suíte.** `.github/workflows/ci.yml` faz `npm ci`,
+  `db:generate`, `turbo run build`, dois `tsc --noEmit` e
+  `check:deploy-config` — e nenhum passo executa o smoke test. Rodar é
+  manual, contra uma API de pé.
+- **A troca de estágio do kanban não é exercitada** em ponto nenhum da
+  suíte (`PATCH /opportunities/:id { stage }`), apesar de ser a operação
+  que define o quadro.
 
 ## Decisões e próximos passos
+
+Comece por **`docs/auditoria-2026-08-30.md`** — é o retrato mais recente e o
+único documento verificado linha a linha contra o código. Lista o que bloqueia
+a publicação, em que ordem atacar, e corrige afirmações que os documentos de
+Fase 0 fazem e que não se sustentam mais.
+
+`docs/fase-0/render-deploy-runbook.md` é o passo a passo do deploy no Render —
+leia junto com a auditoria, porque o blueprint nunca foi aplicado e três dos
+defeitos conhecidos estão no próprio `render.yaml`.
 
 Ver `docs/fase-0/adr-0001-stack.md` (por que este stack), `docs/fase-0/data-model.md`
 (o que o schema cobre e o que ainda falta), `docs/fase-0/especificacao-tecnica.md`
@@ -81,3 +129,6 @@ depende de decisão da Giulia antes de virar prazo.
 
 `docs/fase-0/prototipo-navegavel.html` é o protótipo navegável de baixa
 fidelidade — abra o arquivo direto no navegador, sem precisar rodar o projeto.
+É artefato histórico da Fase 0: o app real tem hoje ~20 rotas de dashboard mais
+quatro portais, bem mais que as 9 telas do protótipo. Serve para entender a
+intenção original, não como referência do que existe.
