@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiGet, ApiError } from "@/lib/api";
-import type { Project, OfficeLink, Invoice, ProjectMember, User, Activity, Task, ProjectCollaborator, RequiredDocumentType, DocumentChecklistItem } from "@/lib/types";
+import type { Project, OfficeLink, Invoice, ProjectMember, User, Activity, Task, ProjectCollaborator, RequiredDocumentType, DocumentChecklistItem, Me } from "@/lib/types";
 import { OfficeLinksSection } from "@/components/office-links/office-links-section";
 import { CronogramaViews } from "@/components/projects/cronograma-views";
 import {
@@ -46,13 +46,15 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   let members: ProjectMember[];
   let users: User[];
   let tasks: Task[];
+  let me: Me;
   try {
-    [project, officeLinks, members, users, tasks] = await Promise.all([
+    [project, officeLinks, members, users, tasks, me] = await Promise.all([
       apiGet<Project>(`projects/${id}`),
       apiGet<OfficeLink[]>(`projects/${id}/office-links`),
       apiGet<ProjectMember[]>(`projects/${id}/members`),
       apiGet<User[]>("users"),
       apiGet<Task[]>(`projects/${id}/tasks`),
+      apiGet<Me>("me"),
     ]);
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) {
@@ -60,6 +62,10 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     }
     throw err;
   }
+  // ProjectMembersController agora exige admin em add/remove (mesmo achado
+  // de revisão que já gatilhou isAdmin em team/planning/page.tsx) --
+  // esconder aqui evita mostrar formulário/botão que só resultariam em 403.
+  const isAdmin = me.accessLevel === "admin";
 
   let invoices: Invoice[] = [];
   let canSeeFinanceiro = true;
@@ -293,16 +299,18 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                   {m.user.name}
                   {m.roleOnProject ? ` — ${m.roleOnProject}` : ""}
                 </span>
-                <form action={removeMember.bind(null, id, m.userId)}>
-                  <button type="submit" className="text-xs text-zinc-500 hover:text-red-600 dark:text-zinc-400">
-                    Remover
-                  </button>
-                </form>
+                {isAdmin && (
+                  <form action={removeMember.bind(null, id, m.userId)}>
+                    <button type="submit" className="text-xs text-zinc-500 hover:text-red-600 dark:text-zinc-400">
+                      Remover
+                    </button>
+                  </form>
+                )}
               </li>
             ))}
           </ul>
         )}
-        {availableUsers.length > 0 && (
+        {isAdmin && availableUsers.length > 0 && (
           <form action={addMember.bind(null, id)} className="mt-3 flex flex-wrap items-center gap-2">
             <select
               name="userId"

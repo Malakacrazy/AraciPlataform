@@ -14,7 +14,10 @@ export const userUpdateSchema = z.object({
   role: z.string().min(1).optional(),
   specialty: z.string().min(1).optional(),
   costPerHour: z.number().nonnegative().optional(),
-  weeklyCapacityHours: z.number().positive().optional(),
+  // nonnegative, não positive -- achado real de revisão: a tela de Equipe
+  // já aceita 0 (min="0" no input, "temporariamente fora de alocação"),
+  // mas o schema rejeitava com um erro genérico de validação.
+  weeklyCapacityHours: z.number().nonnegative().optional(),
   // Só um admin pode de fato setar isto -- ver UsersController.update, que
   // remove o campo do input antes de chegar aqui se quem pediu não for
   // admin. Fica no schema (não só no controller) porque validar o

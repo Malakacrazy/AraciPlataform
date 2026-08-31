@@ -397,7 +397,17 @@ export class NfseService {
       valorServico: Number(invoice.amount),
       tomador: { documento: invoice.project.client.document, nome: invoice.project.client.name },
       cbsIbsEffectiveRatePercent: Number(account.cbsIbsEffectiveRatePercent),
-      nDpsVariant: `substituicao-${Date.now()}`,
+      // chaveAntiga, não Date.now() -- achado real de revisão: Date.now()
+      // muda a cada retry, quebrando a mesma idempotência que
+      // emitirParaFatura já garante na reemissão (nDpsVariant baseado em
+      // nfseCanceladaEm.getTime(), estável). Uma queda de rede depois da
+      // SEFIN autorizar mas antes da resposta chegar aqui produziria uma
+      // SEGUNDA DPS distinta no retry, em vez de a SEFIN rejeitar como
+      // duplicata da mesma tentativa. chaveAntiga é estável entre retries
+      // desta MESMA substituição (só muda quando ela de fato suceder) e
+      // naturalmente diferente de uma substituição futura (a chave atual
+      // já terá mudado).
+      nDpsVariant: `substituicao-${chaveAntiga}`,
       substituicao: { chaveAcessoAntiga: chaveAntiga, xMotivo: input.justificativa },
     });
 
