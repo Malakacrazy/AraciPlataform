@@ -35,12 +35,14 @@
 # do painel do Supabase não traz sslmode nenhum;
 # packages/db/src/index.ts falha no boot se isso faltar num host remoto.
 #
-# NÃO testado contra uma conta Render de verdade (sem acesso a uma nesta
-# sessão) -- os nomes de campo abaixo seguem a documentação pública do
-# blueprint spec no momento em que isto foi escrito, mas o campo de build
-# args pra Docker especificamente (NEXT_PUBLIC_* precisam existir em
-# tempo de build, não runtime) é o ponto mais provável de precisar ajuste
-# fino direto no dashboard na hora de configurar de verdade.
+# Escrito sem acesso a uma conta Render de verdade -- já rodou contra
+# uma de verdade uma vez (01 set 2026) e pegou um campo inválido:
+# `secretFiles` não existe no Blueprint spec (corrigido abaixo, ver
+# comentário no serviço araci-api). O resto do arquivo segue sem
+# validação end-to-end -- o campo de build args pra Docker
+# especificamente (NEXT_PUBLIC_* precisam existir em tempo de build, não
+# runtime) é o próximo ponto mais provável de precisar ajuste fino
+# direto no dashboard na hora de configurar de verdade.
 services:
   # Privado -- nunca deve ter domínio público. Ver comentário no topo.
   - type: pserv
@@ -129,12 +131,17 @@ services:
         sync: false
       - key: SENTRY_DSN
         sync: false
-    # O .pfx nunca deve ser commitado (ver .gitignore, *.pfx/*.p12) --
-    # sobe direto pelo dashboard do Render como Secret File, montado
-    # neste path em runtime. NFSE_CERTIFICATE_PATH acima já aponta pra cá.
-    secretFiles:
-      - name: StudioAraci.pfx
-        mountPath: /etc/secrets/StudioAraci.pfx
+    # O .pfx nunca deve ser commitado (ver .gitignore, *.pfx/*.p12).
+    # CORRIGIDO: `secretFiles` NÃO existe no Blueprint spec do Render
+    # (achado rodando de verdade -- "field secretFiles not found in type
+    # FileService" ao aplicar este blueprint; a nota no topo do arquivo já
+    # avisava que isto nunca tinha sido testado contra uma conta real).
+    # Secret Files são dashboard-only, sem equivalente em render.yaml:
+    # depois que este serviço existir, subir manualmente em
+    # araci-api → Environment → Secret Files, nome "StudioAraci.pfx".
+    # Render monta todo Secret File em /etc/secrets/<nome> automaticamente
+    # (path fixo, não configurável) -- é exatamente o que
+    # NFSE_CERTIFICATE_PATH acima já assume.
     # XML autorizado da NFS-e precisa sobreviver a um redeploy -- não é
     # cache, é o comprovante fiscal.
     disk:
