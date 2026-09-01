@@ -97,8 +97,21 @@ services:
       # rodando.
       - key: DIRECT_URL
         sync: false
+      # CORRIGIDO (01 set 2026, achado real): fromService/property:hostport
+      # (usado em API_URL do araci-web abaixo) continua reportando
+      # "araci-api:10000" mesmo com PORT declarado como 3001 aqui e o
+      # serviço rodando e saudável -- confirmado com a API já com deploy
+      # bem-sucedido e estável, não é um valor só temporariamente
+      # desatualizado. Pro serviço PRIVADO, o Render parece assumir porta
+      # 10000 fixa pra endereçamento na rede interna (mesmo default que
+      # web services sem PORT declarado), independente do PORT real do
+      # app -- então API_URL do araci-web apontava pra uma porta onde
+      # nada escuta, e /api/health (que depende de alcançar aqui) nunca
+      # respondia 200, travando o healthcheck do araci-web indefinidamente
+      # nos 3 deploys anteriores. Alinhado com essa convenção em vez de
+      # brigar com ela.
       - key: PORT
-        value: 3001
+        value: 10000
       - key: INTERNAL_API_SECRET
         generateValue: true
       # Achado A12 da auditoria de 30 ago 2026: fromService/property:host
