@@ -51,7 +51,12 @@ services:
     dockerfilePath: ./apps/api/Dockerfile
     dockerContext: .
     plan: starter
-    healthCheckPath: /health
+    # CORRIGIDO: healthCheckPath não existe pra type: pserv (achado
+    # rodando de verdade -- "pserv service type cannot have a health
+    # check path"). GET /health continua existindo no código
+    # (apps/api/src/app.controller.ts) e serve pra chamada manual/
+    # monitoramento externo se algum dia precisar, só não é algo que o
+    # Render possa checar sozinho num serviço privado.
     # prisma migrate deploy roda contra a MESMA imagem que vai pro ar,
     # depois do build e antes do serviço novo receber tráfego -- decisão
     # documentada no próprio Dockerfile (mantém as devDependencies na
