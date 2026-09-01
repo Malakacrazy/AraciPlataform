@@ -83,6 +83,22 @@ FROM node:22-bookworm-slim AS runner
 WORKDIR /repo
 
 ENV NODE_ENV=production
+# ACHADO REAL (01 set 2026, causa raiz dos 3 timeouts de deploy do
+# araci-web): apps/web/.next/standalone/apps/web/server.js faz
+# `const hostname = process.env.HOSTNAME || '0.0.0.0'` e
+# `server.listen(port, hostname)` -- todo container Docker recebe
+# HOSTNAME=<hostname do container> automaticamente (é assim que o
+# Render nomeia a instância, ex. "srv-xxx-hibernate-yyy-zzz", visível
+# nos logs "Local:"/"Network:"), então o server bindava só no endereço
+# que ESSE hostname resolve, nunca em todas as interfaces. O app
+# funcionava perfeitamente (subia em segundos, respondia local) mas o
+# scanner de porta do Render -- que bate de fora do container -- nunca
+# alcançava o socket, daí os 3 deploys seguidos com timeout de 15-20min
+# apesar do app estar de pé o tempo todo (confirmado por métricas de
+# CPU/memória estáveis). Mesmo problema documentado no example oficial
+# do Next.js com Docker -- a correção de lá é exatamente esta: forçar
+# HOSTNAME="0.0.0.0" antes do CMD, ignorando o que o runtime injeta.
+ENV HOSTNAME="0.0.0.0"
 COPY --from=builder /repo/apps/web/.next/standalone ./
 COPY --from=builder /repo/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder /repo/apps/web/public ./apps/web/public
