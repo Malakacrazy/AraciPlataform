@@ -17,9 +17,15 @@ export async function GET() {
   try {
     const res = await fetch(`${API_URL}/health`, { cache: "no-store", signal: AbortSignal.timeout(5000) });
     if (!res.ok) {
+      // Logado de propósito (não só devolvido no body): healthCheckPath
+      // é chamado pelo prober do Render, cuja resposta ninguém lê -- sem
+      // isto, um 503 aqui é invisível nos logs, e é exatamente a causa
+      // mais provável de o deploy nunca ficar "live".
+      console.error(`GET /api/health: apps/api respondeu ${res.status} em ${API_URL}/health`);
       return NextResponse.json({ status: "error", detail: "apps/api não está saudável." }, { status: 503 });
     }
-  } catch {
+  } catch (err) {
+    console.error(`GET /api/health: fetch em ${API_URL}/health falhou --`, err);
     return NextResponse.json({ status: "error", detail: "apps/api inalcançável." }, { status: 503 });
   }
   return NextResponse.json({ status: "ok" });
