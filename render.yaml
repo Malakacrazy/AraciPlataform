@@ -24,16 +24,29 @@
 # (Supabase → Project Settings → Database → Connection string).
 # IMPORTANTE (corrigido -- achados A11/A15 da auditoria de 30 ago 2026,
 # docs/auditoria-2026-08-30-detalhada.md): usar a connection string do
-# POOLER (porta 6543), não a direta (5432). A justificativa antiga aqui
-# ("conflito com prepared statements do Prisma") é sobre o ENGINE Rust do
-# Prisma -- packages/db usa @prisma/adapter-pg (node-postgres), que não
-# tem esse conflito com o Supavisor em modo transação. Além disso o
+# POOLER, não a direta (porta 5432 do host db.<ref>.supabase.co). O
 # endpoint direto só resolve em IPv6 sem o add-on IPv4 pago do Supabase,
-# e a saída de rede do Render é IPv4 -- a instrução antiga apontava pro
-# caminho com MAIOR chance de simplesmente não conectar. SEMPRE com
-# `?sslmode=require` no final -- pg tem ssl:false por padrão e a string
-# do painel do Supabase não traz sslmode nenhum;
-# packages/db/src/index.ts falha no boot se isso faltar num host remoto.
+# e a saída de rede do Render é IPv4 -- essa combinação nem chega a
+# tentar conectar. SEMPRE com `?sslmode=require` no final -- pg tem
+# ssl:false por padrão e a string do painel do Supabase não traz sslmode
+# nenhum; packages/db/src/index.ts falha no boot se isso faltar num host
+# remoto.
+#
+# DUAS strings do pooler, não uma (achado rodando de verdade, 01 set
+# 2026 -- a versão anterior deste comentário achava que uma bastava, e
+# estava errada): o pooler Supavisor tem dois modos no MESMO host,
+# diferenciados só pela porta.
+#   - DATABASE_URL: modo TRANSACTION (porta 6543) -- pro app RODANDO
+#     (packages/db/src/index.ts, via @prisma/adapter-pg). Muitas conexões
+#     curtas, é pra isso que pooler serve.
+#   - DIRECT_URL: modo SESSION (porta 5432, MESMO host do pooler, não o
+#     host direto do Supabase) -- só pro CLI de migração
+#     (packages/db/prisma.config.ts). prisma migrate deploy trava
+#     indefinidamente contra o modo transaction: esse modo não suporta os
+#     prepared statements/locks de sessão que o motor de migração do
+#     Prisma precisa (github.com/prisma/prisma/issues/22779). Modo
+#     session resolve em IPv4 igual o de transaction -- não é o mesmo
+#     problema do endpoint direto do parágrafo acima.
 #
 # Escrito sem acesso a uma conta Render de verdade -- já rodou contra
 # uma de verdade uma vez (01 set 2026) e pegou um campo inválido:
@@ -64,10 +77,25 @@ services:
     # separado).
     preDeployCommand: npm run db:migrate:deploy
     envVars:
-      # Connection string do POOLER do Supabase (porta 6543) com
-      # ?sslmode=require -- ver comentário no topo do arquivo pro porquê
-      # (achados A11/A15 da auditoria de 30 ago 2026).
+      # Connection string do POOLER do Supabase em modo TRANSACTION
+      # (porta 6543) com ?sslmode=require -- usada pelo app rodando via
+      # @prisma/adapter-pg (packages/db/src/index.ts). Ver comentário no
+      # topo do arquivo pro porquê (achados A11/A15 da auditoria de 30
+      # ago 2026) e pro porquê o CLI de migração usa DIRECT_URL, não
+      # esta.
       - key: DATABASE_URL
+        sync: false
+      # CORRIGIDO (01 set 2026, achado rodando de verdade): prisma
+      # migrate deploy trava indefinidamente contra o pooler em modo
+      # transaction acima -- esse modo não suporta os prepared
+      # statements/locks de sessão que o motor de migração do Prisma
+      # precisa. Pooler em modo SESSION (mesmo host, porta 5432, com
+      # ?sslmode=require) resolve em IPv4 igual o de transaction (ao
+      # contrário do endpoint direto do Supabase, que só resolve em IPv6
+      # sem o add-on pago) e suporta sessão completa -- packages/db/
+      # prisma.config.ts usa esta variável só pro CLI, nunca pro app
+      # rodando.
+      - key: DIRECT_URL
         sync: false
       - key: PORT
         value: 3001
