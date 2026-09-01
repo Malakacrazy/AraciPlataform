@@ -19,7 +19,11 @@ export class AppController {
   async health() {
     try {
       await this.prisma.db.$queryRaw`SELECT 1`;
-    } catch {
+    } catch (err) {
+      // Logado de propósito -- quem chama /health (o healthCheckPath do
+      // Render, ou o /api/health do araci-web) só lê o status HTTP, nunca
+      // o body, então um 503 aqui era invisível nos logs.
+      console.error('GET /health: SELECT 1 falhou --', err);
       throw new ServiceUnavailableError('Banco de dados inacessível.');
     }
     return { status: 'ok' };
