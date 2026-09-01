@@ -3,19 +3,13 @@
 // nem cliente do estúdio), então nunca usar apiFetch()/mintInternalToken()
 // aqui. Lacuna da matriz ("colaboração com consultores externos").
 import type { CollaboratorProject, CollaboratorProjectDetail } from "./types";
+import { HttpApiError as CollaboratorPortalApiError } from "./httpError";
 
 const API_URL = process.env.API_URL ?? "http://localhost:3001";
 
 export const SESSION_COOKIE = "collaborator_session";
 
-export class CollaboratorPortalApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+export { CollaboratorPortalApiError };
 
 async function portalFetch(path: string, init: RequestInit = {}) {
   return fetch(`${API_URL}/v1/collaborator-portal${path}`, {

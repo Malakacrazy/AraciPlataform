@@ -1,5 +1,6 @@
 import { mintInternalToken } from "./internalToken";
 import { withScheme } from "./url";
+import { HttpApiError as ApiError } from "./httpError";
 
 // Helper de servidor (Server Components, Server Actions) para chamar
 // apps/api direto, sem o hop HTTP de um Server Component chamando sua
@@ -12,14 +13,7 @@ import { withScheme } from "./url";
 // hostport, sem protocolo.
 const API_URL = withScheme(process.env.API_URL ?? "http://localhost:3001");
 
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+export { ApiError };
 
 export async function apiFetch(path: string, init: RequestInit = {}) {
   const token = await mintInternalToken();

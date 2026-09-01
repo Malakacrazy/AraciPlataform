@@ -4,19 +4,13 @@
 // específico, autenticado via Logto (ver app/quadro/callback/route.ts).
 // Nunca usar apiFetch()/mintInternalToken() aqui.
 import type { WhiteboardGuestBoard, MoodboardComment } from "./types";
+import { HttpApiError as WhiteboardGuestPortalApiError } from "./httpError";
 
 const API_URL = process.env.API_URL ?? "http://localhost:3001";
 
 export const SESSION_COOKIE = "whiteboard_guest_session";
 
-export class WhiteboardGuestPortalApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+export { WhiteboardGuestPortalApiError };
 
 async function portalFetch(path: string, init: RequestInit = {}) {
   return fetch(`${API_URL}/v1/whiteboard-guest-portal${path}`, {

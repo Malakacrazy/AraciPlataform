@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { latestByKey } from '../common/latest-by-key';
 import { sendEmail } from './resend-client';
 
 function escapeHtml(value: string): string {
@@ -304,13 +305,7 @@ export class NotificationsService {
       orderBy: { createdAt: 'desc' },
       select: { opportunityId: true, createdAt: true },
     });
-    const lastNotifiedAt = new Map<string, Date>();
-    for (const row of rows) {
-      if (row.opportunityId && !lastNotifiedAt.has(row.opportunityId)) {
-        lastNotifiedAt.set(row.opportunityId, row.createdAt);
-      }
-    }
-    return lastNotifiedAt;
+    return latestByKey(rows, (row) => row.opportunityId);
   }
 
   // Mesmo espírito do método acima, só que pro terceiro gatilho baseado em
@@ -325,13 +320,7 @@ export class NotificationsService {
       orderBy: { createdAt: 'desc' },
       select: { clientId: true, createdAt: true },
     });
-    const lastNotifiedAt = new Map<string, Date>();
-    for (const row of rows) {
-      if (row.clientId && !lastNotifiedAt.has(row.clientId)) {
-        lastNotifiedAt.set(row.clientId, row.createdAt);
-      }
-    }
-    return lastNotifiedAt;
+    return latestByKey(rows, (row) => row.clientId);
   }
 
   // Sino da Nav (apps/web) -- contraparte visual do e-mail acima. Só as

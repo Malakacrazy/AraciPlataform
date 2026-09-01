@@ -3,16 +3,11 @@
 // anônimo do site, antes de qualquer contato) -- nunca usar
 // apiFetch()/mintInternalToken() aqui, vai direto no endpoint @Public()
 // do apps/api.
+import { HttpApiError as LeadApiError } from "./httpError";
+
 const API_URL = process.env.API_URL ?? "http://localhost:3001";
 
-export class LeadApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+export { LeadApiError };
 
 export async function submitLeadPublic(input: {
   name: string;

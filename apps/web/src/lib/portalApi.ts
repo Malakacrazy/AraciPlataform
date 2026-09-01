@@ -8,19 +8,13 @@
 // /portal/verify), verificado do lado do apps/api, não decodificado
 // aqui.
 import type { PortalPendingProposal } from "./types";
+import { HttpApiError as PortalApiError } from "./httpError";
 
 const API_URL = process.env.API_URL ?? "http://localhost:3001";
 
 export const SESSION_COOKIE = "client_session";
 
-export class PortalApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+export { PortalApiError };
 
 async function portalFetch(path: string, init: RequestInit = {}) {
   return fetch(`${API_URL}/v1/client-portal${path}`, {

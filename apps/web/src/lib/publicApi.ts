@@ -1,4 +1,5 @@
 import type { PresentationData, PresentationMoodboardBoard, MoodboardComment } from "./types";
+import { HttpApiError as PublicApiError } from "./httpError";
 
 // Contraparte pública de api.ts: quem abre /present/[token] não tem
 // sessão NextAuth, então não há como mintInternalToken() (precisa de
@@ -8,14 +9,7 @@ import type { PresentationData, PresentationMoodboardBoard, MoodboardComment } f
 // de /present/[token].
 const API_URL = process.env.API_URL ?? "http://localhost:3001";
 
-export class PublicApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+export { PublicApiError };
 
 async function presentationFetch(token: string, path: string, init: RequestInit = {}) {
   return fetch(`${API_URL}/v1/present/${token}${path}`, {

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotFoundError } from '../common/api-error';
+import { latestByKey } from '../common/latest-by-key';
 import { ProjectsService } from '../erp/projects.service';
 import { ClientsService } from '../crm/clients.service';
 import { OpportunitiesService } from '../crm/opportunities.service';
@@ -104,15 +105,9 @@ export class ActivitiesService {
       orderBy: { createdAt: 'desc' },
       select: { entityId: true, createdAt: true },
     });
-    const lastActivityAt = new Map<string, Date>();
-    for (const row of rows) {
-      // Ordenado desc -- a primeira ocorrência de cada entityId já é a
-      // mais recente, sem precisar de groupBy/agregação.
-      if (!lastActivityAt.has(row.entityId)) {
-        lastActivityAt.set(row.entityId, row.createdAt);
-      }
-    }
-    return lastActivityAt;
+    // Ordenado desc -- a primeira ocorrência de cada entityId já é a mais
+    // recente, sem precisar de groupBy/agregação (ver latestByKey).
+    return latestByKey(rows, (row) => row.entityId);
   }
 
   // Mesmo espírito de getLastActivityAtByOpportunityIds, só que pra
@@ -126,13 +121,7 @@ export class ActivitiesService {
       orderBy: { createdAt: 'desc' },
       select: { entityId: true, createdAt: true },
     });
-    const lastActivityAt = new Map<string, Date>();
-    for (const row of rows) {
-      if (!lastActivityAt.has(row.entityId)) {
-        lastActivityAt.set(row.entityId, row.createdAt);
-      }
-    }
-    return lastActivityAt;
+    return latestByKey(rows, (row) => row.entityId);
   }
 
   // Mesmo espírito de getLastActivityAtByClientIds, só que pra entityType
@@ -147,13 +136,7 @@ export class ActivitiesService {
       orderBy: { createdAt: 'desc' },
       select: { entityId: true, createdAt: true },
     });
-    const lastActivityAt = new Map<string, Date>();
-    for (const row of rows) {
-      if (!lastActivityAt.has(row.entityId)) {
-        lastActivityAt.set(row.entityId, row.createdAt);
-      }
-    }
-    return lastActivityAt;
+    return latestByKey(rows, (row) => row.entityId);
   }
 
   async deleteActivity(accountId: string, id: string) {

@@ -46,7 +46,7 @@ import { HttpExceptionFilter } from './common/http-exception.filter';
     // um risco de disponibilidade maior que a proteção que dava (uma
     // tela pesada ou um laço derrubaria todo mundo com 429). O limite
     // que de fato defende o formulário de lead e o pedido de magic link
-    // agora vive em apps/web/src/middleware.ts, onde o IP do chamador é
+    // agora vive em apps/web/src/proxy.ts, onde o IP do chamador é
     // o IP real de quem está abusando. Aqui fica só o teto de sanidade.
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 3_000 }]),
     // Primeiro job em background da plataforma (ver
