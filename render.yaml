@@ -198,6 +198,17 @@ services:
     plan: free
     healthCheckPath: /api/health
     envVars:
+      # Explícito em vez de depender do default implícito do Render
+      # (10000 pra web services sem PORT declarado) -- ver comentário no
+      # Dockerfile (EXPOSE corrigido pra bater com isto, 01 set 2026). Não
+      # resolve por si só um achado real (deploy nº1 deste serviço: o app
+      # subiu e escutou em 6s, mas o próprio detector de porta do Render
+      # não percebeu por 15min até dar timeout e reiniciar sozinho -- ver
+      # dashboard, "Detected service running on port 10000" só depois do
+      # restart) -- mas remove a ambiguidade pra descartar isto como
+      # causa em runs futuras.
+      - key: PORT
+        value: 10000
       - key: NEXTAUTH_URL
         fromService:
           type: web

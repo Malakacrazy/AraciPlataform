@@ -87,5 +87,12 @@ COPY --from=builder /repo/apps/web/.next/standalone ./
 COPY --from=builder /repo/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder /repo/apps/web/public ./apps/web/public
 
-EXPOSE 3000
+# CORRIGIDO (01 set 2026): EXPOSE aqui era só metadado incorreto -- Docker
+# não aplica isto em nada (não restringe porta nenhuma em runtime), e o
+# server.js standalone do Next escuta em process.env.PORT (o Render
+# injeta PORT=10000 por padrão pra web services sem PORT declarado, ver
+# render.yaml), nunca em 3000. Corrigido pra bater com a porta real, e
+# render.yaml agora declara PORT explicitamente em vez de depender do
+# default implícito do Render.
+EXPOSE 10000
 CMD ["node", "apps/web/server.js"]
