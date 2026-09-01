@@ -241,11 +241,21 @@ services:
         sync: false
       # Sem protocolo (achado A12) -- ver comentário no WEB_URL do
       # araci-api acima pro porquê isso é seguro (withScheme()).
+      # CORRIGIDO (01 set 2026, achado real -- 5 deploys pra chegar aqui):
+      # fromService/property:hostport NUNCA refletiu o PORT de verdade do
+      # araci-api, nem antes nem depois de setar PORT explicitamente lá
+      # (era 3001, mudou pra 10000 -- hostport continuou "araci-api:3001"
+      # em toda tentativa, confirmada até num deploy do araci-web
+      # disparado bem depois do araci-api já estar live e estável havia
+      # minutos). O log de erro do /api/health mudou de "TypeError: fetch
+      # failed" (host não resolvia) pra "ECONNREFUSED
+      # 10.28.158.118:3001" (host resolve, porta certa da rede interna,
+      # só que nada escuta em 3001) -- prova que o problema é
+      # especificamente hostport nunca acompanhar o PORT real, não
+      # DNS/rede. Hardcoded em vez de depender de um mecanismo que se
+      # mostrou não confiável nesta conta/ambiente.
       - key: API_URL
-        fromService:
-          type: pserv
-          name: araci-api
-          property: hostport
+        value: "http://araci-api:10000"
       - key: INTERNAL_API_SECRET
         fromService:
           type: pserv
