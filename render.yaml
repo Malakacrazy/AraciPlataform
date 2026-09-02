@@ -114,18 +114,24 @@ services:
         value: 10000
       - key: INTERNAL_API_SECRET
         generateValue: true
-      # Achado A12 da auditoria de 30 ago 2026: fromService/property:host
-      # entrega o hostname SEM protocolo ("araci-web.onrender.com"), e o
-      # código concatenava direto -- corrigido com um withScheme() nos
-      # pontos de consumo (apps/api/src/common/url.ts,
-      # apps/web/src/lib/url.ts), que prefixa http:// quando falta. Mantido
-      # fromService (não sync: false) porque agora é seguro e continua
-      # atualizando sozinho se o hostname interno mudar.
+      # Achado A12 da auditoria de 30 ago 2026 (histórico): fromService/
+      # property:host entregava o hostname SEM protocolo
+      # ("araci-web.onrender.com") de volta quando esse era o único
+      # domínio do serviço -- daí o withScheme() nos pontos de consumo
+      # (apps/api/src/common/url.ts, apps/web/src/lib/url.ts).
+      # CORRIGIDO (02 set 2026, achado real): depois de configurar o
+      # domínio próprio (plataforma.studioaraci.com.br) e desabilitar o
+      # subdomínio .onrender.com, property:host passou a devolver o
+      # hostname INTERNO/privado do araci-web ("araci-web", sem sufixo
+      # nenhum) em vez do domínio público -- inalcançável por qualquer
+      # navegador ou serviço de e-mail. Sintoma real: o botão "Entrar com
+      # Google" levava pra "https://araci-web/api/auth/signin/google", e
+      # magic links de client-portal/collaborator-portal/notificações
+      # (todos consomem WEB_URL) sairiam quebrados do mesmo jeito.
+      # Mesma lição de PORT/hostport acima -- hardcoded em vez de confiar
+      # num fromService que não acompanha domínio próprio.
       - key: WEB_URL
-        fromService:
-          type: web
-          name: araci-web
-          property: host
+        value: "https://plataforma.studioaraci.com.br"
       - key: ALLOWED_EMAIL_DOMAINS
         value: studioaraci.com.br
       - key: ALLOWED_EMAILS
@@ -222,11 +228,17 @@ services:
       # causa em runs futuras.
       - key: PORT
         value: 10000
+      # CORRIGIDO (02 set 2026, achado real): mesmo problema do WEB_URL
+      # no araci-api (ver comentário lá) -- fromService/property:host
+      # autorreferenciando o próprio araci-web passou a devolver o
+      # hostname interno/privado depois do domínio próprio entrar em
+      # cena, não mais um host público alcançável. Sintoma que expôs
+      # isto: "Entrar com Google" levava o navegador do usuário pra
+      # https://araci-web/api/auth/signin/google (nome que nenhum DNS
+      # público resolve). NextAuth exige a URL completa com esquema,
+      # por isso https:// já vai embutido aqui.
       - key: NEXTAUTH_URL
-        fromService:
-          type: web
-          name: araci-web
-          property: host
+        value: "https://plataforma.studioaraci.com.br"
       - key: NEXTAUTH_SECRET
         generateValue: true
       - key: GOOGLE_CLIENT_ID
