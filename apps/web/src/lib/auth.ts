@@ -19,12 +19,17 @@ const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS ?? "")
 // checagem real é o callback signIn abaixo (achado C-01 da auditoria:
 // qualquer conta Google conseguia logar e virava usuário 'staff'
 // automaticamente via ensureAccountAndUser).
+// CORRIGIDO (02 set 2026, achado real): sem prompt: "select_account",
+// o Google pula a tela de escolha de conta sempre que o navegador já
+// tem QUALQUER sessão Google ativa, e loga direto com ela -- inclusive
+// a pessoal de quem está testando, sem chance de trocar pra conta do
+// Workspace. `select_account` força o seletor toda vez.
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID ?? "",
       clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-      authorization: { params: { hd: "studioaraci.com.br" } },
+      authorization: { params: { hd: "studioaraci.com.br", prompt: "select_account" } },
     }),
   ],
   session: { strategy: "jwt" },
