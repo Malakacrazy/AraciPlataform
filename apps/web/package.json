@@ -20,6 +20,7 @@
     "tldraw": "^5.3.2"
   },
   "devDependencies": {
+    "@21st-dev/cli": "^1.17.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
