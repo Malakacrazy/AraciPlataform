@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { restoreElements, restoreAppState, mutateElement } from "@excalidraw/excalidraw";
+import { restoreElements, restoreAppState, mutateElement, bumpVersion } from "@excalidraw/excalidraw";
 import type { AppState } from "@excalidraw/excalidraw/types";
 import type { ExcalidrawElement, OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import {
@@ -17,6 +17,19 @@ import {
 // aqui prova WHY o comportamento importa (o cenário concreto do plano),
 // não só WHAT a função faz -- um teste que não conseguiria falhar se a
 // lógica de negócio mudasse estaria errado (regra 9).
+
+// reconcileElements desempata version igual pelo versionNonce, e o
+// MENOR ganha -- confirmado rodando reconcileElements de verdade contra o
+// 0.18.1 instalado, não lido da documentação. Fixar os nonces é o que
+// torna os testes de colisão abaixo determinísticos: sem isso o
+// vencedor sai do Math.random() interno do mutateElement e cada rodada
+// de CI exercita um caminho diferente (foi exatamente o que a revisão
+// pegou -- um `if (winner.versionNonce === aLocal.versionNonce)` sem
+// `else` que na metade das execuções não asseverava NADA).
+function pinNonces(winner: OrderedExcalidrawElement, loser: OrderedExcalidrawElement): void {
+  (winner as { versionNonce: number }).versionNonce = 1;
+  (loser as { versionNonce: number }).versionNonce = 2;
+}
 
 function baseAppState(): AppState {
   return restoreAppState(null, null) as unknown as AppState;
@@ -81,10 +94,20 @@ describe("B3 -- bump de version só por causa do índice não é dirty", () => {
     const original = makeElement({ id: "a", strokeColor: "#000" });
     const sent = seedWatermark([original]);
 
-    // Simula o que syncInvalidIndices faz: mutateElement só em
-    // index/version/versionNonce, nada do conteúdo visível muda.
+    // Simula o que syncInvalidIndices faz: mexe SÓ no index e sobe
+    // version/versionNonce, sem tocar em nada do conteúdo visível.
+    //
+    // bumpVersion, não mutateElement(el, {}) -- a primeira versão deste
+    // teste usava mutateElement com updates vazio acreditando que isso
+    // subia a version, e NÃO sube: ele faz um early-return quando nada
+    // mudou (confirmado empiricamente: version ficava em 2, não ia pra
+    // 3). Com a version inalterada o teste passava até se
+    // computeDirtyElements comparasse por VERSION em vez de fingerprint
+    // de conteúdo -- ou seja, não conseguia falhar se o B3 regredisse,
+    // que é justamente o único motivo dele existir (regra 9).
     const reindexed = { ...original, index: "a2" } as OrderedExcalidrawElement;
-    mutateElement(reindexed, {}, false); // bump version/versionNonce sem mudar mais nada
+    bumpVersion(reindexed);
+    expect(reindexed.version).toBeGreaterThan(original.version);
 
     const dirty = computeDirtyElements([reindexed], sent);
     expect(dirty).toEqual([]);
@@ -117,21 +140,41 @@ describe("B2 -- colisão texto-vs-estilo converge em vez de divergir para sempre
     mutateElement(bLocal, { strokeColor: "#00f" }, false);
     const aLocal = { ...shared } as OrderedExcalidrawElement;
     mutateElement(aLocal, { strokeColor: "#0f0" }, false);
+    pinNonces(aLocal, bLocal); // local (A) vence o desempate
 
     const result = applyRemoteDelta([aLocal], [bLocal], sentA, appState)!;
     const winner = result.reconciled.find((e) => e.id === "T")!;
 
-    if (winner.versionNonce === aLocal.versionNonce) {
-      // Local (A) venceu -- o watermark antigo não bate com o conteúdo
-      // vencedor, então precisa continuar/ficar dirty (nulo = força
-      // reenvio no próximo flush de broadcast).
-      expect(result.watermarkUpdates.get("T")).toBeNull();
-    } else {
-      // Remoto (B) venceu -- A absorve o conteúdo de B, watermark
-      // atualizado pra refletir isso, sem necessidade de reenviar.
-      expect(result.watermarkUpdates.get("T")).not.toBeNull();
-      expect(result.watermarkUpdates.get("T")!.fingerprint).toBe(contentFingerprint(bLocal));
-    }
+    // Local (A) venceu -- o watermark antigo não bate com o conteúdo
+    // vencedor, então precisa ficar dirty (nulo = força reenvio no
+    // próximo flush de broadcast). Sem isso B nunca fica sabendo que
+    // perdeu e as duas telas divergem PRA SEMPRE, que é o B2.
+    expect(winner.strokeColor).toBe("#0f0");
+    expect(result.watermarkUpdates.get("T")).toBeNull();
+  });
+
+  it("remoto vence o mesmo conflito -> A absorve e o watermark passa a refletir o conteúdo remoto", () => {
+    // Mesmo cenário, desempate invertido: aqui NÃO há nada que A precise
+    // reanunciar (o conteúdo vencedor é o do próprio B, que já o tem),
+    // então forçar reenvio seria tráfego puro. É o par que faltava --
+    // sem ele, "watermarkUpdates é nulo" poderia estar hardcoded e o
+    // teste acima continuaria verde.
+    const appState = baseAppState();
+    const shared = makeElement({ id: "T", type: "rectangle", strokeColor: "#000" });
+    const sentA = seedWatermark([shared]);
+
+    const bLocal = { ...shared } as OrderedExcalidrawElement;
+    mutateElement(bLocal, { strokeColor: "#00f" }, false);
+    const aLocal = { ...shared } as OrderedExcalidrawElement;
+    mutateElement(aLocal, { strokeColor: "#0f0" }, false);
+    pinNonces(bLocal, aLocal); // remoto (B) vence o desempate
+
+    const result = applyRemoteDelta([aLocal], [bLocal], sentA, appState)!;
+    const winner = result.reconciled.find((e) => e.id === "T")!;
+
+    expect(winner.strokeColor).toBe("#00f");
+    expect(result.watermarkUpdates.get("T")).not.toBeNull();
+    expect(result.watermarkUpdates.get("T")!.fingerprint).toBe(contentFingerprint(bLocal));
   });
 
   it("local vence e o watermark JÁ bate com o conteúdo vencedor -> não força (fica pro backstop de 20s)", () => {
@@ -149,15 +192,19 @@ describe("B2 -- colisão texto-vs-estilo converge em vez de divergir para sempre
     mutateElement(bLocal, { strokeColor: "#00f" }, false);
     const aLocal = { ...shared } as OrderedExcalidrawElement;
     mutateElement(aLocal, { strokeColor: "#0f0" }, false);
+    pinNonces(aLocal, bLocal); // local (A) vence o desempate
 
     const sentA = seedWatermark([aLocal]); // A já confirmou ter enviado aLocal
 
     const result = applyRemoteDelta([aLocal], [bLocal], sentA, appState)!;
     const winner = result.reconciled.find((e) => e.id === "T")!;
-    if (winner.versionNonce === aLocal.versionNonce) {
-      expect(result.watermarkUpdates.get("T")).not.toBeNull();
-      expect(result.watermarkUpdates.get("T")!.fingerprint).toBe(contentFingerprint(aLocal));
-    }
+
+    // Sem o pinNonces acima, TODAS as asserções deste teste ficavam
+    // dentro de um `if` no vencedor sorteado, sem `else` -- metade das
+    // execuções de CI não asseverava nada e o teste passava vazio.
+    expect(winner.strokeColor).toBe("#0f0");
+    expect(result.watermarkUpdates.get("T")).not.toBeNull();
+    expect(result.watermarkUpdates.get("T")!.fingerprint).toBe(contentFingerprint(aLocal));
   });
 
   it("depois de duas rodadas de troca (cada lado reenviando o que perdeu), os dois convergem pro mesmo vencedor", () => {
