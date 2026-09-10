@@ -2583,10 +2583,20 @@ sem perda de dado real.
 - **Não corrigido nesta rodada, de propósito**: presença ao vivo
   (cursores de quem está olhando o quadro agora) — o pedido foi
   colaboração via canvas + chat, não presença; escopo maior, deixado de
-  fora do MVP. Licença comercial do tldraw (removível o watermark
-  "Made with tldraw" via plano pago/programa de startup) é decisão de
-  negócio do usuário, não deste código — confirmado que a Studio Araci
-  se qualifica pro uso sem marca d'água como empresa de 2 pessoas.
+  fora do MVP.
+- **Correção sobre a licença do editor (achado do plano de migração
+  tldraw->Excalidraw, §1)**: a frase que estava aqui afirmava que a
+  Studio Araci "se qualifica pro uso sem marca d'água como empresa de 2
+  pessoas" -- as duas metades eram falsas. Sem uma chave de licença, o
+  tldraw v5 em produção não degrada pra um watermark, ele PARA de
+  renderizar depois de alguns segundos (`LicenseManager`, ver
+  tldraw.dev/sdk-features/license-key); e o plano hobby (o único
+  gratuito) é só pra projetos não-comerciais, sem nenhum corte por
+  tamanho de empresa. Nenhuma chave de licença do tldraw jamais existiu
+  neste repositório. A correção adotada não foi aplicar pra uma chave --
+  foi trocar de editor: o quadro colaborativo migrou pro Excalidraw
+  (MIT, sem chave de licença nenhuma) — ver o plano de migração para o
+  desenho completo.
 
 ## Correção — Versionamento de documentos do Drive
 

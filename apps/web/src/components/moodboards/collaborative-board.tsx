@@ -1,204 +1,139 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Tldraw, createTLStore, defaultShapeUtils, getSnapshot, loadSnapshot, type TLStoreSnapshot } from "tldraw";
-import "tldraw/tldraw.css";
-import { createBoardChannel } from "@/lib/supabaseRealtime";
+// NENHUM import estático de "@excalidraw/excalidraw" (nem de board-scene.ts/
+// use-board-sync.ts, que importam a lib de verdade) pode entrar neste
+// arquivo -- "use client" continua sendo server-rendered pro HTML
+// inicial, e o pacote toca `window` já na avaliação do módulo (achado
+// real rodando isto contra um build de produção Turbopack num navegador
+// de verdade: "ReferenceError: window is not defined" no servidor). O
+// <Excalidraw> em si e todo o hook de sync moram em excalidraw-canvas.tsx,
+// alcançado só através do next/dynamic ssr:false abaixo.
+import dynamic from "next/dynamic";
+import { useMemo, useRef, useState } from "react";
+import * as Sentry from "@sentry/nextjs";
+// import type -- erased em tempo de compilação, nunca entra no bundle de
+// runtime do servidor (diferente de um import de VALOR da mesma lib, ver
+// comentário no topo do arquivo).
+import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import { parseInitialScene } from "@/lib/initial-scene";
 import type { MoodboardComment } from "@/lib/types";
 
-const SNAPSHOT_SAVE_DEBOUNCE_MS = 2000;
+const ExcalidrawCanvas = dynamic(
+  () => import("./excalidraw-canvas").then((mod) => mod.ExcalidrawCanvas),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full items-center justify-center text-sm text-zinc-500 dark:text-zinc-400">
+        Carregando quadro…
+      </div>
+    ),
+  },
+);
 
 interface Props {
   boardId: string;
-  initialSnapshot: unknown;
+  // Tag de todo evento reportado ao Sentry por este componente (ver §6.1
+  // do plano de migração tldraw->Excalidraw) -- "staff" | "client" |
+  // "guest", os três surfaces que o embutem (mesmo vocabulário de
+  // MoodboardCommentAuthorType em moodboards.service.ts).
+  surface: "staff" | "client" | "guest";
+  // Moodboard.scene (formato Excalidraw) -- NUNCA Moodboard.snapshot (o
+  // tldraw antigo, ver D1/D3 do plano: nenhum conversor, boards antigos
+  // abrem em branco, o snapshot original fica intacto no banco).
+  initialScene: unknown;
   initialComments: MoodboardComment[];
   // Server action já parcialmente aplicada (bind) pelo chamador -- cada
   // um dos três surfaces (tela do projeto, link de apresentação, portal
   // do convidado) resolve sua própria identidade/escopo antes de passar
   // a função aqui; este componente não sabe nem precisa saber qual é.
-  onSaveSnapshot: (snapshot: TLStoreSnapshot) => Promise<void>;
+  // O shape aceito bate com o lado novo da união em
+  // moodboardSnapshotInputSchema (apps/api/src/ffe/moodboards.service.ts).
+  onSaveSnapshot: (scene: {
+    schemaVersion: number;
+    elements: readonly unknown[];
+    appState: { viewBackgroundColor: string };
+  }) => Promise<void>;
   onAddComment: (body: string) => Promise<MoodboardComment>;
   // Recarrega os comentários da fonte de verdade (apps/api). Chamado
   // quando o canal avisa que ALGUÉM comentou -- ver o porquê de não
-  // confiar no conteúdo do aviso em BroadcastPayload abaixo.
+  // confiar no conteúdo do aviso em use-board-sync.ts.
   onRefreshComments: () => Promise<MoodboardComment[]>;
   // JWT curto, escopado a este quadro, emitido pelo servidor só depois de
   // autorizar a pessoa (ver lib/supabaseBoardToken.ts). null = Supabase
   // não configurado -> quadro funciona sem sincronização ao vivo.
   realtimeToken: string | null;
+  // Prefixo das três Route Handlers de imagem da Fase 2/4f (nunca Server
+  // Actions, ver lib/binaryProxy.ts) -- cada surface monta o seu:
+  // "/api/moodboards/:id/files" (staff), "/present/:token/files/:id"
+  // (cliente), "/quadro/files/:id" (convidado). PUT/GET de um fileId vira
+  // `${filesBaseUrl}/${fileId}`.
+  filesBaseUrl: string;
 }
 
-// O canal é um relay entre navegadores: mesmo com canal privado (só quem
-// foi autorizado naquele quadro entra), qualquer participante legítimo
-// ainda pode montar a mensagem que quiser. Por isso "comment" carrega só
-// um AVISO de que houve comentário novo, nunca o comentário em si -- se
-// carregasse, um participante conseguiria exibir um comentário com o nome
-// de outra pessoa pra todo mundo, sem nunca tocar no banco (achado de
-// revisão de segurança). O conteúdo sempre vem do apps/api.
-// "patch" continua carregando o dado porque é o traço em andamento, que
-// por definição ainda não existe no banco -- e ali o estrago possível é
-// desenhar coisa errada num quadro que a pessoa já podia editar mesmo.
-type BroadcastPayload =
-  | { kind: "patch"; put: unknown[]; remove: string[] }
-  | { kind: "comment" };
-
-// Correção "moodboard vira quadro tldraw", colaboração ao vivo pedida
-// junto: canvas livre de verdade (tldraw) + chat, sincronizados entre
-// quem está olhando ao mesmo tempo via um canal Realtime do Supabase
-// (broadcast puro, sem tabela do Supabase envolvida -- ver
-// lib/supabaseRealtime.ts). Postgres continua sendo o sistema de
-// registro: o canvas é salvo com debounce (não a cada traço) e os
-// comentários são persistidos a cada envio; o canal só acelera a entrega
-// pra quem já está com a página aberta, nunca é a única cópia do dado.
+// Migração tldraw->Excalidraw (ver plano completo em §5 do documento):
+// canvas livre + chat, sincronizados entre quem está olhando ao mesmo
+// tempo via um canal Realtime do Supabase (broadcast puro, sem tabela do
+// Supabase envolvida -- ver lib/supabaseRealtime.ts). Postgres continua
+// sendo o sistema de registro; o canal só acelera a entrega pra quem já
+// está com a página aberta, nunca é a única cópia do dado. A lógica de
+// sincronização em si (os cinco blockers B1-B5 que a revisão do plano
+// encontrou) mora inteira em lib/use-board-sync.ts, alcançada só pelo
+// componente client-only (ver comentário no topo).
 export function CollaborativeBoard({
   boardId,
-  initialSnapshot,
+  surface,
+  initialScene,
   initialComments,
   onSaveSnapshot,
   onAddComment,
   onRefreshComments,
   realtimeToken,
+  filesBaseUrl,
 }: Props) {
-  const store = useMemo(() => createTLStore({ shapeUtils: defaultShapeUtils }), []);
   const [comments, setComments] = useState(initialComments);
   const [commentBody, setCommentBody] = useState("");
   const [sending, setSending] = useState(false);
-  // Achado A58/A59 da auditoria de 30 ago 2026: nem carregar nem salvar o
-  // snapshot tinham tratamento de erro -- uma rejeição (snapshot
-  // corrompido/de versão incompatível do tldraw, ou um save que falhou)
-  // virava exceção não tratada, sem nenhum sinal na tela.
   const [saveError, setSaveError] = useState<string | null>(null);
+  const notifyCommentRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => {
-    if (!initialSnapshot) return;
-    try {
-      loadSnapshot(store, initialSnapshot as TLStoreSnapshot);
-    } catch (err) {
-      // Achado A59: loadSnapshot lançando dentro de um useEffect sobe até
-      // o error boundary e derruba a página inteira (FF&E do estúdio ou
-      // /present do cliente) de forma persistente -- degrada pra store
-      // vazio em vez disso; o conteúdo original continua no banco
-      // (só não é exibido), então nada é perdido além da exibição.
-      console.error(`[quadro] snapshot inválido, abrindo com o quadro vazio: ${(err as Error).message}`);
-      setSaveError("Não foi possível abrir o conteúdo salvo desta prancha — ela foi aberta em branco.");
+  // Achado A59, aplicado no carregamento (o backend já aplica a mesma
+  // disciplina ao SALVAR, ver moodboardSnapshotInputSchema) -- restore()/
+  // restoreElements() da própria lib NUNCA lançam, então um `scene`
+  // corrompido silenciosamente viraria um quadro vazio, e o debounce de
+  // save escreveria esse vazio por cima do único conteúdo salvo. `scene`
+  // ausente (board novo, ou board antigo que só tem o `snapshot` do
+  // tldraw) não é uma falha -- é só "ainda não tem nada no formato
+  // novo", abre em branco normalmente (D1 do plano).
+  const parsed = useMemo(() => {
+    if (initialScene == null) {
+      return { failed: false, elements: [] as ExcalidrawElement[], viewBackgroundColor: undefined as string | undefined };
     }
-  }, [store, initialSnapshot]);
-
-  const channelRef = useRef<ReturnType<typeof createBoardChannel>["channel"] | null>(null);
-
-  useEffect(() => {
-    // Sem token não há canal privado -- degrada pra "sem sincronização ao
-    // vivo", não quebra o canvas/chat em si (salvar/enviar continuam
-    // funcionando, só sem retransmissão instantânea pra outra aba).
-    if (!realtimeToken) {
-      return;
+    const result = parseInitialScene(initialScene);
+    if (!result) {
+      console.error("[quadro] scene inválida, abrindo com o quadro vazio");
+      Sentry.captureException(new Error("scene inválida no load"), { tags: { surface, boardId } });
+      return { failed: true, elements: [] as ExcalidrawElement[], viewBackgroundColor: undefined as string | undefined };
     }
-    let board: ReturnType<typeof createBoardChannel>;
-    try {
-      board = createBoardChannel(boardId, realtimeToken);
-    } catch (err) {
-      console.warn((err as Error).message);
-      return;
+    if (result.droppedElements > 0) {
+      // Regra 12: descartar conteúdo salvo em silêncio não é opção. Não é
+      // `failed` (o resto da cena abre normalmente e continuar salvando é
+      // o que TIRA o elemento envenenado da linha), mas precisa aparecer.
+      console.error(
+        `[quadro] ${result.droppedElements} elemento(s) do scene salvo tinham index/version forjado ou inválido e foram descartados`,
+      );
+      Sentry.captureException(new Error(`scene com ${result.droppedElements} elemento(s) inválido(s) no load`), {
+        tags: { surface, boardId },
+      });
     }
-    const { channel } = board;
-    channelRef.current = channel;
-
-    channel.on("broadcast", { event: "board" }, ({ payload }: { payload: BroadcastPayload }) => {
-      if (payload.kind === "patch") {
-        store.mergeRemoteChanges(() => {
-          if (payload.put.length > 0) store.put(payload.put as Parameters<typeof store.put>[0]);
-          if (payload.remove.length > 0) store.remove(payload.remove as Parameters<typeof store.remove>[0]);
-        });
-      } else if (payload.kind === "comment") {
-        // Só o aviso chega pelo canal -- o conteúdo vem do apps/api, que
-        // é quem sabe quem de fato escreveu (ver BroadcastPayload).
-        onRefreshComments()
-          .then(setComments)
-          .catch((err) => console.warn((err as Error).message));
-      }
-    });
-    // Sem este callback, falhar em entrar no canal era 100% silencioso --
-    // o quadro seguia funcionando (salvar/comentar vão pelo apps/api,
-    // não pelo canal), mas "não atualiza pro outro em tempo real" não
-    // deixava nenhuma pista de por quê. O motivo mais provável em
-    // produção é a policy de realtime.messages não estar aplicada no
-    // projeto Supabase (ver docs/fase-0/supabase-realtime-policy.sql):
-    // sem ela o canal privado recusa todo mundo, que é o padrão seguro,
-    // mas precisa ser diagnosticável.
-    channel.subscribe((status, err) => {
-      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        console.warn(
-          `[quadro] sincronização ao vivo indisponível (${status}): ${err?.message ?? "sem detalhe"} -- o quadro continua salvando normalmente.`,
-        );
-      }
-    });
-
-    return () => {
-      channel.unsubscribe();
-      // Achado A61: desliga o CLIENT desta prancha (não um singleton
-      // compartilhado) -- cada CollaborativeBoard tem o seu próprio desde
-      // a correção, então isto nunca afeta a conexão de outra prancha
-      // montada na mesma página.
-      board.disconnect();
-      channelRef.current = null;
+    return {
+      failed: false,
+      elements: result.elements as ExcalidrawElement[],
+      viewBackgroundColor: result.viewBackgroundColor,
     };
-  }, [store, boardId, realtimeToken, onRefreshComments]);
-
-  useEffect(() => {
-    let saveTimeout: ReturnType<typeof setTimeout> | null = null;
-
-    // .document, não o TLEditorSnapshot inteiro -- session (câmera,
-    // ferramenta selecionada) é por pessoa, salvar isso serviria só pra
-    // empurrar a câmera de quem salvou por último em cima de todo mundo
-    // que reabrir a prancha depois.
-    // Achado A58: onSaveSnapshot é uma promise (server action) chamada
-    // sem .catch() -- um 413 (corpo grande demais, ver SNAPSHOT_BODY_LIMIT
-    // em main.ts) ou qualquer outra falha de rede virava unhandled
-    // rejection no console, sem NENHUM sinal na tela: a pessoa desenhava
-    // achando que estava salvo, fechava a aba, e o trabalho sumia.
-    const flush = () =>
-      onSaveSnapshot(getSnapshot(store).document)
-        .then(() => setSaveError(null))
-        .catch((err) => {
-          console.error(`[quadro] falha ao salvar o snapshot: ${(err as Error).message}`);
-          setSaveError("Não foi possível salvar as últimas alterações desta prancha.");
-        });
-
-    const unlisten = store.listen(
-      (entry) => {
-        const put = [
-          ...Object.values(entry.changes.added),
-          ...Object.values(entry.changes.updated).map(([, to]) => to),
-        ];
-        const remove = Object.keys(entry.changes.removed);
-
-        if (put.length > 0 || remove.length > 0) {
-          channelRef.current?.send({ type: "broadcast", event: "board", payload: { kind: "patch", put, remove } });
-        }
-
-        if (saveTimeout) clearTimeout(saveTimeout);
-        saveTimeout = setTimeout(() => {
-          saveTimeout = null;
-          flush();
-        }, SNAPSHOT_SAVE_DEBOUNCE_MS);
-      },
-      { source: "user", scope: "document" },
-    );
-
-    return () => {
-      unlisten();
-      // Achado real de revisão: cancelar o timeout sem descarregar
-      // perdia silenciosamente o último traço se a pessoa navegasse pra
-      // outra rota (troca de projeto, etc.) dentro da janela de debounce.
-      // Fecho de aba/refresh continua fora do alcance disto -- exigiria
-      // beforeunload + sendBeacon, e onSaveSnapshot é uma server action
-      // (fetch), não compatível com beacon sem reescrevê-la.
-      if (saveTimeout) {
-        clearTimeout(saveTimeout);
-        flush();
-      }
-    };
-  }, [store, onSaveSnapshot]);
+    // Só reavalia quando o próprio scene muda; surface/boardId são
+    // estáveis por mount e só aparecem nos tags do Sentry acima.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialScene]);
 
   async function handleSendComment() {
     const body = commentBody.trim();
@@ -208,11 +143,10 @@ export function CollaborativeBoard({
       const comment = await onAddComment(body);
       setComments((prev) => [...prev, comment]);
       setCommentBody("");
-      // Só avisa que houve comentário -- quem recebe busca o conteúdo no
-      // apps/api (ver BroadcastPayload).
-      channelRef.current?.send({ type: "broadcast", event: "board", payload: { kind: "comment" } });
+      notifyCommentRef.current?.();
     } catch (err) {
       console.error((err as Error).message);
+      Sentry.captureException(err, { tags: { surface, boardId } });
     } finally {
       setSending(false);
     }
@@ -220,13 +154,39 @@ export function CollaborativeBoard({
 
   return (
     <div className="flex flex-col gap-3">
+      {parsed.failed && (
+        <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+          Não foi possível abrir o conteúdo salvo desta prancha — ela foi aberta em branco.
+        </p>
+      )}
       {saveError && (
         <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
           {saveError}
         </p>
       )}
       <div style={{ position: "relative", height: 560 }} className="overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
-        <Tldraw store={store} />
+        <ExcalidrawCanvas
+          boardId={boardId}
+          surface={surface}
+          realtimeToken={realtimeToken}
+          filesBaseUrl={filesBaseUrl}
+          initialElements={parsed.elements}
+          initialViewBackgroundColor={parsed.viewBackgroundColor ?? "#ffffff"}
+          loadFailed={parsed.failed}
+          onSaveSnapshot={onSaveSnapshot}
+          onSaveErrorChange={setSaveError}
+          onRemoteComment={() => {
+            onRefreshComments()
+              .then(setComments)
+              .catch((err) => {
+                console.warn((err as Error).message);
+                Sentry.captureException(err, { tags: { surface, boardId } });
+              });
+          }}
+          onNotifyCommentReady={(fn) => {
+            notifyCommentRef.current = fn;
+          }}
+        />
       </div>
 
       <div className="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">

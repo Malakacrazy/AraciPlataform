@@ -28,6 +28,8 @@ const ALLOWED_ABSENT = {
   NEXT_RUNTIME: "definida pelo próprio Next.js em runtime",
   ZAPSIGN_SANDBOX_API_TOKEN:
     "ZAPSIGN_ENV está fixo em 'production' no render.yaml, então zapsign-client.ts nunca lê o token de sandbox naquele ambiente",
+  SUPABASE_STORAGE_BUCKET:
+    "ainda não tem adapter (ver moodboard-blob-store.ts / plano de migração tldraw->Excalidraw §5.2/D3) -- backend de imagem é Postgres Bytes por ora; a leitura existe só pra falhar alto e cedo se alguém configurar a variável antes do adapter Supabase existir, nunca deve ser lida com sucesso em produção hoje.",
 };
 
 const APPS = [

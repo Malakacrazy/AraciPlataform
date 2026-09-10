@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Patch, Post, Body, Res, StreamableFile } from '@nestjs/common';
+import { Controller, Get, Param, Patch, Post, Put, Body, Headers, Res, StreamableFile } from '@nestjs/common';
 import type { Response } from 'express';
 import {
   PublicPresentationService,
@@ -95,7 +95,7 @@ export class PublicPresentationController {
     return new StreamableFile(file.data);
   }
 
-  // Quadro tldraw + chat -- carregado sob demanda por prancha (ver
+  // Quadro colaborativo (Excalidraw) + chat -- carregado sob demanda por prancha (ver
   // comentário em getPresentation). Cliente com o link tem escrita
   // igual ao resto do link (posse do link = acesso): desenha e comenta,
   // não só olha.
@@ -115,6 +115,46 @@ export class PublicPresentationController {
   ) {
     const data = await this.publicPresentationService.saveMoodboardSnapshot(token, moodboardId, input.snapshot);
     return { data };
+  }
+
+  // Mesmo padrão de moodboards.controller.ts (staff): corpo binário puro
+  // (raw() em main.ts), mimeType lido do próprio Content-Type.
+  @Public()
+  @Put('moodboards/:moodboardId/files/:fileId')
+  async putMoodboardFile(
+    @Param('token') token: string,
+    @Param('moodboardId') moodboardId: string,
+    @Param('fileId') fileId: string,
+    @Headers('content-type') contentType: string | undefined,
+    @Body() bytes: Buffer,
+  ) {
+    const data = await this.publicPresentationService.putMoodboardFile(
+      token,
+      moodboardId,
+      fileId,
+      contentType ?? 'application/octet-stream',
+      bytes,
+    );
+    return { data };
+  }
+
+  @Public()
+  @Get('moodboards/:moodboardId/files/:fileId')
+  async getMoodboardFile(
+    @Param('token') token: string,
+    @Param('moodboardId') moodboardId: string,
+    @Param('fileId') fileId: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const file = await this.publicPresentationService.getMoodboardFile(token, moodboardId, fileId);
+    res.set({
+      // Já normalizados pela allowlist do MoodboardFilesService.
+      'Content-Type': file.mimeType,
+      'Content-Disposition': file.disposition,
+      'Cache-Control': 'private, max-age=31536000, immutable',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    return new StreamableFile(file.bytes);
   }
 
   @Public()

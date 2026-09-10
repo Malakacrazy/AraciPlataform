@@ -34,3 +34,23 @@ export class ServiceUnavailableError extends ApiError {
     super('SERVICE_UNAVAILABLE', message, 503);
   }
 }
+
+export class BadRequestError extends ApiError {
+  constructor(message = 'Requisição inválida.') {
+    super('BAD_REQUEST', message, 400);
+  }
+}
+
+// Upload de imagem de prancha (ver moodboard-files.service.ts) --
+// tipo rejeitado (SVG) ou corpo maior que IMAGE_UPLOAD_LIMIT.
+export class UnsupportedMediaTypeError extends ApiError {
+  constructor(message = 'Tipo de arquivo não suportado.') {
+    super('UNSUPPORTED_MEDIA_TYPE', message, 415);
+  }
+}
+
+export class PayloadTooLargeError extends ApiError {
+  constructor(message = 'Arquivo maior que o limite permitido.') {
+    super('PAYLOAD_TOO_LARGE', message, 413);
+  }
+}

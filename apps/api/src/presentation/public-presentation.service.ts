@@ -6,6 +6,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { setAuditActor } from '../audit/audit-context';
 import { GoogleDriveService } from '../office/google-drive.service';
 import { MoodboardsService, type MoodboardCommentInput, type MoodboardSnapshotInput } from '../ffe/moodboards.service';
+import { MoodboardFilesService } from '../ffe/moodboard-files.service';
 
 // Só clientApproved/clientComment — nunca productId/quantity/unitPrice/
 // markupPercent. O cliente aprova e comenta; preço e quantidade
@@ -43,6 +44,7 @@ export class PublicPresentationService {
     private readonly notificationsService: NotificationsService,
     private readonly googleDriveService: GoogleDriveService,
     private readonly moodboardsService: MoodboardsService,
+    private readonly moodboardFilesService: MoodboardFilesService,
   ) {}
 
   private async getLinkOrThrow(token: string) {
@@ -93,9 +95,9 @@ export class PublicPresentationService {
             },
           },
         },
-        // Só id/name aqui -- snapshot do tldraw pode ser um JSON grande
-        // (shapes + assets), carregado sob demanda por prancha (ver
-        // getMoodboardBoard abaixo), não de uma vez com o resto da
+        // Só id/name aqui -- a cena do quadro (scene, formato Excalidraw)
+        // pode ser um JSON grande, carregada sob demanda por prancha
+        // (ver getMoodboardBoard abaixo), não de uma vez com o resto da
         // apresentação.
         moodboards: {
           orderBy: { createdAt: 'asc' },
@@ -171,7 +173,7 @@ export class PublicPresentationService {
     return moodboard.project.accountId;
   }
 
-  // O quadro tldraw em si -- carregado sob demanda (ver comentário em
+  // O quadro colaborativo (Excalidraw) em si -- carregado sob demanda (ver comentário em
   // getPresentation). Cliente com o link tem acesso de escrita igual ao
   // resto do link de apresentação (posse do link = acesso, mesmo
   // princípio de updateSpecification): pode desenhar/comentar, não só
@@ -186,6 +188,20 @@ export class PublicPresentationService {
     const link = await this.getLinkOrThrow(token);
     const accountId = await this.getOwnMoodboardAccountId(link.projectId, moodboardId);
     return this.moodboardsService.saveSnapshot(accountId, moodboardId, { snapshot });
+  }
+
+  // Mesmo escopo de saveMoodboardSnapshot -- posse do link dá acesso de
+  // escrita ao quadro, imagem incluída (ver plano de migração §5.2).
+  async putMoodboardFile(token: string, moodboardId: string, fileId: string, mimeType: string, bytes: Buffer) {
+    const link = await this.getLinkOrThrow(token);
+    const accountId = await this.getOwnMoodboardAccountId(link.projectId, moodboardId);
+    return this.moodboardFilesService.putFile(accountId, moodboardId, fileId, mimeType, bytes);
+  }
+
+  async getMoodboardFile(token: string, moodboardId: string, fileId: string) {
+    const link = await this.getLinkOrThrow(token);
+    const accountId = await this.getOwnMoodboardAccountId(link.projectId, moodboardId);
+    return this.moodboardFilesService.getFile(accountId, moodboardId, fileId);
   }
 
   async listMoodboardComments(token: string, moodboardId: string) {

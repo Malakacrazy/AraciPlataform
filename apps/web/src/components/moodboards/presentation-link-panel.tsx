@@ -1,8 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import type { PresentationLink } from "@/lib/types";
 import { regeneratePresentationLink, revokePresentationLink } from "./actions";
+
+// Referência estável de propósito: uma arrow inline aqui remontaria a
+// inscrição a cada render.
+function subscribeToNothing(): () => void {
+  return () => {};
+}
 
 export function PresentationLinkPanel({
   projectId,
@@ -14,8 +20,29 @@ export function PresentationLinkPanel({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Achado de revisão (encontrado testando a migração tldraw->Excalidraw
+  // num navegador de verdade, não relacionado a ela) -- `typeof window
+  // !== "undefined"` direto no corpo do componente é exatamente o
+  // branch server/client que o próprio React aponta como causa clássica
+  // de mismatch de hidratação: o servidor sempre renderiza null (sem
+  // window), o cliente já renderiza a URL de cara, hidratação detecta a
+  // divergência e descarta a árvore inteira pra regenerar do zero.
+  //
+  // useSyncExternalStore com getServerSnapshot é a ferramenta exata pra
+  // isso: o terceiro argumento é o que o servidor E a passada de
+  // hidratação usam (null, igual ao HTML enviado), o segundo é o valor
+  // do cliente, aplicado num re-render DEPOIS da hidratação. Fazer o
+  // mesmo com setState num useEffect de mount funciona igual, mas é o
+  // que a regra react-hooks/set-state-in-effect recusa. `origin` é uma
+  // string estável, então getSnapshot é === entre chamadas e não há
+  // loop; o store nunca notifica.
+  const origin = useSyncExternalStore(
+    subscribeToNothing,
+    () => window.location.origin,
+    () => null,
+  );
 
-  const url = link && typeof window !== "undefined" ? `${window.location.origin}/present/${link.token}` : null;
+  const url = link && origin ? `${origin}/present/${link.token}` : null;
 
   async function run(action: () => Promise<void>) {
     setError(null);

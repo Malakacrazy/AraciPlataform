@@ -255,14 +255,14 @@ já foi testada de ponta a ponta. Primeira coisa a conferir se
      960MB (→ 412MB);
   3. poda por workspace no builder: o `npm ci` da raiz instala TODOS os
      workspaces, então a imagem do api carregava `next` (201MB),
-     `@next` (94MB), `sharp`, react e tldraw — nada disso roda ali
-     (→ 293MB).
+     `@next` (94MB), `sharp`, react e @excalidraw/excalidraw (tldraw até
+     a migração pro Excalidraw) — nada disso roda ali (→ 293MB).
   O `araci-web` é 94MB. As devDependencies **continuam** na imagem final
   de propósito — o Pre-Deploy roda `prisma migrate deploy` contra ela.
   Por isso a poda seleciona *workspaces* em vez de usar `--omit=dev`:
-  `next`/`react`/`tldraw` são dependências de PRODUÇÃO do apps/web (não
-  sairiam), e o `prisma` é devDependency do packages/db (sairia junto,
-  quebrando a migração).
+  `next`/`react`/`@excalidraw/excalidraw` são dependências de PRODUÇÃO
+  do apps/web (não sairiam), e o `prisma` é devDependency do
+  packages/db (sairia junto, quebrando a migração).
 - **JDK só existe pra satisfazer um postinstall** (`xsd-schema-validator`,
   transitivo da NFS-e) de código que não executamos — o validador padrão
   é o JS-based. Hoje ele fica só no estágio de build, fora da imagem

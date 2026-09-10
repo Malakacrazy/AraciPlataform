@@ -12,7 +12,7 @@ import { PublicPresentationService } from './public-presentation.service';
   // ErpModule para ProjectsService (PresentationLinksService), Notifications
   // para avisar a equipe quando o cliente aprova algo pelo link público,
   // OfficeModule para GoogleDriveService (documentos visíveis ao cliente),
-  // FfeModule para MoodboardsService (quadro tldraw + chat, ver
+  // FfeModule para MoodboardsService (quadro colaborativo + chat, ver
   // PublicPresentationService).
   imports: [ErpModule, NotificationsModule, OfficeModule, FfeModule],
   controllers: [PresentationLinksController, PublicPresentationController],

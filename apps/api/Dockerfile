@@ -94,10 +94,11 @@ RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" \
 # DEPOIS de compilar. Medido dentro da imagem anterior: o `npm ci` da
 # raiz instala TODOS os workspaces, então a imagem do api carregava o
 # apps/web inteiro junto -- `next` 201MB, `@next` 94MB, `@img` (sharp)
-# 27MB, mais react/tldraw. Nada disso roda aqui.
+# 27MB, mais react/@excalidraw. Nada disso roda aqui.
 #
-# `--omit=dev` NÃO resolveria: `next`/`react`/`tldraw` são dependências
-# de PRODUÇÃO do apps/web (só somem excluindo o workspace), e o `prisma`
+# `--omit=dev` NÃO resolveria: `next`/`react`/`@excalidraw/excalidraw`
+# são dependências de PRODUÇÃO do apps/web (só somem excluindo o
+# workspace), e o `prisma`
 # -- que o Pre-Deploy Command precisa -- é devDependency do packages/db,
 # então seria removido junto. Selecionar workspace é o corte certo.
 #

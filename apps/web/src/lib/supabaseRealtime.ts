@@ -51,6 +51,14 @@ export function createBoardChannel(moodboardId: string, realtimeToken: string): 
   }
   const client = createClient(supabaseUrl, supabaseAnonKey);
   client.realtime.setAuth(realtimeToken);
-  const channel = client.channel(`moodboard:${moodboardId}`, { config: { private: true } });
+  // broadcast: { ack: true } -- achado B4 da revisão do plano de
+  // migração tldraw->Excalidraw: sem isto, RealtimeChannel.send() num
+  // canal aberto resolve 'ok' SINCRONAMENTE (antes de qualquer round-
+  // trip pro servidor), então checar o status devolvido era código
+  // morto -- um broadcast derrubado por limite de tamanho/taxa ficava
+  // tão invisível quanto antes. Com ack:true o status é real.
+  const channel = client.channel(`moodboard:${moodboardId}`, {
+    config: { private: true, broadcast: { ack: true } },
+  });
   return { channel, disconnect: () => client.realtime.disconnect() };
 }

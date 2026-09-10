@@ -55,8 +55,9 @@ export async function addMoodboardComment(moodboardId: string, body: string): Pr
 
 // Fonte de verdade dos comentários pro CollaborativeBoard: o canal
 // Realtime só avisa que houve comentário novo, o conteúdo vem daqui (ver
-// BroadcastPayload em collaborative-board.tsx -- não dá pra confiar no
-// autor que outro participante do canal declarar).
+// BoardPayload em lib/use-board-sync.ts, onde `kind: "comment"` não
+// carrega nada além do aviso -- não dá pra confiar no autor que outro
+// participante do canal declarar).
 export async function listMoodboardComments(moodboardId: string): Promise<MoodboardComment[]> {
   const res = await apiFetch(`moodboards/${moodboardId}/comments`);
   const resBody = await res.json().catch(() => null);

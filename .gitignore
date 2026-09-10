@@ -7,6 +7,10 @@ build/
 coverage/
 .turbo/
 *.tsbuildinfo
+# Copiado de node_modules/@excalidraw/excalidraw/dist/prod/fonts pelo
+# script de build (ver scripts/copy-excalidraw-fonts.mjs) -- artefato
+# derivado, nunca deveria ser commitado.
+apps/web/public/fonts/
 .pgdata/
 .env
 .env.local

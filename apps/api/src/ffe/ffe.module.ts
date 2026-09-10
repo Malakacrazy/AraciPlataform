@@ -12,6 +12,7 @@ import {
 import { SpecificationsService } from './specifications.service';
 import { ProjectMoodboardsController, MoodboardsController } from './moodboards.controller';
 import { MoodboardsService } from './moodboards.service';
+import { MoodboardFilesService } from './moodboard-files.service';
 import { WhiteboardGuestsController } from './whiteboard-guests.controller';
 import { WhiteboardGuestsService } from './whiteboard-guests.service';
 
@@ -34,8 +35,9 @@ import { WhiteboardGuestsService } from './whiteboard-guests.service';
     AreasService,
     SpecificationsService,
     MoodboardsService,
+    MoodboardFilesService,
     WhiteboardGuestsService,
   ],
-  exports: [SpecificationsService, MoodboardsService],
+  exports: [SpecificationsService, MoodboardsService, MoodboardFilesService],
 })
 export class FfeModule {}

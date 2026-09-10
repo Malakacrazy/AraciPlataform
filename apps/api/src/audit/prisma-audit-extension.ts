@@ -5,12 +5,20 @@ import { getAuditActor } from './audit-context';
 // notificação, nunca "dado de negócio" que alguém precisaria investigar
 // depois. AuditLog está aqui também, óbvio: sem isso a própria escrita do
 // log dispararia a si mesma (recursão infinita).
+// MoodboardFileBytes: só o blob em si, sem `id` (chave é `storageKey`,
+// ver schema.prisma) -- pickScalars(model, after).id seria sempre
+// undefined, e writeAuditLog falharia (Prisma exige entityId) em toda
+// escrita. Mesma exclusão de MoodboardFileBytes.bytes que já vale pro
+// Moodboard.snapshot/scene (ver REDACTED_FIELDS abaixo): blob grande e
+// imutável, sem valor de investigação -- a linha que aponta pra ele
+// (MoodboardFile, com id de verdade) continua auditada normalmente.
 const EXCLUDED_MODELS = new Set([
   'AuditLog',
   'Notification',
   'ClientMagicLink',
   'ClientSession',
   'PresentationLink',
+  'MoodboardFileBytes',
 ]);
 
 function modelKeyOf(model: string): string {
@@ -56,12 +64,23 @@ function scalarFieldsFor(model: string): Set<string> {
   return fields;
 }
 
+// Moodboard.snapshot é a cena inteira do quadro (JSON grande, reescrito a
+// cada ~2s de autosave) -- gravar antes+depois em AuditLog dobra o
+// tamanho de cada escrita sem nenhum valor de investigação (ninguém audita
+// "o traço mudou"). Mesmo problema alcançaria a futura coluna `scene`.
+const REDACTED_FIELDS: Record<string, Set<string>> = {
+  Moodboard: new Set(['snapshot', 'scene']),
+};
+
 function pickScalars(model: string, row: Record<string, unknown> | null): Record<string, unknown> | null {
   if (!row) return null;
   const fields = scalarFieldsFor(model);
+  const redacted = REDACTED_FIELDS[model];
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(row)) {
-    if (fields.has(key)) out[key] = row[key];
+    if (!fields.has(key)) continue;
+    if (redacted?.has(key)) continue;
+    out[key] = row[key];
   }
   return out;
 }

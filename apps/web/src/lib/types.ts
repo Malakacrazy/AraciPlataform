@@ -384,15 +384,34 @@ export interface ProductSpecification {
   clientComment?: string | null;
 }
 
-// Correção "moodboard vira quadro tldraw" -- snapshot é o TLStoreSnapshot
-// inteiro (shapes + assets), opaco pra este app (só o tldraw sabe
-// desenhar a partir dele). null numa prancha recém-criada, ainda sem
-// nenhum traço.
+// Correção "moodboard vira quadro colaborativo" -- a cena inteira do
+// quadro, opaca pra este app (só o Excalidraw sabe desenhar a partir
+// dela). Ver o campo `scene` abaixo: este comentário descrevia um campo
+// `snapshot` (TLStoreSnapshot do tldraw) que esta interface não tem mais
+// desde a Fase 4 da migração tldraw->Excalidraw.
 export interface Moodboard {
   id: string;
   projectId: string;
   name: string;
-  snapshot: unknown;
+  // Formato Excalidraw ({ schemaVersion, elements, appState allowlist })
+  // -- null em toda prancha que ainda não foi salva no formato novo.
+  // Moodboard.snapshot (TLStoreSnapshot do tldraw) existe na tabela mas
+  // não sai mais por nenhuma leitura da API desde a Fase 5 da migração
+  // tldraw->Excalidraw ("stop returning snapshot from reads") -- nunca
+  // mais escrito (D3), mantido só porque as fotos ainda podem ser
+  // extraídas dele depois (D7). Por isso nem aparece aqui.
+  scene: unknown;
+}
+
+// Forma de GET /projects/:id/moodboards (moodboardsService.listMoodboards)
+// -- sem snapshot de propósito, a query de lista não traz mais a cena de
+// cada prancha (ver comentário no service). Quem precisa do conteúdo
+// busca por prancha via GET /moodboards/:id, que devolve o Moodboard
+// completo acima.
+export interface MoodboardSummary {
+  id: string;
+  projectId: string;
+  name: string;
 }
 
 export type MoodboardCommentAuthorType = "user" | "client" | "guest";
@@ -465,7 +484,7 @@ export interface PresentationMoodboard {
 export interface PresentationMoodboardBoard {
   id: string;
   name: string;
-  snapshot: unknown;
+  scene: unknown;
 }
 
 // Item "grande" da lista de 11 (gestão documental) -- só o que a equipe

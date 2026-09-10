@@ -8,7 +8,12 @@ const nextConfig: NextConfig = {
   output: "standalone",
   // Achado A58 da auditoria de 30 ago 2026: Server Actions do Next têm
   // teto próprio de 1MB por padrão -- o snapshot do tldraw (shapes +
-  // assets, imagem de referência vira base64 embutido) estoura isso.
+  // assets, imagem de referência vira base64 embutido) estourava isso.
+  // Migração tldraw->Excalidraw (ver plano): imagens saem do snapshot/
+  // scene por conta própria (bytes via Route Handler, nunca Server
+  // Action, ver lib/binaryProxy.ts/moodboard-files.service.ts), mas o
+  // limite continua servindo pro payload de texto (elements/appState) e
+  // pro formato tldraw antigo ainda aceito durante a janela de troca.
   // MESMO número de apps/api/src/main.ts (SNAPSHOT_BODY_LIMIT) -- os
   // dois lados do corpo (Server Action → apps/api) precisam concordar.
   experimental: {
