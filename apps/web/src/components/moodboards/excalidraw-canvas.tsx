@@ -15,11 +15,13 @@ import { Excalidraw } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { useBoardSync } from "@/lib/use-board-sync";
+import { useBoardFiles } from "@/lib/use-board-files";
 
 interface Props {
   boardId: string;
   surface: "staff" | "client" | "guest";
   realtimeToken: string | null;
+  filesBaseUrl: string;
   initialElements: ExcalidrawElement[];
   initialViewBackgroundColor: string;
   loadFailed: boolean;
@@ -47,6 +49,7 @@ export function ExcalidrawCanvas({
   boardId,
   surface,
   realtimeToken,
+  filesBaseUrl,
   initialElements,
   initialViewBackgroundColor,
   loadFailed,
@@ -74,6 +77,8 @@ export function ExcalidrawCanvas({
   useEffect(() => {
     onNotifyCommentReady(notifyComment);
   }, [notifyComment, onNotifyCommentReady]);
+
+  useBoardFiles({ filesBaseUrl, surface, boardId, excalidrawAPI: api });
 
   return (
     <Excalidraw

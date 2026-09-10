@@ -21,31 +21,44 @@ const WINDOW_MS = 60_000;
 // generosos pro uso legítimo (um cliente pedindo o link de novo, um
 // provedor reenviando webhook) e apertados o suficiente pra script de
 // spam não sair de graça.
-const RULES: Array<{ prefix: string; methods: string[]; limit: number }> = [
+// `id` explícito em cada regra (achado §6.7 do plano de migração
+// tldraw->Excalidraw) -- a chave do balde usava `rule.prefix` direto;
+// duas regras que legitimamente compartilham o mesmo prefix (ver
+// present-post/present-files-put abaixo, ambas "/present/") colidiam no
+// mesmo contador, então uma esgotava o balde da outra sem relação
+// nenhuma entre os dois limites.
+const RULES: Array<{ id: string; prefix: string; methods: string[]; limit: number }> = [
   // Formulário público de lead e pedido de magic link: as duas escritas
   // que um estranho alcança sem credencial nenhuma. Server Actions são
   // POST pro próprio path da página, por isso o método importa -- GET
   // (só abrir a página) não é limitado.
-  { prefix: "/lead", methods: ["POST"], limit: 10 },
-  { prefix: "/portal/login", methods: ["POST"], limit: 10 },
-  { prefix: "/colaborador/login", methods: ["POST"], limit: 10 },
+  { id: "lead-post", prefix: "/lead", methods: ["POST"], limit: 10 },
+  { id: "portal-login-post", prefix: "/portal/login", methods: ["POST"], limit: 10 },
+  { id: "colaborador-login-post", prefix: "/colaborador/login", methods: ["POST"], limit: 10 },
   // Achado A51 da auditoria de 30 ago 2026: as Server Actions da página
   // pública de apresentação (aprovar/desaprovar especificação, comentar,
   // salvar snapshot do quadro) fazem POST pro próprio path /present/
   // <token> -- de fora do matcher, nada limitava quem tivesse o link de
   // ficar alternando aprovar/desaprovar (um e-mail via Resend a cada
   // transição, sem teto) ou submetendo snapshot repetidamente.
-  { prefix: "/present/", methods: ["POST"], limit: 60 },
+  { id: "present-post", prefix: "/present/", methods: ["POST"], limit: 60 },
   // Troca de token por sessão: UUID v4 não é adivinhável por força bruta
   // (122 bits), mas limitar corta o ruído e o custo de quem tentar.
-  { prefix: "/portal/verify", methods: ["GET"], limit: 30 },
-  { prefix: "/colaborador/verify", methods: ["GET"], limit: 30 },
-  { prefix: "/api/quadro/", methods: ["GET"], limit: 30 },
+  { id: "portal-verify-get", prefix: "/portal/verify", methods: ["GET"], limit: 30 },
+  { id: "colaborador-verify-get", prefix: "/colaborador/verify", methods: ["GET"], limit: 30 },
+  { id: "api-quadro-get", prefix: "/api/quadro/", methods: ["GET"], limit: 30 },
   // Webhooks: já autenticados por header de segredo do lado do apps/api.
   // Limite alto de propósito -- Asaas/ZapSign reenviam em rajada quando
   // uma entrega falha, e derrubar retry legítimo seria pior que o abuso
   // que isto evita.
-  { prefix: "/api/webhooks/", methods: ["POST"], limit: 120 },
+  { id: "webhooks-post", prefix: "/api/webhooks/", methods: ["POST"], limit: 120 },
+  // Fase 4f da migração tldraw->Excalidraw: upload de imagem de prancha
+  // (PUT nas Route Handlers de lib/binaryProxy.ts) -- mesmas duas
+  // superfícies anônimas/sem credencial de conta que já tinham regra
+  // pra POST (achado §6.7: o matcher não cobria /quadro/, corrigido
+  // abaixo em config.matcher).
+  { id: "present-files-put", prefix: "/present/", methods: ["PUT"], limit: 30 },
+  { id: "quadro-files-put", prefix: "/quadro/files/", methods: ["PUT"], limit: 30 },
 ];
 
 const hits = new Map<string, { count: number; resetAt: number }>();
@@ -73,7 +86,7 @@ export default function proxy(request: NextRequest) {
   }
 
   const now = Date.now();
-  const key = `${rule.prefix}:${clientIp(request)}`;
+  const key = `${rule.id}:${clientIp(request)}`;
   const entry = hits.get(key);
 
   if (!entry || entry.resetAt <= now) {
@@ -113,5 +126,10 @@ export const config = {
     "/api/quadro/:path*",
     "/api/webhooks/:path*",
     "/present/:path*",
+    // Achado §6.7 do plano de migração tldraw->Excalidraw: faltava aqui
+    // -- é onde o upload de imagem do portal do convidado (Fase 4f)
+    // mora, e é justamente a superfície sem credencial de conta (cookie
+    // de sessão do convidado, path: "/quadro").
+    "/quadro/:path*",
   ],
 };

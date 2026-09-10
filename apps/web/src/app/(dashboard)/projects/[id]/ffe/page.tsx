@@ -352,6 +352,7 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
               <CollaborativeBoard
                 boardId={board.id}
                 surface="staff"
+                filesBaseUrl={`/api/moodboards/${board.id}/files`}
                 initialScene={boardDetailsByBoard[i].scene}
                 initialComments={commentsByBoard[i]}
                 onSaveSnapshot={saveMoodboardSnapshot.bind(null, board.id)}

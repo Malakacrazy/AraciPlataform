@@ -62,6 +62,12 @@ interface Props {
   // autorizar a pessoa (ver lib/supabaseBoardToken.ts). null = Supabase
   // não configurado -> quadro funciona sem sincronização ao vivo.
   realtimeToken: string | null;
+  // Prefixo das três Route Handlers de imagem da Fase 2/4f (nunca Server
+  // Actions, ver lib/binaryProxy.ts) -- cada surface monta o seu:
+  // "/api/moodboards/:id/files" (staff), "/present/:token/files/:id"
+  // (cliente), "/quadro/files/:id" (convidado). PUT/GET de um fileId vira
+  // `${filesBaseUrl}/${fileId}`.
+  filesBaseUrl: string;
 }
 
 // Migração tldraw->Excalidraw (ver plano completo em §5 do documento):
@@ -82,6 +88,7 @@ export function CollaborativeBoard({
   onAddComment,
   onRefreshComments,
   realtimeToken,
+  filesBaseUrl,
 }: Props) {
   const [comments, setComments] = useState(initialComments);
   const [commentBody, setCommentBody] = useState("");
@@ -150,6 +157,7 @@ export function CollaborativeBoard({
           boardId={boardId}
           surface={surface}
           realtimeToken={realtimeToken}
+          filesBaseUrl={filesBaseUrl}
           initialElements={parsed.elements}
           initialViewBackgroundColor={parsed.viewBackgroundColor ?? "#ffffff"}
           loadFailed={parsed.failed}

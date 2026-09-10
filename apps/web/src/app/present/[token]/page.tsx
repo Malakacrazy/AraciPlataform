@@ -165,6 +165,7 @@ export default async function PresentationPage({
                   <CollaborativeBoard
                     boardId={board.id}
                     surface="client"
+                    filesBaseUrl={`/present/${token}/files/${board.id}`}
                     initialScene={board.scene}
                     initialComments={comments}
                     onSaveSnapshot={saveMoodboardSnapshot.bind(null, token, board.id)}
