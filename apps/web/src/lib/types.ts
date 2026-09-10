@@ -395,6 +395,17 @@ export interface Moodboard {
   snapshot: unknown;
 }
 
+// Forma de GET /projects/:id/moodboards (moodboardsService.listMoodboards)
+// -- sem snapshot de propósito, a query de lista não traz mais a cena de
+// cada prancha (ver comentário no service). Quem precisa do conteúdo
+// busca por prancha via GET /moodboards/:id, que devolve o Moodboard
+// completo acima.
+export interface MoodboardSummary {
+  id: string;
+  projectId: string;
+  name: string;
+}
+
 export type MoodboardCommentAuthorType = "user" | "client" | "guest";
 
 export interface MoodboardComment {

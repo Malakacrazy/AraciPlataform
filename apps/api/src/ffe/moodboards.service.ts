@@ -59,11 +59,18 @@ export class MoodboardsService {
     private readonly projectsService: ProjectsService,
   ) {}
 
+  // Sem `snapshot` (nem a futura `scene`) aqui: a tela de FF&E lista todas
+  // as pranchas do projeto de uma vez só pra desenhar os cabeçalhos/botões
+  // -- trazer a cena inteira de cada uma nessa mesma query buscaria N
+  // quadros completos sem necessidade. Quem precisa do conteúdo de uma
+  // prancha busca via GET /moodboards/:id (getMoodboard), prancha por
+  // prancha, como o frontend já faz para comentários e convidados.
   async listMoodboards(accountId: string, projectId: string) {
     await this.projectsService.getProject(accountId, projectId);
     return this.prisma.db.moodboard.findMany({
       where: { projectId },
       orderBy: { createdAt: 'asc' },
+      select: { id: true, projectId: true, name: true, createdAt: true },
     });
   }
 

@@ -9,6 +9,7 @@ import type {
   Product,
   ProductSpecification,
   Moodboard,
+  MoodboardSummary,
   MoodboardComment,
   WhiteboardGuestAccess,
   PresentationLink,
@@ -40,7 +41,7 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
   let project: Project;
   let areas: Area[];
   let products: Product[];
-  let moodboards: Moodboard[];
+  let moodboards: MoodboardSummary[];
   let presentationLink: PresentationLink | null;
   let me: Me;
   try {
@@ -48,7 +49,7 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
       apiGet<Project>(`projects/${id}`),
       apiGet<Area[]>(`projects/${id}/areas`),
       apiGet<Product[]>("products"),
-      apiGet<Moodboard[]>(`projects/${id}/moodboards`),
+      apiGet<MoodboardSummary[]>(`projects/${id}/moodboards`),
       apiGet<PresentationLink | null>(`projects/${id}/presentation-link`),
       apiGet<Me>("me"),
     ]);
@@ -71,6 +72,12 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
 
   const commentsByBoard = await Promise.all(
     moodboards.map((board) => apiGet<MoodboardComment[]>(`moodboards/${board.id}/comments`)),
+  );
+
+  // A lista acima não traz mais snapshot (ver MoodboardSummary) -- cada
+  // prancha busca a própria cena aqui, mesmo padrão de commentsByBoard.
+  const boardDetailsByBoard = await Promise.all(
+    moodboards.map((board) => apiGet<Moodboard>(`moodboards/${board.id}`)),
   );
 
   // Token do canal privado do Realtime -- emitido só aqui, depois da
@@ -342,7 +349,7 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
           <div className="mt-3">
             <CollaborativeBoard
               boardId={board.id}
-              initialSnapshot={board.snapshot}
+              initialSnapshot={boardDetailsByBoard[i].snapshot}
               initialComments={commentsByBoard[i]}
               onSaveSnapshot={saveMoodboardSnapshot.bind(null, board.id)}
               onAddComment={addMoodboardComment.bind(null, board.id)}

@@ -56,12 +56,23 @@ function scalarFieldsFor(model: string): Set<string> {
   return fields;
 }
 
+// Moodboard.snapshot é a cena inteira do quadro (JSON grande, reescrito a
+// cada ~2s de autosave) -- gravar antes+depois em AuditLog dobra o
+// tamanho de cada escrita sem nenhum valor de investigação (ninguém audita
+// "o traço mudou"). Mesmo problema alcançaria a futura coluna `scene`.
+const REDACTED_FIELDS: Record<string, Set<string>> = {
+  Moodboard: new Set(['snapshot', 'scene']),
+};
+
 function pickScalars(model: string, row: Record<string, unknown> | null): Record<string, unknown> | null {
   if (!row) return null;
   const fields = scalarFieldsFor(model);
+  const redacted = REDACTED_FIELDS[model];
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(row)) {
-    if (fields.has(key)) out[key] = row[key];
+    if (!fields.has(key)) continue;
+    if (redacted?.has(key)) continue;
+    out[key] = row[key];
   }
   return out;
 }
