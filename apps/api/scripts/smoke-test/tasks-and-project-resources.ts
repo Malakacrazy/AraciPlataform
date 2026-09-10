@@ -683,10 +683,24 @@ export async function runTasksAndProjectResourcesChecks({
     method: "PATCH",
     body: JSON.stringify({ snapshot: fakeSnapshot }),
   });
+  // O PATCH deixou de ECOAR a coluna JSON que acabou de gravar (achado de
+  // revisão: é o endpoint mais quente do quadro, um save por pausa no
+  // desenho de cada participante, e nenhuma das três telas lê a resposta
+  // -- era megabyte de JSON serializado e jogado fora). Então a prova de
+  // que gravou vem do banco, direto, que é mais forte que o echo.
+  const rowAfterSnapshot = await prisma.moodboard.findUniqueOrThrow({
+    where: { id: moodboardId },
+    select: { snapshot: true, scene: true },
+  });
   report(
-    "PATCH /moodboards/:id/snapshot → 200, devolve o snapshot salvo",
-    saveSnapshotRes.status === 200 && saveSnapshotRes.body?.data?.snapshot?.marker === "smoke-test-snapshot",
-    saveSnapshotRes.body
+    "PATCH /moodboards/:id/snapshot → 200, grava na coluna `snapshot` e devolve só os campos leves",
+    saveSnapshotRes.status === 200 &&
+      (rowAfterSnapshot.snapshot as { marker?: string } | null)?.marker === "smoke-test-snapshot" &&
+      rowAfterSnapshot.scene === null &&
+      saveSnapshotRes.body?.data?.id === moodboardId &&
+      saveSnapshotRes.body?.data?.snapshot === undefined &&
+      saveSnapshotRes.body?.data?.scene === undefined,
+    { response: saveSnapshotRes.body, row: rowAfterSnapshot }
   );
 
   // Fase 5 da migração tldraw->Excalidraw ("stop returning snapshot from
@@ -731,15 +745,59 @@ export async function runTasksAndProjectResourcesChecks({
     method: "PATCH",
     body: JSON.stringify({ snapshot: fakeScene }),
   });
+  // Direto no banco pelo mesmo motivo do check anterior -- e aqui é a
+  // ÚNICA forma de provar a metade que importa mais (o `snapshot` do
+  // tldraw intacto), porque nenhuma leitura da API traz mais essa coluna
+  // desde a Fase 5.
+  const rowAfterScene = await prisma.moodboard.findUniqueOrThrow({
+    where: { id: moodboardId },
+    select: { snapshot: true, scene: true },
+  });
   report(
-    "PATCH /moodboards/:id/snapshot (formato Excalidraw) → 200, grava em `scene`",
+    "PATCH /moodboards/:id/snapshot (formato Excalidraw) → 200, grava em `scene` e NÃO toca `snapshot`",
     saveSceneRes.status === 200 &&
-      saveSceneRes.body?.data?.scene?.marker === "smoke-test-scene" &&
-      // A resposta do PATCH (echo do que a própria mutação escreveu) não
-      // passa pela mesma poda de leitura de GET/list -- ainda inclui o
-      // `snapshot` (tldraw) salvo antes, provando que ele não foi tocado.
-      saveSceneRes.body?.data?.snapshot?.marker === "smoke-test-snapshot",
-    saveSceneRes.body
+      (rowAfterScene.scene as { marker?: string } | null)?.marker === "smoke-test-scene" &&
+      (rowAfterScene.snapshot as { marker?: string } | null)?.marker === "smoke-test-snapshot",
+    { response: saveSceneRes.body, row: rowAfterScene }
+  );
+
+  // Guarda contra index/version forjados no caminho de PERSISTÊNCIA
+  // (achado de revisão: a guarda existia só no broadcast, então este
+  // PATCH era um desvio em volta dela -- e um version absurdo persistido
+  // vence o reconcile de todo peer PARA SEMPRE). Os mesmos limites de
+  // isSaneRemoteElement em apps/web/src/lib/initial-scene.ts.
+  const forgedVersionRes = await api(`/v1/moodboards/${moodboardId}/snapshot`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      snapshot: { ...fakeScene, elements: [{ id: "el1", type: "rectangle", version: 9e15, index: "a1" }] },
+    }),
+  });
+  report(
+    "PATCH /moodboards/:id/snapshot com version forjada → 400 (não persiste elemento imbatível)",
+    forgedVersionRes.status === 400,
+    forgedVersionRes.body
+  );
+
+  const forgedIndexRes = await api(`/v1/moodboards/${moodboardId}/snapshot`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      snapshot: { ...fakeScene, elements: [{ id: "el1", type: "rectangle", version: 1, index: "z".repeat(64) }] },
+    }),
+  });
+  report(
+    "PATCH /moodboards/:id/snapshot com index forjado → 400 (não persiste elemento pinado no topo)",
+    forgedIndexRes.status === 400,
+    forgedIndexRes.body
+  );
+
+  const sceneStillIntact = await prisma.moodboard.findUniqueOrThrow({
+    where: { id: moodboardId },
+    select: { scene: true },
+  });
+  report(
+    "...e a scene válida anterior continua intacta depois dos dois 400",
+    (sceneStillIntact.scene as { marker?: string } | null)?.marker === "smoke-test-scene",
+    sceneStillIntact
   );
 
   // GET de verdade (não só o echo do PATCH acima) -- prova que `scene`
@@ -948,8 +1006,76 @@ export async function runTasksAndProjectResourcesChecks({
     await guestAfterRevokeRes.json().catch(() => null)
   );
 
+  // Blobs de imagem do quadro são CONTEÚDO-ENDEREÇADOS (sha256 ->
+  // MoodboardFileBytes.storageKey, ver moodboard-blob-store.ts): duas
+  // pranchas que colaram a MESMA imagem compartilham a mesma linha de
+  // bytes. Então o delete de uma prancha tem que apagar só o blob que
+  // ficou sem nenhuma referência -- CASCADE sozinho (que leva as linhas
+  // MoodboardFile) deixaria os bytes órfãos pra sempre, e uma limpeza
+  // ingênua apagaria bytes que a OUTRA prancha ainda usa, quebrando a
+  // imagem dela.
+  //
+  // As linhas são semeadas direto (é exatamente o que um PUT
+  // /moodboards/:id/files/:fileId produz -- o round-trip HTTP binário
+  // tem verificação própria) porque o que está sob teste aqui é a
+  // transação do delete: ela foi reescrita depois de uma revisão apontar
+  // que a versão anterior apagava os blobs ANTES do moodboard.delete e
+  // fora de transação, ou seja, uma falha no delete deixava a prancha
+  // viva apontando pra bytes inexistentes.
+  const sharedKey = `smoke-shared-${Date.now()}`;
+  const exclusiveKey = `smoke-exclusive-${Date.now()}`;
+  const otherBoardRes = await api(`/v1/projects/${projectId}/moodboards`, {
+    method: "POST",
+    body: JSON.stringify({ name: "Prancha que compartilha a imagem" }),
+  });
+  const otherBoardId = otherBoardRes.body?.data?.id;
+  await prisma.moodboardFileBytes.createMany({
+    data: [
+      { storageKey: sharedKey, bytes: new Uint8Array([1, 2, 3]) },
+      { storageKey: exclusiveKey, bytes: new Uint8Array([4, 5, 6]) },
+    ],
+  });
+  await prisma.moodboardFile.createMany({
+    data: [
+      { moodboardId, fileId: "file-shared", mimeType: "image/png", byteSize: 3, storageKey: sharedKey },
+      { moodboardId, fileId: "file-exclusive", mimeType: "image/png", byteSize: 3, storageKey: exclusiveKey },
+      // A outra prancha aponta pro MESMO storageKey (mesma imagem colada
+      // nas duas), com um fileId próprio.
+      { moodboardId: otherBoardId, fileId: "file-shared-2", mimeType: "image/png", byteSize: 3, storageKey: sharedKey },
+    ],
+  });
+
   const deleteMoodboardRes = await api(`/v1/moodboards/${moodboardId}`, { method: "DELETE" });
   report("DELETE /moodboards/:id → 204", deleteMoodboardRes.status === 204, deleteMoodboardRes.body);
+
+  const filesAfterDelete = await prisma.moodboardFile.count({ where: { moodboardId } });
+  const sharedStillThere = await prisma.moodboardFileBytes.count({ where: { storageKey: sharedKey } });
+  const exclusiveGone = await prisma.moodboardFileBytes.count({ where: { storageKey: exclusiveKey } });
+  report(
+    "DELETE da prancha cascadeia as linhas MoodboardFile dela",
+    filesAfterDelete === 0,
+    { filesAfterDelete }
+  );
+  report(
+    "...apaga o blob que ficou sem referência nenhuma",
+    exclusiveGone === 0,
+    { exclusiveGone }
+  );
+  report(
+    "...e PRESERVA o blob que a outra prancha ainda usa (conteúdo-endereçado)",
+    sharedStillThere === 1,
+    { sharedStillThere }
+  );
+
+  // Agora a outra prancha é a última referência -- deletá-la deve levar o
+  // blob compartilhado embora também.
+  const deleteOtherRes = await api(`/v1/moodboards/${otherBoardId}`, { method: "DELETE" });
+  const sharedAfterLastRef = await prisma.moodboardFileBytes.count({ where: { storageKey: sharedKey } });
+  report(
+    "Deletar a ÚLTIMA prancha que referenciava o blob compartilhado leva o blob junto",
+    deleteOtherRes.status === 204 && sharedAfterLastRef === 0,
+    { status: deleteOtherRes.status, sharedAfterLastRef }
+  );
 
   // Limpeza inline da identidade do convidado -- mesmo padrão de
   // collaboratorEmail mais adiante no run: e-mail único por run, então é

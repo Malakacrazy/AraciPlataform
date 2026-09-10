@@ -384,10 +384,11 @@ export interface ProductSpecification {
   clientComment?: string | null;
 }
 
-// Correção "moodboard vira quadro tldraw" -- snapshot é o TLStoreSnapshot
-// inteiro (shapes + assets), opaco pra este app (só o tldraw sabe
-// desenhar a partir dele). null numa prancha recém-criada, ainda sem
-// nenhum traço.
+// Correção "moodboard vira quadro colaborativo" -- a cena inteira do
+// quadro, opaca pra este app (só o Excalidraw sabe desenhar a partir
+// dela). Ver o campo `scene` abaixo: este comentário descrevia um campo
+// `snapshot` (TLStoreSnapshot do tldraw) que esta interface não tem mais
+// desde a Fase 4 da migração tldraw->Excalidraw.
 export interface Moodboard {
   id: string;
   projectId: string;

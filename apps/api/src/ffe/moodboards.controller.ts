@@ -64,9 +64,9 @@ export class MoodboardsController {
     await this.moodboardsService.deleteMoodboard(accountId, id);
   }
 
-  // Debounced no frontend (ver TldrawBoard) -- não é chamado a cada
-  // stroke, só depois de uma pausa no desenho, pra não martelar o banco
-  // a cada movimento de mouse.
+  // Debounced no frontend (SAVE_DEBOUNCE_MS em use-board-sync.ts) -- não
+  // é chamado a cada stroke, só depois de uma pausa no desenho, pra não
+  // martelar o banco a cada movimento de mouse.
   @Patch(':id/snapshot')
   async saveSnapshot(
     @SessionAccount() { accountId }: SessionAccountType,

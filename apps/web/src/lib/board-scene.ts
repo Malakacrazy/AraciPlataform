@@ -20,23 +20,16 @@ import type { ExcalidrawElement, OrderedExcalidrawElement } from "@excalidraw/ex
 import type { AppState } from "@excalidraw/excalidraw/types";
 import type { RemoteExcalidrawElement } from "@excalidraw/excalidraw/data/reconcile";
 
+import { isSaneRemoteElement } from "@/lib/initial-scene";
+
 export { CaptureUpdateAction };
-
-// `index` é fractional-indexing puro (string comparada com </>, ver
-// fractional-indexing no package.json da própria lib) -- NÃO faz parte
-// do critério de desempate do reconcile (isso é version/versionNonce).
-// Sem validar o formato, um `"zzzzzz"` forjado pina um elemento acima de
-// tudo em todo peer, PERMANENTEMENTE (persistido no próximo save) --
-// achado B da revisão do plano, §5.1 passo 2.
-const INDEX_PATTERN = /^[a-zA-Z0-9]{1,32}$/;
-
-// Sem teto real na lib (version é só um number incrementado por
-// mutateElement) -- este teto é só uma defesa contra um forjado
-// absurdo (Infinity, 1e300), generoso o bastante pra nunca ser
-// alcançado por edição de verdade (dezenas de milhões de versões).
-const MAX_PLAUSIBLE_VERSION = 10_000_000;
-
-const MAX_ID_LENGTH = 256;
+// Reexportado daqui porque o canal (use-board-sync.ts) e os testes
+// tratam board-scene.ts como a fachada do núcleo de sincronização -- a
+// DEFINIÇÃO vive em initial-scene.ts, que é livre de import do pacote,
+// pra que o caminho de PERSISTÊNCIA (parseInitialScene, server-rendered)
+// possa aplicar exatamente a mesma guarda que o caminho do canal. Duas
+// cópias da mesma regra era o bug: só o canal filtrava.
+export { isSaneRemoteElement };
 
 // Campos ignorados na "impressão digital" de conteúdo de um elemento
 // (ver contentFingerprint abaixo) -- version/versionNonce/updated mudam
@@ -67,26 +60,6 @@ export function contentFingerprint(element: ExcalidrawElement): string {
     }
   }
   return JSON.stringify(out);
-}
-
-// Filtro de sanidade por elemento recebido do canal -- ver §5.1 passo 2
-// do plano. object; id string curto; type string; version inteiro
-// seguro sob teto; index no formato certo. Não valida mais que isso:
-// restoreElements (chamado depois, com repairBindings desligado) é quem
-// garante a forma completa do elemento -- isto aqui só barra o que
-// restoreElements não rejeitaria sozinho (um `index` ou `version`
-// forjado continuam "válidos" o bastante pra passar por restore/
-// reconcile normalmente, é aí que o estrago some).
-export function isSaneRemoteElement(value: unknown): value is Record<string, unknown> {
-  if (!value || typeof value !== "object") return false;
-  const el = value as Record<string, unknown>;
-  if (typeof el.id !== "string" || el.id.length === 0 || el.id.length >= MAX_ID_LENGTH) return false;
-  if (typeof el.type !== "string" || el.type.length === 0) return false;
-  if (!Number.isSafeInteger(el.version) || (el.version as number) < 0 || (el.version as number) > MAX_PLAUSIBLE_VERSION) {
-    return false;
-  }
-  if (typeof el.index !== "string" || !INDEX_PATTERN.test(el.index)) return false;
-  return true;
 }
 
 // Passo 3 do plano (§5.1): restoreElements(elements, null) -- o segundo

@@ -114,6 +114,17 @@ export function CollaborativeBoard({
       Sentry.captureException(new Error("scene inválida no load"), { tags: { surface, boardId } });
       return { failed: true, elements: [] as ExcalidrawElement[], viewBackgroundColor: undefined as string | undefined };
     }
+    if (result.droppedElements > 0) {
+      // Regra 12: descartar conteúdo salvo em silêncio não é opção. Não é
+      // `failed` (o resto da cena abre normalmente e continuar salvando é
+      // o que TIRA o elemento envenenado da linha), mas precisa aparecer.
+      console.error(
+        `[quadro] ${result.droppedElements} elemento(s) do scene salvo tinham index/version forjado ou inválido e foram descartados`,
+      );
+      Sentry.captureException(new Error(`scene com ${result.droppedElements} elemento(s) inválido(s) no load`), {
+        tags: { surface, boardId },
+      });
+    }
     return {
       failed: false,
       elements: result.elements as ExcalidrawElement[],

@@ -100,3 +100,46 @@ describe('normalizeImageMimeType', () => {
     expect(normalizeImageMimeType('')).toBeNull();
   });
 });
+
+// Achado da revisão: a guarda contra index/version forjados existia só no
+// caminho do canal (isSaneRemoteElement em apps/web), então este PATCH era
+// um desvio aberto em volta dela -- e o que passa por aqui é PERSISTIDO,
+// vencendo o reconcile de todo peer para sempre. Os limites abaixo são
+// deliberadamente os MESMOS de initial-scene.ts; se um lado mudar sem o
+// outro, é aqui que aparece.
+describe('excalidrawSnapshotSchema -- index/version forjados', () => {
+  const el = { id: 'el1', type: 'rectangle', version: 3, index: 'a1', x: 0, y: 0 };
+  const scene = (elements: unknown[]) => ({
+    snapshot: { schemaVersion: 1, elements, appState: { viewBackgroundColor: '#fff' } },
+  });
+
+  it('aceita um elemento normal', () => {
+    expect(moodboardSnapshotInputSchema.safeParse(scene([el])).success).toBe(true);
+  });
+
+  it('aceita um elemento sem index -- nem todo salvo passou por syncInvalidIndices', () => {
+    const noIndex = { id: el.id, type: el.type, version: el.version, x: el.x, y: el.y };
+    expect(moodboardSnapshotInputSchema.safeParse(scene([noIndex])).success).toBe(true);
+  });
+
+  it('rejeita version acima do teto plausível (o vetor de envenenamento permanente)', () => {
+    expect(moodboardSnapshotInputSchema.safeParse(scene([{ ...el, version: 9e15 }])).success).toBe(false);
+    expect(moodboardSnapshotInputSchema.safeParse(scene([{ ...el, version: 10_000_001 }])).success).toBe(false);
+  });
+
+  it('rejeita version não inteira ou negativa', () => {
+    expect(moodboardSnapshotInputSchema.safeParse(scene([{ ...el, version: -1 }])).success).toBe(false);
+    expect(moodboardSnapshotInputSchema.safeParse(scene([{ ...el, version: 1.5 }])).success).toBe(false);
+  });
+
+  it('rejeita index fora do formato de fractional-indexing', () => {
+    expect(moodboardSnapshotInputSchema.safeParse(scene([{ ...el, index: 'z'.repeat(64) }])).success).toBe(false);
+    expect(moodboardSnapshotInputSchema.safeParse(scene([{ ...el, index: 'tem espaço' }])).success).toBe(false);
+    expect(moodboardSnapshotInputSchema.safeParse(scene([{ ...el, index: '' }])).success).toBe(false);
+  });
+
+  it('rejeita id vazio ou absurdamente longo', () => {
+    expect(moodboardSnapshotInputSchema.safeParse(scene([{ ...el, id: '' }])).success).toBe(false);
+    expect(moodboardSnapshotInputSchema.safeParse(scene([{ ...el, id: 'x'.repeat(300) }])).success).toBe(false);
+  });
+});

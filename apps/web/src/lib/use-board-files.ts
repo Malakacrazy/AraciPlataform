@@ -23,6 +23,21 @@ const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 // upload evita o round-trip.
 const REJECTED_MIME_TYPES = new Set(["image/svg+xml"]);
 
+// Backoff do "trigger de reparo". fetchMissingFile roda a cada onChange
+// -- ou seja ~60x por segundo enquanto alguém arrasta o mouse -- e a
+// primeira versão limpava fetchingRef no finally sem memorizar NADA sobre
+// a falha. Um fileId que devolve 404 (o caso comum e legítimo: o upload
+// do peer ainda não chegou ao Postgres) virava uma requisição por
+// onChange, indefinidamente, pra CADA participante ao mesmo tempo: o
+// board tenta se reparar e, ao fazê-lo, martela a própria API.
+//
+// Nem "desiste pra sempre" serve, porque aí a imagem do peer nunca
+// apareceria. Tentativas com backoff exponencial, teto pequeno, e um
+// aviso no Sentry no fim -- desistir em silêncio é o que a regra 12
+// proíbe.
+const MAX_FETCH_ATTEMPTS = 6;
+const FETCH_BACKOFF_BASE_MS = 1_000;
+
 function dataUrlToBytes(dataUrl: string): { bytes: Uint8Array; labelMimeType: string } {
   const commaIdx = dataUrl.indexOf(",");
   const header = dataUrl.slice(0, commaIdx);
@@ -84,6 +99,7 @@ interface Options {
 export function useBoardFiles({ filesBaseUrl, surface, boardId, excalidrawAPI }: Options) {
   const uploadedRef = useRef(new Set<string>());
   const fetchingRef = useRef(new Set<string>());
+  const failedRef = useRef(new Map<string, { attempts: number; retryAfter: number }>());
 
   useEffect(() => {
     if (!excalidrawAPI) return;
@@ -133,12 +149,38 @@ export function useBoardFiles({ filesBaseUrl, surface, boardId, excalidrawAPI }:
       }
     }
 
+    // `permanent` pros status em que tentar de novo não muda nada (403 do
+    // token/sessão, 400 de caminho inválido): vai direto pro teto em vez
+    // de queimar seis rodadas de backoff.
+    function noteFetchFailure(fileId: string, reason: string, permanent: boolean) {
+      const prev = failedRef.current.get(fileId);
+      const attempts = permanent ? MAX_FETCH_ATTEMPTS : (prev?.attempts ?? 0) + 1;
+      failedRef.current.set(fileId, {
+        attempts,
+        retryAfter: Date.now() + FETCH_BACKOFF_BASE_MS * 2 ** Math.min(attempts - 1, 5),
+      });
+      if (attempts >= MAX_FETCH_ATTEMPTS && (prev?.attempts ?? 0) < MAX_FETCH_ATTEMPTS) {
+        // Uma vez só, na virada -- não um evento por onChange.
+        Sentry.captureMessage(`imagem ${fileId} não pôde ser carregada (${reason}); desistindo`, {
+          tags: { surface, boardId },
+        });
+      }
+    }
+
     async function fetchMissingFile(fileId: string) {
       if (fetchingRef.current.has(fileId) || api.getFiles()[fileId]) return;
+      const failure = failedRef.current.get(fileId);
+      if (failure && (failure.attempts >= MAX_FETCH_ATTEMPTS || Date.now() < failure.retryAfter)) return;
       fetchingRef.current.add(fileId);
       try {
         const res = await fetch(`${filesBaseUrl}/${fileId}`, { cache: "force-cache" });
-        if (!res.ok) return; // degrada quieto (mesmo espírito de updateImageCache da própria lib)
+        if (!res.ok) {
+          // Degrada quieto na tela (mesmo espírito de updateImageCache da
+          // própria lib), mas com memória: um 404 aqui quase sempre é "o
+          // upload do peer ainda não chegou", que o backoff cobre.
+          noteFetchFailure(fileId, `HTTP ${res.status}`, res.status === 400 || res.status === 401 || res.status === 403);
+          return;
+        }
         const mimeType = res.headers.get("content-type") ?? "application/octet-stream";
         const blob = await res.blob();
         const dataURL = await new Promise<string>((resolve, reject) => {
@@ -156,8 +198,12 @@ export function useBoardFiles({ filesBaseUrl, surface, boardId, excalidrawAPI }:
           },
         ]);
         uploadedRef.current.add(fileId); // já veio de algum lugar -- nunca precisa "subir" de novo
+        failedRef.current.delete(fileId);
       } catch (err) {
-        Sentry.captureException(err, { tags: { surface, boardId } });
+        // Pelo mesmo caminho do !res.ok: sem isso, uma falha de rede
+        // gerava um captureException por onChange -- o mesmo storm, só
+        // que no Sentry em vez da API.
+        noteFetchFailure(fileId, (err as Error).message, false);
       } finally {
         fetchingRef.current.delete(fileId);
       }

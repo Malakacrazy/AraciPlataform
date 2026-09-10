@@ -38,15 +38,33 @@ const tldrawSnapshotSchema = z
   })
   .loose();
 
+// Os mesmos limites de isSaneRemoteElement em apps/web/src/lib/
+// initial-scene.ts, e não por gosto de simetria: sem eles, a guarda
+// existia SÓ no caminho do canal (broadcast), e o PATCH de snapshot era
+// um desvio aberto em volta dela. Um `version: 9e15` gravado assim vence
+// o desempate do reconcile de todo peer PARA SEMPRE -- nenhuma edição
+// legítima consegue mais sobrepor aquele elemento, em nenhuma tela, e o
+// dano sobrevive a qualquer reload porque está no banco. `index` é
+// fractional-indexing (comparado com </>): um "zzzz..." forjado pina o
+// elemento acima de tudo. Nenhum cliente de verdade produz nada disso,
+// então rejeitar o PATCH inteiro (400) é a resposta certa e barulhenta;
+// `index` fica opcional só porque nem todo elemento salvo precisa ter
+// passado por syncInvalidIndices, mas se vier, vem no formato.
+const MAX_PLAUSIBLE_VERSION = 10_000_000;
+
 const excalidrawSnapshotSchema = z
   .object({
     schemaVersion: z.number(),
     elements: z.array(
       z
         .object({
-          id: z.string(),
-          type: z.string(),
-          version: z.number(),
+          id: z.string().min(1).max(255),
+          type: z.string().min(1),
+          version: z.number().int().min(0).max(MAX_PLAUSIBLE_VERSION),
+          index: z
+            .string()
+            .regex(/^[a-zA-Z0-9]{1,32}$/, 'index de elemento em formato inválido')
+            .optional(),
         })
         .loose(),
     ),
@@ -81,6 +99,15 @@ export type MoodboardCommentAuthorType = 'user' | 'client' | 'guest';
 // Excalidraw. Este service não sabe desenhar nada -- só guarda a cena
 // que o cliente manda (debounce no frontend, ver use-board-sync.ts) e
 // devolve pra quem reabre a prancha depois.
+// Os campos "leves" da prancha: tudo menos as duas colunas JSON
+// (`snapshot` do tldraw e `scene` do Excalidraw). Compartilhado pela
+// listagem e pelo retorno do save justamente pra não haver um caminho
+// onde alguém esquece o select e volta a arrastar o JSON inteiro (ver
+// Fase 5 da migração tldraw->Excalidraw: "stop returning snapshot from
+// reads"). getMoodboard é a única leitura que soma `scene` a isto, de
+// propósito -- é ela que abre o quadro.
+const MOODBOARD_SUMMARY_SELECT = { id: true, projectId: true, name: true, createdAt: true } as const;
+
 @Injectable()
 export class MoodboardsService {
   constructor(
@@ -99,7 +126,7 @@ export class MoodboardsService {
     return this.prisma.db.moodboard.findMany({
       where: { projectId },
       orderBy: { createdAt: 'asc' },
-      select: { id: true, projectId: true, name: true, createdAt: true },
+      select: MOODBOARD_SUMMARY_SELECT,
     });
   }
 
@@ -114,7 +141,7 @@ export class MoodboardsService {
   async getMoodboard(accountId: string, id: string) {
     const moodboard = await this.prisma.db.moodboard.findFirst({
       where: { id, project: { accountId } },
-      select: { id: true, projectId: true, name: true, createdAt: true, scene: true },
+      select: { ...MOODBOARD_SUMMARY_SELECT, scene: true },
     });
     if (!moodboard) {
       throw new NotFoundError('Prancha');
@@ -131,16 +158,19 @@ export class MoodboardsService {
 
   async deleteMoodboard(accountId: string, id: string) {
     await this.getMoodboard(accountId, id);
-    // WhiteboardGuestAccess não é cascade (mesmo padrão de
-    // CollaboratorProjectAccess) -- limpo explicitamente antes, senão o
-    // delete da prancha falha com P2003 pra qualquer convidado ainda
-    // vinculado a ela.
-    await this.prisma.db.whiteboardGuestAccess.deleteMany({ where: { moodboardId: id } });
-    await this.deleteOrphanedBlobs(id);
-    // As linhas MoodboardFile em si cascadeiam com este delete (ver
-    // schema.prisma) -- só o blob (MoodboardFileBytes) precisava da
-    // checagem de referência acima antes de sumir.
-    await this.prisma.db.moodboard.delete({ where: { id } });
+    const orphanedKeys = await this.collectOrphanedKeysAndDelete(id);
+    // Só DEPOIS do commit. A ordem aqui é a diferença entre vazar lixo e
+    // perder dado: a primeira versão apagava os blobs ANTES do
+    // moodboard.delete e fora de transação, então qualquer falha no
+    // delete (um P2003 de alguma FK nova, o processo morrendo no meio)
+    // deixava a prancha viva apontando pra bytes que já não existiam --
+    // imagens quebradas, irrecuperáveis. Falhando aqui, o pior caso é um
+    // MoodboardFileBytes órfão ocupando espaço, que qualquer varredura
+    // futura recolhe.
+    const store = getMoodboardBlobStore(this.prisma);
+    for (const storageKey of orphanedKeys) {
+      await store.delete(storageKey);
+    }
   }
 
   // Blobs de imagem são conteúdo-endereçados (ver moodboard-blob-store.ts)
@@ -148,22 +178,39 @@ export class MoodboardsService {
   // storageKey, então CASCADE sozinho apagaria um blob ainda em uso.
   // Achado do plano de migração §5.2: nenhum dos dois desenhos revisados
   // limpava isso, deixando o blob órfão pra sempre em todo delete.
-  private async deleteOrphanedBlobs(moodboardId: string): Promise<void> {
-    const files = await this.prisma.db.moodboardFile.findMany({
-      where: { moodboardId },
-      select: { storageKey: true },
-    });
-    if (files.length === 0) return;
-
-    const store = getMoodboardBlobStore(this.prisma);
-    for (const { storageKey } of files) {
-      const stillReferenced = await this.prisma.db.moodboardFile.count({
-        where: { storageKey, moodboardId: { not: moodboardId } },
+  //
+  // Apaga a prancha e devolve os storageKey que ficaram sem NENHUMA
+  // referência. Tudo numa transação: a checagem de "ainda referenciado"
+  // sem o delete no mesmo escopo é uma condição de corrida com qualquer
+  // upload concorrente. Deletar a prancha PRIMEIRO (o que cascadeia as
+  // linhas MoodboardFile) também deixa a checagem trivial -- sobrou
+  // alguma linha com esse storageKey? -- em vez do `moodboardId: { not }`
+  // que a versão anterior precisava.
+  private async collectOrphanedKeysAndDelete(moodboardId: string): Promise<string[]> {
+    return this.prisma.db.$transaction(async (tx) => {
+      const files = await tx.moodboardFile.findMany({
+        where: { moodboardId },
+        select: { storageKey: true },
       });
-      if (stillReferenced === 0) {
-        await store.delete(storageKey);
-      }
-    }
+      // WhiteboardGuestAccess não é cascade (mesmo padrão de
+      // CollaboratorProjectAccess) -- limpo explicitamente antes, senão o
+      // delete da prancha falha com P2003 pra qualquer convidado ainda
+      // vinculado a ela.
+      await tx.whiteboardGuestAccess.deleteMany({ where: { moodboardId } });
+      await tx.moodboard.delete({ where: { id: moodboardId } });
+
+      const keys = [...new Set(files.map((f) => f.storageKey))];
+      if (keys.length === 0) return [];
+      // UMA query pros N storageKey, não um count() por arquivo: uma
+      // prancha com 30 imagens fazia 31 idas ao banco pra decidir o que
+      // apagar.
+      const survivors = await tx.moodboardFile.groupBy({
+        by: ['storageKey'],
+        where: { storageKey: { in: keys } },
+      });
+      const stillReferenced = new Set(survivors.map((row) => row.storageKey));
+      return keys.filter((key) => !stillReferenced.has(key));
+    });
   }
 
   // Chamado por quem tem acesso de escrita ao quadro -- staff (rota
@@ -181,10 +228,26 @@ export class MoodboardsService {
     // o `snapshot` (tldraw) de uma prancha existente não pode ser tocado
     // por uma escrita no formato novo, senão o rollback de Phase 4 deixa
     // de ser um redeploy e vira uma restauração de backup.
+    //
+    // O `select` não é cosmético: sem ele o update devolve a linha
+    // inteira, incluindo a coluna JSON que acabou de ser gravada (e, numa
+    // prancha herdada, TAMBÉM o `snapshot` do tldraw que este caminho nem
+    // toca). Isto é o endpoint mais quente do quadro -- um PATCH a cada
+    // pausa no desenho, de cada participante -- e as três chamadoras
+    // descartam o corpo da resposta. Era megabyte de JSON lido do disco,
+    // serializado e jogado fora a cada save.
     if ('elements' in snapshot) {
-      return this.prisma.db.moodboard.update({ where: { id }, data: { scene: snapshot } });
+      return this.prisma.db.moodboard.update({
+        where: { id },
+        data: { scene: snapshot },
+        select: MOODBOARD_SUMMARY_SELECT,
+      });
     }
-    return this.prisma.db.moodboard.update({ where: { id }, data: { snapshot } });
+    return this.prisma.db.moodboard.update({
+      where: { id },
+      data: { snapshot },
+      select: MOODBOARD_SUMMARY_SELECT,
+    });
   }
 
   // Sem accountId no parâmetro de propósito -- as três chamadoras (rota

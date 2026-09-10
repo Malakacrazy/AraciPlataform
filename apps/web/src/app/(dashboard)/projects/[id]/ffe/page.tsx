@@ -66,44 +66,40 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
   // é admin evita mostrar um controle que só resultaria em 403.
   const isAdmin = me.accessLevel === "admin";
 
-  const specsByArea = await Promise.all(
-    areas.map((area) => apiGet<ProductSpecification[]>(`areas/${area.id}/specifications`)),
-  );
-  const allSpecs = specsByArea.flat();
-
-  const commentsByBoard = await Promise.all(
-    moodboards.map((board) => apiGet<MoodboardComment[]>(`moodboards/${board.id}/comments`)),
-  );
-
-  // A lista acima não traz mais snapshot (ver MoodboardSummary) -- cada
-  // prancha busca a própria cena aqui, mesmo padrão de commentsByBoard.
-  const boardDetailsByBoard = await Promise.all(
-    moodboards.map((board) => apiGet<Moodboard>(`moodboards/${board.id}`)),
-  );
-
-  // Token do canal privado do Realtime -- emitido só aqui, depois da
-  // sessão de staff já ter sido validada e o projeto/prancha carregados
-  // pelo apps/api com o escopo da conta (ver lib/supabaseBoardToken.ts).
-  const realtimeTokensByBoard = await Promise.all(
-    moodboards.map((board) => mintBoardRealtimeToken(board.id)),
-  );
-
-  // Convidar alguém pra um quadro é @AdminOnly() do lado da API -- 403
-  // aqui só significa staff sem acesso a essa config; degrada pra seção
-  // vazia (esconde convite/lista pra quem não pode gerenciar), não
-  // quebra a tela.
-  const guestsByBoard = await Promise.all(
-    moodboards.map(async (board) => {
-      try {
-        return await apiGet<WhiteboardGuestAccess[]>(`moodboards/${board.id}/guests`);
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 403) {
-          return null;
+  // Uma onda só, não cinco. Os cinco grupos abaixo não dependem um do
+  // outro -- todos dependem apenas de `areas`/`moodboards`, já carregados
+  // no Promise.all acima -- mas estavam em `await`s sequenciais, então o
+  // tempo de abrir a aba de FF&E era a SOMA das cinco rodadas de latência
+  // em vez do maior delas. Num projeto com 4 pranchas isso são 13
+  // requisições em 5 idas e voltas encadeadas; agora, uma.
+  const [specsByArea, commentsByBoard, boardDetailsByBoard, realtimeTokensByBoard, guestsByBoard] = await Promise.all([
+    Promise.all(areas.map((area) => apiGet<ProductSpecification[]>(`areas/${area.id}/specifications`))),
+    Promise.all(moodboards.map((board) => apiGet<MoodboardComment[]>(`moodboards/${board.id}/comments`))),
+    // A lista de pranchas não traz mais snapshot (ver MoodboardSummary) --
+    // cada prancha busca a própria cena aqui.
+    Promise.all(moodboards.map((board) => apiGet<Moodboard>(`moodboards/${board.id}`))),
+    // Token do canal privado do Realtime -- emitido só aqui, depois da
+    // sessão de staff já ter sido validada e o projeto/prancha carregados
+    // pelo apps/api com o escopo da conta (ver lib/supabaseBoardToken.ts).
+    Promise.all(moodboards.map((board) => mintBoardRealtimeToken(board.id))),
+    // Convidar alguém pra um quadro é @AdminOnly() do lado da API -- 403
+    // aqui só significa staff sem acesso a essa config; degrada pra seção
+    // vazia (esconde convite/lista pra quem não pode gerenciar), não
+    // quebra a tela.
+    Promise.all(
+      moodboards.map(async (board) => {
+        try {
+          return await apiGet<WhiteboardGuestAccess[]>(`moodboards/${board.id}/guests`);
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 403) {
+            return null;
+          }
+          throw err;
         }
-        throw err;
-      }
-    }),
-  );
+      }),
+    ),
+  ]);
+  const allSpecs = specsByArea.flat();
 
   // Mesma fórmula de linha do checkout real (ver
   // SpecificationsService.approveCartToInvoiceDraft) -- só reaplicada
