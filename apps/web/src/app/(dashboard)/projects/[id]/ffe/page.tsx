@@ -352,7 +352,7 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
               <CollaborativeBoard
                 boardId={board.id}
                 surface="staff"
-                initialSnapshot={boardDetailsByBoard[i].snapshot}
+                initialScene={boardDetailsByBoard[i].scene}
                 initialComments={commentsByBoard[i]}
                 onSaveSnapshot={saveMoodboardSnapshot.bind(null, board.id)}
                 onAddComment={addMoodboardComment.bind(null, board.id)}

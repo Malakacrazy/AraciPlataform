@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { PresentationLink } from "@/lib/types";
 import { regeneratePresentationLink, revokePresentationLink } from "./actions";
 
@@ -14,8 +14,20 @@ export function PresentationLinkPanel({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Achado de revisão (encontrado testando a migração tldraw->Excalidraw
+  // num navegador de verdade, não relacionado a ela) -- `typeof window
+  // !== "undefined"` direto no corpo do componente é exatamente o
+  // branch server/client que o próprio React aponta como causa clássica
+  // de mismatch de hidratação: o servidor sempre renderiza null (sem
+  // window), o cliente já renderiza a URL de cara, hidratação detecta a
+  // divergência e descarta a árvore inteira pra regenerar do zero.
+  // useEffect (só roda depois da hidratação) evita o branch.
+  const [origin, setOrigin] = useState<string | null>(null);
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
 
-  const url = link && typeof window !== "undefined" ? `${window.location.origin}/present/${link.token}` : null;
+  const url = link && origin ? `${origin}/present/${link.token}` : null;
 
   async function run(action: () => Promise<void>) {
     setError(null);

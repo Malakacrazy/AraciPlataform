@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -39,7 +40,26 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {/* Auto-hospeda as fontes do Excalidraw (ver public/fonts,
+            scripts/copy-excalidraw-fonts.mjs) em vez do fallback padrão
+            da lib em esm.sh -- ver plano de migração tldraw->Excalidraw
+            §6.4/§6.5. Forma literal, NUNCA NEXT_PUBLIC_*: uma env var
+            nova exigiria entrada em render.yaml + ARG no Dockerfile +
+            turbo.json tasks.build.env nos três (check-deploy-config.mjs
+            é gate de CI), e turbo 2.x com envMode strict filtraria uma
+            var esquecida em qualquer um dos três pra undefined
+            silencioso. strategy padrão (afterInteractive), não
+            beforeInteractive: o Excalidraw só é alcançado via
+            next/dynamic ssr:false (ver excalidraw-canvas.tsx), ou seja,
+            bem depois da hidratação de qualquer jeito -- e
+            beforeInteractive real (achado testando num navegador de
+            verdade) empurra um <script> pra dentro da árvore React de
+            um jeito que colide com o hoisting nativo de <script> do
+            React 19, gerando um warning de "script tag" a cada render. */}
+        <Script>{`window.EXCALIDRAW_ASSET_PATH="/"`}</Script>
+        {children}
+      </body>
     </html>
   );
 }

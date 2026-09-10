@@ -132,7 +132,7 @@ export class WhiteboardGuestPortalService {
     await this.requireAccess(sessionToken, moodboardId);
     const moodboard = await this.prisma.db.moodboard.findUnique({
       where: { id: moodboardId },
-      select: { id: true, name: true, snapshot: true },
+      select: { id: true, name: true, snapshot: true, scene: true },
     });
     if (!moodboard) {
       throw new NotFoundError('Prancha'); // defensivo -- inalcançável na prática, ver requireAccess acima

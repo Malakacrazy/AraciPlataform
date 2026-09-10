@@ -68,7 +68,7 @@ export async function logoutGuestSession(sessionToken: string): Promise<void> {
 export async function getGuestBoard(
   sessionToken: string,
   boardId: string,
-): Promise<{ id: string; name: string; snapshot: unknown }> {
+): Promise<{ id: string; name: string; snapshot: unknown; scene: unknown }> {
   const res = await portalFetch(`/boards/${boardId}`, {
     headers: { "X-Whiteboard-Guest-Session": sessionToken },
   });

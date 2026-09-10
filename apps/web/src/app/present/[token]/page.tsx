@@ -165,7 +165,7 @@ export default async function PresentationPage({
                   <CollaborativeBoard
                     boardId={board.id}
                     surface="client"
-                    initialSnapshot={board.snapshot}
+                    initialScene={board.scene}
                     initialComments={comments}
                     onSaveSnapshot={saveMoodboardSnapshot.bind(null, token, board.id)}
                     onAddComment={addMoodboardComment.bind(null, token, board.id)}

@@ -392,7 +392,14 @@ export interface Moodboard {
   id: string;
   projectId: string;
   name: string;
+  // TLStoreSnapshot do tldraw, nunca mais escrito depois da migração
+  // pro Excalidraw (ver D3 do plano de migração) -- fica só pra boards
+  // antigos abrirem em branco (D1: nenhum conversor) sem perder o dado
+  // original, que segue intacto nesta coluna.
   snapshot: unknown;
+  // Formato Excalidraw ({ schemaVersion, elements, appState allowlist })
+  // -- null em toda prancha que ainda não foi salva no formato novo.
+  scene: unknown;
 }
 
 // Forma de GET /projects/:id/moodboards (moodboardsService.listMoodboards)
@@ -477,6 +484,7 @@ export interface PresentationMoodboardBoard {
   id: string;
   name: string;
   snapshot: unknown;
+  scene: unknown;
 }
 
 // Item "grande" da lista de 11 (gestão documental) -- só o que a equipe
