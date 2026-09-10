@@ -74,12 +74,13 @@ export type MoodboardCommentInput = z.infer<typeof moodboardCommentInputSchema>;
 // usado em filtro/índice que precisasse de enum de verdade.
 export type MoodboardCommentAuthorType = 'user' | 'client' | 'guest';
 
-// Correção "moodboard vira quadro tldraw": o canvas livre próprio
+// Correção "moodboard vira quadro colaborativo": o canvas livre próprio
 // (posição/tamanho de produto/amostra, ver MoodboardItem no histórico
-// do git) foi trocado por um quadro tldraw embutido de verdade. Este
-// service não sabe desenhar nada -- só guarda o snapshot que o cliente
-// manda (debounce no frontend, ver TldrawBoard) e devolve pra quem
-// reabre a prancha depois.
+// do git) foi trocado por um quadro embutido de verdade -- tldraw
+// originalmente, Excalidraw desde o plano de migração tldraw->
+// Excalidraw. Este service não sabe desenhar nada -- só guarda a cena
+// que o cliente manda (debounce no frontend, ver use-board-sync.ts) e
+// devolve pra quem reabre a prancha depois.
 @Injectable()
 export class MoodboardsService {
   constructor(
@@ -102,9 +103,18 @@ export class MoodboardsService {
     });
   }
 
+  // Sem `snapshot` (Fase 5 da migração tldraw->Excalidraw: "stop
+  // returning snapshot from reads") -- nada no frontend lê mais esse
+  // campo desde que collaborative-board.tsx passou a usar `scene`
+  // (Fase 4), e o TLStoreSnapshot do tldraw pode ser um JSON grande sem
+  // razão pra sair pela API por padrão. A coluna continua intacta no
+  // banco (decisão D1: nenhum dado apagado, D7: as fotos ainda podem
+  // ser extraídas dela depois) -- quem precisar dela de verdade
+  // consulta o Prisma direto, não por aqui.
   async getMoodboard(accountId: string, id: string) {
     const moodboard = await this.prisma.db.moodboard.findFirst({
       where: { id, project: { accountId } },
+      select: { id: true, projectId: true, name: true, createdAt: true, scene: true },
     });
     if (!moodboard) {
       throw new NotFoundError('Prancha');

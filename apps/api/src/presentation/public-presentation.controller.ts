@@ -95,7 +95,7 @@ export class PublicPresentationController {
     return new StreamableFile(file.data);
   }
 
-  // Quadro tldraw + chat -- carregado sob demanda por prancha (ver
+  // Quadro colaborativo (Excalidraw) + chat -- carregado sob demanda por prancha (ver
   // comentário em getPresentation). Cliente com o link tem escrita
   // igual ao resto do link (posse do link = acesso): desenha e comenta,
   // não só olha.

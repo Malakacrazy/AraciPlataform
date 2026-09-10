@@ -964,16 +964,19 @@ model ProductSpecification {
 
 // FF&E: prancha de apresentação — antes um canvas livre próprio
 // (posição/tamanho de produto/amostra, ver MoodboardItem no histórico),
-// agora um quadro tldraw embutido de verdade: desenho livre, texto,
-// qualquer imagem, não só produtos do catálogo. `snapshot` é o
-// TLStoreSnapshot inteiro (shapes + assets), salvo pelo cliente via
-// debounce (ver MoodboardsService.saveSnapshot) -- Postgres continua
-// sendo o sistema de registro; a sincronização ao vivo entre quem está
-// olhando ao mesmo tempo passa por um canal Realtime do Supabase
-// (ver TldrawSupabaseSync no frontend), nunca persistida lá — só
-// retransmitida. Por projeto, não por Area — o estúdio pode montar mais
-// de uma prancha para o mesmo ambiente (ex.: "Sala de Estar — Conceito
-// 1/2").
+// depois um quadro tldraw embutido, agora Excalidraw (ver plano de
+// migração tldraw->Excalidraw): desenho livre, texto, qualquer imagem,
+// não só produtos do catálogo. `scene` é a cena Excalidraw atual
+// ({ schemaVersion, elements, appState allowlist }, ver
+// MoodboardsService.saveSnapshot); `snapshot` é o TLStoreSnapshot do
+// tldraw, dormente desde a migração (decisão D1: nenhum conversor,
+// nunca mais escrito, mantido só porque as fotos ainda podem ser
+// extraídas dele depois). Postgres continua sendo o sistema de
+// registro; a sincronização ao vivo entre quem está olhando ao mesmo
+// tempo passa por um canal Realtime do Supabase (ver use-board-sync.ts
+// no frontend), nunca persistida lá — só retransmitida. Por projeto,
+// não por Area — o estúdio pode montar mais de uma prancha para o mesmo
+// ambiente (ex.: "Sala de Estar — Conceito 1/2").
 model Moodboard {
   id        String   @id @default(cuid())
   projectId String

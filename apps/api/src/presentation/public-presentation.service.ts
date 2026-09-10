@@ -95,9 +95,9 @@ export class PublicPresentationService {
             },
           },
         },
-        // Só id/name aqui -- snapshot do tldraw pode ser um JSON grande
-        // (shapes + assets), carregado sob demanda por prancha (ver
-        // getMoodboardBoard abaixo), não de uma vez com o resto da
+        // Só id/name aqui -- a cena do quadro (scene, formato Excalidraw)
+        // pode ser um JSON grande, carregada sob demanda por prancha
+        // (ver getMoodboardBoard abaixo), não de uma vez com o resto da
         // apresentação.
         moodboards: {
           orderBy: { createdAt: 'asc' },
@@ -173,7 +173,7 @@ export class PublicPresentationService {
     return moodboard.project.accountId;
   }
 
-  // O quadro tldraw em si -- carregado sob demanda (ver comentário em
+  // O quadro colaborativo (Excalidraw) em si -- carregado sob demanda (ver comentário em
   // getPresentation). Cliente com o link tem acesso de escrita igual ao
   // resto do link de apresentação (posse do link = acesso, mesmo
   // princípio de updateSpecification): pode desenhar/comentar, não só

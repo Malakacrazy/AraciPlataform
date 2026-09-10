@@ -689,10 +689,17 @@ export async function runTasksAndProjectResourcesChecks({
     saveSnapshotRes.body
   );
 
+  // Fase 5 da migração tldraw->Excalidraw ("stop returning snapshot from
+  // reads"): GET /moodboards/:id não traz mais `snapshot` -- nada no
+  // frontend lê mais esse campo (Fase 4 trocou pra `scene`), a coluna
+  // continua intacta no banco (D1/D7), só não sai mais por essa leitura.
+  // `scene` ainda é null aqui: só salvamos no formato tldraw até agora.
   const getMoodboardRes = await api(`/v1/moodboards/${moodboardId}`);
   report(
-    "GET /moodboards/:id → 200, snapshot sobrevive ao round-trip",
-    getMoodboardRes.status === 200 && getMoodboardRes.body?.data?.snapshot?.marker === "smoke-test-snapshot",
+    "GET /moodboards/:id → 200, sem snapshot (Fase 5), scene ainda null",
+    getMoodboardRes.status === 200 &&
+      getMoodboardRes.body?.data?.snapshot === undefined &&
+      getMoodboardRes.body?.data?.scene === null,
     getMoodboardRes.body
   );
 
@@ -728,8 +735,23 @@ export async function runTasksAndProjectResourcesChecks({
     "PATCH /moodboards/:id/snapshot (formato Excalidraw) → 200, grava em `scene`",
     saveSceneRes.status === 200 &&
       saveSceneRes.body?.data?.scene?.marker === "smoke-test-scene" &&
+      // A resposta do PATCH (echo do que a própria mutação escreveu) não
+      // passa pela mesma poda de leitura de GET/list -- ainda inclui o
+      // `snapshot` (tldraw) salvo antes, provando que ele não foi tocado.
       saveSceneRes.body?.data?.snapshot?.marker === "smoke-test-snapshot",
     saveSceneRes.body
+  );
+
+  // GET de verdade (não só o echo do PATCH acima) -- prova que `scene`
+  // sobrevive ao round-trip via leitura, igual ao que
+  // collaborative-board.tsx de fato faz ao reabrir a prancha.
+  const getSceneRes = await api(`/v1/moodboards/${moodboardId}`);
+  report(
+    "GET /moodboards/:id → 200, scene sobrevive ao round-trip, snapshot continua fora (Fase 5)",
+    getSceneRes.status === 200 &&
+      getSceneRes.body?.data?.scene?.marker === "smoke-test-scene" &&
+      getSceneRes.body?.data?.snapshot === undefined,
+    getSceneRes.body
   );
 
   const saveScenePrimitiveRes = await api(`/v1/moodboards/${moodboardId}/snapshot`, {
@@ -844,13 +866,19 @@ export async function runTasksAndProjectResourcesChecks({
     guestBoardsBody
   );
 
+  // Fase 5 da migração tldraw->Excalidraw: WhiteboardGuestPortalService.
+  // getBoard também parou de trazer `snapshot` (mesma poda de
+  // MoodboardsService.getMoodboard); `scene` é o que sobrevive, com o
+  // marker do save em formato Excalidraw feito pelo staff mais acima.
   const guestGetBoardRes = await fetch(`${baseUrl}/v1/whiteboard-guest-portal/boards/${moodboardId}`, {
     headers: { "X-Whiteboard-Guest-Session": guestSessionToken },
   });
   const guestGetBoardBody = await guestGetBoardRes.json().catch(() => null);
   report(
-    "GET /whiteboard-guest-portal/boards/:id → 200, traz o snapshot salvo pelo staff",
-    guestGetBoardRes.status === 200 && guestGetBoardBody?.data?.snapshot?.marker === "smoke-test-snapshot",
+    "GET /whiteboard-guest-portal/boards/:id → 200, traz a scene salva pelo staff, sem snapshot",
+    guestGetBoardRes.status === 200 &&
+      guestGetBoardBody?.data?.scene?.marker === "smoke-test-scene" &&
+      guestGetBoardBody?.data?.snapshot === undefined,
     guestGetBoardBody
   );
 

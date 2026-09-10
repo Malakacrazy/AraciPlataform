@@ -132,7 +132,10 @@ export class WhiteboardGuestPortalService {
     await this.requireAccess(sessionToken, moodboardId);
     const moodboard = await this.prisma.db.moodboard.findUnique({
       where: { id: moodboardId },
-      select: { id: true, name: true, snapshot: true, scene: true },
+      // Sem `snapshot` (Fase 5 da migração tldraw->Excalidraw: "stop
+      // returning snapshot from reads") -- ver mesmo comentário em
+      // MoodboardsService.getMoodboard.
+      select: { id: true, name: true, scene: true },
     });
     if (!moodboard) {
       throw new NotFoundError('Prancha'); // defensivo -- inalcançável na prática, ver requireAccess acima

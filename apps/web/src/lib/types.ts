@@ -392,13 +392,13 @@ export interface Moodboard {
   id: string;
   projectId: string;
   name: string;
-  // TLStoreSnapshot do tldraw, nunca mais escrito depois da migração
-  // pro Excalidraw (ver D3 do plano de migração) -- fica só pra boards
-  // antigos abrirem em branco (D1: nenhum conversor) sem perder o dado
-  // original, que segue intacto nesta coluna.
-  snapshot: unknown;
   // Formato Excalidraw ({ schemaVersion, elements, appState allowlist })
   // -- null em toda prancha que ainda não foi salva no formato novo.
+  // Moodboard.snapshot (TLStoreSnapshot do tldraw) existe na tabela mas
+  // não sai mais por nenhuma leitura da API desde a Fase 5 da migração
+  // tldraw->Excalidraw ("stop returning snapshot from reads") -- nunca
+  // mais escrito (D3), mantido só porque as fotos ainda podem ser
+  // extraídas dele depois (D7). Por isso nem aparece aqui.
   scene: unknown;
 }
 
@@ -483,7 +483,6 @@ export interface PresentationMoodboard {
 export interface PresentationMoodboardBoard {
   id: string;
   name: string;
-  snapshot: unknown;
   scene: unknown;
 }
 
