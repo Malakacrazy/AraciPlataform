@@ -696,12 +696,50 @@ export async function runTasksAndProjectResourcesChecks({
     getMoodboardRes.body
   );
 
+  // Fase 1 da migração tldraw->Excalidraw: listMoodboards não traz mais
+  // snapshot/scene (só id/projectId/name/createdAt) -- a tela de FF&E
+  // busca o conteúdo por prancha via GET /moodboards/:id, não da lista.
   const moodboardListRes = await api(`/v1/projects/${projectId}/moodboards`);
   const listedMoodboard = moodboardListRes.body?.data?.find((m: any) => m.id === moodboardId);
   report(
-    "GET /projects/:id/moodboards inclui a prancha com o snapshot salvo",
-    listedMoodboard?.snapshot?.marker === "smoke-test-snapshot",
+    "GET /projects/:id/moodboards inclui a prancha, sem snapshot/scene (Fase 1 do plano)",
+    listedMoodboard?.id === moodboardId && listedMoodboard?.snapshot === undefined && listedMoodboard?.scene === undefined,
     moodboardListRes.body
+  );
+
+  // Fase 2/4 da migração tldraw->Excalidraw: moodboardSnapshotInputSchema
+  // aceita os dois formatos durante a janela de troca (achado B5 da
+  // revisão do plano) -- um payload no formato Excalidraw precisa gravar
+  // na coluna `scene`, NUNCA sobrescrever o `snapshot` (tldraw) já
+  // salvo acima (decisão D3: rollback de Phase 4 é um redeploy, não uma
+  // restauração de backup, exatamente porque as duas colunas nunca se
+  // tocam).
+  const fakeScene = {
+    schemaVersion: 1,
+    elements: [{ id: "el1", type: "rectangle", version: 1, index: "a1" }],
+    appState: { viewBackgroundColor: "#ffffff" },
+    marker: "smoke-test-scene",
+  };
+  const saveSceneRes = await api(`/v1/moodboards/${moodboardId}/snapshot`, {
+    method: "PATCH",
+    body: JSON.stringify({ snapshot: fakeScene }),
+  });
+  report(
+    "PATCH /moodboards/:id/snapshot (formato Excalidraw) → 200, grava em `scene`",
+    saveSceneRes.status === 200 &&
+      saveSceneRes.body?.data?.scene?.marker === "smoke-test-scene" &&
+      saveSceneRes.body?.data?.snapshot?.marker === "smoke-test-snapshot",
+    saveSceneRes.body
+  );
+
+  const saveScenePrimitiveRes = await api(`/v1/moodboards/${moodboardId}/snapshot`, {
+    method: "PATCH",
+    body: JSON.stringify({ snapshot: 123 }),
+  });
+  report(
+    "PATCH /moodboards/:id/snapshot com primitivo → 400 (achado A59, nunca mais z.unknown())",
+    saveScenePrimitiveRes.status === 400,
+    saveScenePrimitiveRes.body
   );
 
   // Chat por prancha (pedido junto com a colaboração ao vivo) --
