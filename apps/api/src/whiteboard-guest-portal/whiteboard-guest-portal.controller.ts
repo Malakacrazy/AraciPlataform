@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, Patch, Post, Put, Res, StreamableFile } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   WhiteboardGuestPortalService,
   verifyLogtoLoginSchema,
@@ -71,6 +72,48 @@ export class WhiteboardGuestPortalController {
     }
     const data = await this.whiteboardGuestPortalService.saveSnapshot(sessionToken, id, input.snapshot);
     return { data };
+  }
+
+  // Mesmo padrão de moodboards.controller.ts (staff): corpo binário puro
+  // (raw() em main.ts), mimeType lido do próprio Content-Type.
+  @Put('boards/:id/files/:fileId')
+  async putFile(
+    @Headers('x-whiteboard-guest-session') sessionToken: string | undefined,
+    @Param('id') id: string,
+    @Param('fileId') fileId: string,
+    @Headers('content-type') contentType: string | undefined,
+    @Body() bytes: Buffer,
+  ) {
+    if (!sessionToken) {
+      throw new UnauthorizedError('Sessão de convidado ausente.');
+    }
+    const data = await this.whiteboardGuestPortalService.putFile(
+      sessionToken,
+      id,
+      fileId,
+      contentType ?? 'application/octet-stream',
+      bytes,
+    );
+    return { data };
+  }
+
+  @Get('boards/:id/files/:fileId')
+  async getFile(
+    @Headers('x-whiteboard-guest-session') sessionToken: string | undefined,
+    @Param('id') id: string,
+    @Param('fileId') fileId: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    if (!sessionToken) {
+      throw new UnauthorizedError('Sessão de convidado ausente.');
+    }
+    const file = await this.whiteboardGuestPortalService.getFile(sessionToken, id, fileId);
+    res.set({
+      'Content-Type': file.mimeType,
+      'Cache-Control': 'private, max-age=31536000, immutable',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    return new StreamableFile(file.bytes);
   }
 
   @Get('boards/:id/comments')

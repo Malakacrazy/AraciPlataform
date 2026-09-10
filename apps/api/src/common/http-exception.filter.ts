@@ -77,6 +77,31 @@ export class HttpExceptionFilter implements ExceptionFilter {
       }
     }
 
+    // body-parser/raw-body (json()/urlencoded()/raw() em main.ts) lança um
+    // Error PLANO com .status/.statusCode pra corpo grande demais ou
+    // Content-Type malformado -- nunca um ApiError. Sem isto, um 413/400
+    // legítimo de limite de corpo (SNAPSHOT_BODY_LIMIT, IMAGE_UPLOAD_LIMIT)
+    // virava 500 genérico, escondendo do cliente exatamente a informação
+    // que ele precisa pra saber que precisa cortar a imagem, não tentar de
+    // novo (achado desta rodada, migração tldraw->Excalidraw §5.2).
+    const bodyParserStatus =
+      exception instanceof Error
+        ? ((exception as { status?: unknown; statusCode?: unknown }).status ??
+          (exception as { status?: unknown; statusCode?: unknown }).statusCode)
+        : undefined;
+    if (typeof bodyParserStatus === 'number' && bodyParserStatus >= 400 && bodyParserStatus < 500) {
+      response.status(bodyParserStatus).json({
+        error: {
+          code: bodyParserStatus === 413 ? 'PAYLOAD_TOO_LARGE' : 'BAD_REQUEST',
+          message:
+            bodyParserStatus === 413
+              ? 'Corpo da requisição maior que o limite permitido.'
+              : 'Requisição inválida.',
+        },
+      });
+      return;
+    }
+
     // Não vaza detalhe de erro interno (stack, mensagem de driver) pro
     // cliente -- mas precisa vazar pro PRÓPRIO log, senão um 500 de
     // produção é indiagnosticável (bloqueador 10 da auditoria: antes,

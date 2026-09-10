@@ -6,6 +6,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { setAuditActor } from '../audit/audit-context';
 import { GoogleDriveService } from '../office/google-drive.service';
 import { MoodboardsService, type MoodboardCommentInput, type MoodboardSnapshotInput } from '../ffe/moodboards.service';
+import { MoodboardFilesService } from '../ffe/moodboard-files.service';
 
 // Só clientApproved/clientComment — nunca productId/quantity/unitPrice/
 // markupPercent. O cliente aprova e comenta; preço e quantidade
@@ -43,6 +44,7 @@ export class PublicPresentationService {
     private readonly notificationsService: NotificationsService,
     private readonly googleDriveService: GoogleDriveService,
     private readonly moodboardsService: MoodboardsService,
+    private readonly moodboardFilesService: MoodboardFilesService,
   ) {}
 
   private async getLinkOrThrow(token: string) {
@@ -186,6 +188,20 @@ export class PublicPresentationService {
     const link = await this.getLinkOrThrow(token);
     const accountId = await this.getOwnMoodboardAccountId(link.projectId, moodboardId);
     return this.moodboardsService.saveSnapshot(accountId, moodboardId, { snapshot });
+  }
+
+  // Mesmo escopo de saveMoodboardSnapshot -- posse do link dá acesso de
+  // escrita ao quadro, imagem incluída (ver plano de migração §5.2).
+  async putMoodboardFile(token: string, moodboardId: string, fileId: string, mimeType: string, bytes: Buffer) {
+    const link = await this.getLinkOrThrow(token);
+    const accountId = await this.getOwnMoodboardAccountId(link.projectId, moodboardId);
+    return this.moodboardFilesService.putFile(accountId, moodboardId, fileId, mimeType, bytes);
+  }
+
+  async getMoodboardFile(token: string, moodboardId: string, fileId: string) {
+    const link = await this.getLinkOrThrow(token);
+    const accountId = await this.getOwnMoodboardAccountId(link.projectId, moodboardId);
+    return this.moodboardFilesService.getFile(accountId, moodboardId, fileId);
   }
 
   async listMoodboardComments(token: string, moodboardId: string) {

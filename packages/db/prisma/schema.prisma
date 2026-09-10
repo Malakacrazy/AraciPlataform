@@ -981,14 +981,64 @@ model Moodboard {
   name      String
   createdAt DateTime @default(now())
   snapshot  Json?
+  // Formato Excalidraw ({ schemaVersion, elements, appState allowlist }),
+  // nunca o TLStoreSnapshot do tldraw -- ver plano de migração
+  // tldraw->Excalidraw §5.3. Coluna nova e nula em toda prancha
+  // existente: zero movimentação de dado (decisão D1, nenhum conversor),
+  // e um board sem `scene` simplesmente abre em branco no editor novo em
+  // vez de perder o `snapshot` original, que continua intacto.
+  scene     Json?
 
   guestAccess WhiteboardGuestAccess[]
   comments    MoodboardComment[]
+  files       MoodboardFile[]
 
   // Achado A62 da auditoria de 30 ago 2026: a migration que criou este
   // model reintroduziu o problema de FK sem índice que a varredura
   // anterior tinha corrigido -- só criou índices UNIQUE, nenhum de FK.
   @@index([projectId])
+}
+
+// Linha de autorização por imagem -- não guarda o byte em si (ver
+// MoodboardFileBytes). Ver plano de migração §5.2: bytes de imagem nunca
+// entram no snapshot/scene (MAX_ALLOWED_FILE_BYTES do Excalidraw, 4 MiB,
+// já excede SNAPSHOT_BODY_LIMIT sozinho como base64), então cada imagem
+// vira uma linha aqui e o elemento no scene carrega só o fileId. Toda
+// leitura é credencial -> moodboardId -> MoodboardFile(moodboardId,
+// fileId): um fileId de outra prancha simplesmente não bate no unique
+// composto abaixo, sem vazar se o arquivo existe em outro lugar
+// (moodboard-files.service.ts).
+model MoodboardFile {
+  id          String    @id @default(cuid())
+  moodboardId String
+  moodboard   Moodboard @relation(fields: [moodboardId], references: [id], onDelete: Cascade)
+  fileId      String
+  mimeType    String
+  byteSize    Int
+  storageKey  String
+  createdAt   DateTime  @default(now())
+
+  @@unique([moodboardId, fileId])
+  @@index([moodboardId])
+  // Cleanup de MoodboardFileBytes em deleteMoodboard precisa saber se
+  // outra prancha ainda referencia o mesmo storageKey (conteúdo-
+  // endereçado, ver MoodboardFileBytes) antes de apagar o blob.
+  @@index([storageKey])
+}
+
+// Só o byte em si, imutável, conteúdo-endereçado (storageKey = hash dos
+// bytes) -- separado de MoodboardFile de propósito: aquela é a linha de
+// autorização por prancha, esta é o blob compartilhável entre pranchas
+// diferentes que colaram a mesma imagem, sem acoplar "quem pode ler" a
+// "onde o dado está". Postgres Bytes (não base64 TEXT) e Postgres como
+// primeiro backend (não Supabase Storage) são decisões do plano de
+// migração §5.2: não existe SUPABASE_* em apps/api hoje, e um bucket novo
+// seria um segredo de alto poder mais um passo manual de dashboard --
+// troca de adapter fica pra quando SUPABASE_STORAGE_BUCKET existir.
+model MoodboardFileBytes {
+  storageKey String   @id
+  bytes      Bytes
+  createdAt  DateTime @default(now())
 }
 
 // Chat por prancha, ao lado do desenho ao vivo -- tldraw cobre o canvas,

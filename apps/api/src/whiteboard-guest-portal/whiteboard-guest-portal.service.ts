@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service';
 import { UnauthorizedError, ForbiddenError, NotFoundError } from '../common/api-error';
 import { MoodboardsService, type MoodboardCommentAuthorType, type MoodboardSnapshotInput } from '../ffe/moodboards.service';
+import { MoodboardFilesService } from '../ffe/moodboard-files.service';
 
 export const verifyLogtoLoginSchema = z.object({
   email: z.email(),
@@ -36,6 +37,7 @@ export class WhiteboardGuestPortalService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly moodboardsService: MoodboardsService,
+    private readonly moodboardFilesService: MoodboardFilesService,
   ) {}
 
   // O convite (WhiteboardGuestsService.invite) sempre vem antes -- Logto
@@ -142,6 +144,18 @@ export class WhiteboardGuestPortalService {
     await this.requireAccess(sessionToken, moodboardId);
     const accountId = await this.accountIdForMoodboard(moodboardId);
     return this.moodboardsService.saveSnapshot(accountId, moodboardId, { snapshot });
+  }
+
+  async putFile(sessionToken: string, moodboardId: string, fileId: string, mimeType: string, bytes: Buffer) {
+    await this.requireAccess(sessionToken, moodboardId);
+    const accountId = await this.accountIdForMoodboard(moodboardId);
+    return this.moodboardFilesService.putFile(accountId, moodboardId, fileId, mimeType, bytes);
+  }
+
+  async getFile(sessionToken: string, moodboardId: string, fileId: string) {
+    await this.requireAccess(sessionToken, moodboardId);
+    const accountId = await this.accountIdForMoodboard(moodboardId);
+    return this.moodboardFilesService.getFile(accountId, moodboardId, fileId);
   }
 
   async listComments(sessionToken: string, moodboardId: string) {

@@ -8,7 +8,7 @@
 // automática conseguir interceptar o que eles importam.
 import './instrument';
 import helmet from 'helmet';
-import { json, urlencoded } from 'express';
+import { json, raw, urlencoded } from 'express';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { auditContextMiddleware } from './audit/audit-context';
@@ -24,6 +24,14 @@ import { loadKey as loadGoogleCredentialKey } from './office/google-credential-c
 // Server Action → apps/api) precisam concordar, senão o lado mais
 // apertado vira o teto de verdade sem aviso.
 const SNAPSHOT_BODY_LIMIT = '5mb';
+
+// Upload de imagem de prancha (ver moodboard-files.service.ts) -- MESMO
+// número de IMAGE_UPLOAD_LIMIT_BYTES lá (mesma disciplina de comentário
+// gêmeo de SNAPSHOT_BODY_LIMIT acima). Corpo binário puro, nunca JSON:
+// raw() só entra em ação pra Content-Type image/* (glob do body-parser),
+// então nunca compete com json()/urlencoded() acima -- cada um só
+// consome o corpo quando o Content-Type é o seu.
+const IMAGE_UPLOAD_LIMIT = '4mb';
 
 // Bloqueador 15 da auditoria: antes, nenhuma variável de ambiente era
 // checada no boot -- configuração faltando só aparecia depois, como um
@@ -84,6 +92,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
   app.use(json({ limit: SNAPSHOT_BODY_LIMIT }));
   app.use(urlencoded({ extended: true, limit: SNAPSHOT_BODY_LIMIT }));
+  app.use(raw({ type: 'image/*', limit: IMAGE_UPLOAD_LIMIT }));
   // Precisa vir antes de qualquer guard/interceptor/controller: cria o
   // contexto (AsyncLocalStorage) que AuthGuard e os pontos @Public() que
   // mutam dado de negócio preenchem com quem está fazendo a requisição,

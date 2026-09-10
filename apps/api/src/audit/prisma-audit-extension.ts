@@ -5,12 +5,20 @@ import { getAuditActor } from './audit-context';
 // notificação, nunca "dado de negócio" que alguém precisaria investigar
 // depois. AuditLog está aqui também, óbvio: sem isso a própria escrita do
 // log dispararia a si mesma (recursão infinita).
+// MoodboardFileBytes: só o blob em si, sem `id` (chave é `storageKey`,
+// ver schema.prisma) -- pickScalars(model, after).id seria sempre
+// undefined, e writeAuditLog falharia (Prisma exige entityId) em toda
+// escrita. Mesma exclusão de MoodboardFileBytes.bytes que já vale pro
+// Moodboard.snapshot/scene (ver REDACTED_FIELDS abaixo): blob grande e
+// imutável, sem valor de investigação -- a linha que aponta pra ele
+// (MoodboardFile, com id de verdade) continua auditada normalmente.
 const EXCLUDED_MODELS = new Set([
   'AuditLog',
   'Notification',
   'ClientMagicLink',
   'ClientSession',
   'PresentationLink',
+  'MoodboardFileBytes',
 ]);
 
 function modelKeyOf(model: string): string {
