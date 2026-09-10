@@ -6,6 +6,21 @@ import * as Sentry from '@sentry/nestjs';
 import { ApiError } from './api-error';
 import { getAuditActor } from '../audit/audit-context';
 
+// Os `type` que body-parser/raw-body carimbam nos próprios erros. É a
+// única marca que distingue "o corpo da requisição não passou" de
+// qualquer outra Error que por coincidência carrega um .status 4xx (ver
+// o comentário longo dentro de catch()).
+const BODY_PARSER_TYPES = new Set([
+  'entity.too.large',
+  'entity.parse.failed',
+  'entity.verify.failed',
+  'request.size.invalid',
+  'request.aborted',
+  'encoding.unsupported',
+  'charset.unsupported',
+  'parameters.too.many',
+]);
+
 // Portado de apps/web/src/lib/api.ts (errorResponse) — mesmo formato de
 // resposta em todo o backend: { error: { code, message } }.
 @Catch()
@@ -84,12 +99,34 @@ export class HttpExceptionFilter implements ExceptionFilter {
     // virava 500 genérico, escondendo do cliente exatamente a informação
     // que ele precisa pra saber que precisa cortar a imagem, não tentar de
     // novo (achado desta rodada, migração tldraw->Excalidraw §5.2).
+    //
+    // Casa pelo `type` que o body-parser/raw-body carimba (BODY_PARSER_TYPES
+    // acima), NÃO por "tem um .status 4xx qualquer". A primeira versão
+    // desta guarda pegava QUALQUER Error com .status/.statusCode entre 400
+    // e 499 e devolvia ANTES do logger/Sentry lá embaixo -- e .status é um
+    // campo comum: Gaxios (Google Drive), o SDK do Asaas, HttpException do
+    // Nest. Um 403 do Drive virava "BAD_REQUEST" e desaparecia dos logs,
+    // ressuscitando exatamente o 500 indiagnosticável que o bloqueador 10
+    // da auditoria consertou. E mesmo casando, loga antes de responder: um
+    // corpo grande demais recorrente é sinal operacional, não ruído.
+    const bodyParserType =
+      exception instanceof Error ? (exception as { type?: unknown }).type : undefined;
     const bodyParserStatus =
       exception instanceof Error
         ? ((exception as { status?: unknown; statusCode?: unknown }).status ??
           (exception as { status?: unknown; statusCode?: unknown }).statusCode)
         : undefined;
-    if (typeof bodyParserStatus === 'number' && bodyParserStatus >= 400 && bodyParserStatus < 500) {
+    if (
+      typeof bodyParserType === 'string' &&
+      BODY_PARSER_TYPES.has(bodyParserType) &&
+      typeof bodyParserStatus === 'number' &&
+      bodyParserStatus >= 400 &&
+      bodyParserStatus < 500
+    ) {
+      const bodyParserRequest = host.switchToHttp().getRequest<Request>();
+      this.logger.warn(
+        `${bodyParserRequest.method} ${bodyParserRequest.originalUrl} — ${bodyParserType} (${bodyParserStatus})`,
+      );
       response.status(bodyParserStatus).json({
         error: {
           code: bodyParserStatus === 413 ? 'PAYLOAD_TOO_LARGE' : 'BAD_REQUEST',

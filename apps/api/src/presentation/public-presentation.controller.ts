@@ -148,7 +148,9 @@ export class PublicPresentationController {
   ): Promise<StreamableFile> {
     const file = await this.publicPresentationService.getMoodboardFile(token, moodboardId, fileId);
     res.set({
+      // Já normalizados pela allowlist do MoodboardFilesService.
       'Content-Type': file.mimeType,
+      'Content-Disposition': file.disposition,
       'Cache-Control': 'private, max-age=31536000, immutable',
       'X-Content-Type-Options': 'nosniff',
     });

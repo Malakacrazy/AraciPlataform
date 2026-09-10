@@ -57,7 +57,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             verdade) empurra um <script> pra dentro da árvore React de
             um jeito que colide com o hoisting nativo de <script> do
             React 19, gerando um warning de "script tag" a cada render. */}
-        <Script>{`window.EXCALIDRAW_ASSET_PATH="/"`}</Script>
+        <Script id="excalidraw-asset-path">{`window.EXCALIDRAW_ASSET_PATH="/"`}</Script>
         {children}
       </body>
     </html>

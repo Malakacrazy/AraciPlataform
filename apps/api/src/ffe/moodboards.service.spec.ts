@@ -1,4 +1,5 @@
 import { moodboardSnapshotInputSchema } from './moodboards.service';
+import { normalizeImageMimeType } from './moodboard-files.service';
 
 // Contrato do achado A59 (janela de troca tldraw->Excalidraw, achado B5
 // da revisão do plano de migração, §5.1.1/§7): a validação nunca volta a
@@ -57,5 +58,45 @@ describe('moodboardSnapshotInputSchema', () => {
       snapshot: { schemaVersion: 1, elements: [{ id: 'el1' }] },
     });
     expect(result.success).toBe(false);
+  });
+});
+
+// Achados A32/A45 aplicados às imagens de prancha: esta função é a
+// ÚNICA coisa entre um upload de convidado (/present, portal do
+// convidado -- rotas @Public()) e um Content-Type servido de volta na
+// mesma origem do dashboard autenticado. Os casos abaixo não são
+// hipotéticos: a versão anterior era um denylist consultado com o header
+// CRU, então cada um deles passava enquanto o raw() do express (type-is,
+// case-insensitive, ignora parâmetros) aceitava o corpo do mesmo jeito.
+describe('normalizeImageMimeType', () => {
+  it('aceita os rasters e devolve o tipo canônico', () => {
+    expect(normalizeImageMimeType('image/png')).toBe('image/png');
+    expect(normalizeImageMimeType('image/webp')).toBe('image/webp');
+  });
+
+  it('descarta parâmetros e normaliza a caixa antes de comparar', () => {
+    expect(normalizeImageMimeType('IMAGE/PNG')).toBe('image/png');
+    expect(normalizeImageMimeType('image/png; charset=binary')).toBe('image/png');
+    expect(normalizeImageMimeType('  image/JPEG ')).toBe('image/jpeg');
+  });
+
+  it('canonicaliza os aliases que o navegador manda', () => {
+    expect(normalizeImageMimeType('image/jpg')).toBe('image/jpeg');
+    expect(normalizeImageMimeType('image/jfif')).toBe('image/jpeg');
+    expect(normalizeImageMimeType('image/vnd.microsoft.icon')).toBe('image/x-icon');
+  });
+
+  it('recusa SVG mesmo disfarçado com parâmetro ou caixa', () => {
+    expect(normalizeImageMimeType('image/svg+xml')).toBeNull();
+    expect(normalizeImageMimeType('image/SVG+XML')).toBeNull();
+    expect(normalizeImageMimeType('image/svg+xml; charset=utf-8')).toBeNull();
+  });
+
+  it('recusa qualquer coisa que não seja imagem raster da allowlist', () => {
+    expect(normalizeImageMimeType('text/html')).toBeNull();
+    expect(normalizeImageMimeType('application/pdf')).toBeNull();
+    expect(normalizeImageMimeType('image/')).toBeNull();
+    expect(normalizeImageMimeType(undefined)).toBeNull();
+    expect(normalizeImageMimeType('')).toBeNull();
   });
 });

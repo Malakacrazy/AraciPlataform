@@ -11,12 +11,47 @@ import { getMoodboardBlobStore } from './moodboard-blob-store';
 // Excalidraw também é 4 MiB (enforced depois do resize).
 export const IMAGE_UPLOAD_LIMIT_BYTES = 4 * 1024 * 1024;
 
-// SVG não é rasterizado antes de guardar -- normalizeSVG do Excalidraw
-// não sanitiza (só ajusta xmlns/width/height/viewBox e devolve o
-// outerHTML), então aceitar SVG aqui seria abrir um vetor de XSS em
-// qualquer surface que reexiba a imagem depois (ver plano de migração
-// tldraw->Excalidraw §5.2, achados A32/A45 da auditoria de 30 ago 2026).
-const REJECTED_MIME_TYPES = new Set(['image/svg+xml']);
+// ALLOWLIST, não denylist -- mesmo padrão de SAFE_INLINE_MIME_TYPES em
+// public-presentation.controller.ts (achados A32/A45 da auditoria de 30
+// ago 2026), e pelo mesmo motivo. A primeira versão disto era um
+// `new Set(['image/svg+xml'])` consultado com o header CRU: qualquer
+// parâmetro ou caixa diferente (`image/svg+xml; charset=utf-8`,
+// `IMAGE/SVG+XML`) escapava do teste, enquanto o raw() do express
+// aceitava do mesmo jeito (type-is ignora parâmetros e é
+// case-insensitive) -- o SVG era gravado e depois servido de volta COM
+// esse Content-Type, na mesma origem do dashboard autenticado. Isso é
+// XSS armazenado, e nosniff não ajuda em nada quando o tipo declarado
+// já É svg. Rasterizados only: normalizeSVG do Excalidraw não sanitiza
+// (só ajusta xmlns/width/height/viewBox e devolve o outerHTML).
+const SAFE_IMAGE_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/bmp',
+  'image/avif',
+  'image/x-icon',
+]);
+
+// Aliases que o navegador/Excalidraw podem mandar pro mesmo formato
+// (IMAGE_MIME_TYPES da lib inclui jfif e vnd.microsoft.icon).
+const MIME_ALIASES: Record<string, string> = {
+  'image/jpg': 'image/jpeg',
+  'image/jfif': 'image/jpeg',
+  'image/pjpeg': 'image/jpeg',
+  'image/vnd.microsoft.icon': 'image/x-icon',
+  'image/ico': 'image/x-icon',
+};
+
+// Devolve o tipo canônico se for seguro pra servir inline, senão null.
+// Descarta parâmetros (`; charset=...`, `; boundary=...`) e normaliza
+// caixa ANTES de comparar -- era exatamente essa a brecha.
+export function normalizeImageMimeType(raw: string | undefined | null): string | null {
+  if (!raw) return null;
+  const base = raw.split(';', 1)[0].trim().toLowerCase();
+  const canonical = MIME_ALIASES[base] ?? base;
+  return SAFE_IMAGE_MIME_TYPES.has(canonical) ? canonical : null;
+}
 
 // Bytes de imagem NUNCA no snapshot/scene do Moodboard -- ver
 // MoodboardFile/MoodboardFileBytes em schema.prisma. Este service é o
@@ -41,7 +76,8 @@ export class MoodboardFilesService {
         'Corpo da imagem ausente ou inválido -- envie os bytes com um Content-Type de imagem (ver IMAGE_UPLOAD_LIMIT em main.ts).',
       );
     }
-    if (REJECTED_MIME_TYPES.has(mimeType)) {
+    const safeMimeType = normalizeImageMimeType(mimeType);
+    if (!safeMimeType) {
       throw new UnsupportedMediaTypeError(`Tipo de arquivo não suportado: ${mimeType}.`);
     }
     if (bytes.byteLength > IMAGE_UPLOAD_LIMIT_BYTES) {
@@ -57,13 +93,15 @@ export class MoodboardFilesService {
       await store.put(storageKey, bytes);
     }
 
+    // Guarda o tipo CANÔNICO, não o header cru -- é ele que volta como
+    // Content-Type em getFile.
     await this.prisma.db.moodboardFile.upsert({
       where: { moodboardId_fileId: { moodboardId, fileId } },
-      create: { moodboardId, fileId, mimeType, byteSize: bytes.byteLength, storageKey },
-      update: { mimeType, byteSize: bytes.byteLength, storageKey },
+      create: { moodboardId, fileId, mimeType: safeMimeType, byteSize: bytes.byteLength, storageKey },
+      update: { mimeType: safeMimeType, byteSize: bytes.byteLength, storageKey },
     });
 
-    return { fileId, mimeType, byteSize: bytes.byteLength };
+    return { fileId, mimeType: safeMimeType, byteSize: bytes.byteLength };
   }
 
   // credencial -> moodboardId -> MoodboardFile(moodboardId, fileId): um
@@ -88,6 +126,16 @@ export class MoodboardFilesService {
       throw new NotFoundError('Arquivo');
     }
 
-    return { mimeType: record.mimeType, bytes };
+    // Renormaliza NA LEITURA também, não só na escrita: uma linha
+    // gravada antes desta correção (ou por qualquer caminho futuro que
+    // esqueça a validação) não pode virar um Content-Type executável na
+    // origem da aplicação. Fora da allowlist vira octet-stream +
+    // attachment, exatamente o que downloadDocument já faz.
+    const safeMimeType = normalizeImageMimeType(record.mimeType);
+    return {
+      mimeType: safeMimeType ?? 'application/octet-stream',
+      disposition: safeMimeType ? ('inline' as const) : ('attachment' as const),
+      bytes,
+    };
   }
 }

@@ -113,7 +113,11 @@ export class MoodboardsController {
   ): Promise<StreamableFile> {
     const file = await this.moodboardFilesService.getFile(accountId, id, fileId);
     res.set({
+      // mimeType/disposition já vêm normalizados pela allowlist do
+      // service (ver normalizeImageMimeType) -- nunca o header cru que o
+      // upload mandou.
       'Content-Type': file.mimeType,
+      'Content-Disposition': file.disposition,
       'Cache-Control': 'private, max-age=31536000, immutable',
       'X-Content-Type-Options': 'nosniff',
     });

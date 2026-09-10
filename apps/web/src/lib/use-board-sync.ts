@@ -95,14 +95,34 @@ export function useBoardSync({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   // Refs pra "última versão" de callbacks/flags que mudam de identidade
-  // entre renders sem deverem reiniciar o efeito principal -- acessados
-  // só dentro dos callbacks abaixo, nunca lidos durante o render.
+  // entre renders sem deverem reiniciar o efeito principal -- lidos só
+  // dentro dos callbacks assíncronos abaixo (onChange do Excalidraw,
+  // callback do canal, timers), nunca durante o render.
+  //
+  // O token é re-assinado a cada render do servidor (setIssuedAt em
+  // mintBoardRealtimeToken), então a STRING muda o tempo todo sem que
+  // nada de relevante tenha mudado -- fica na ref também, e o efeito
+  // principal depende só de "existe sincronização ao vivo ou não"
+  // (hasRealtime, ver deps no fim dele).
   const onSaveSnapshotRef = useRef(onSaveSnapshot);
-  onSaveSnapshotRef.current = onSaveSnapshot;
   const onRemoteCommentRef = useRef(onRemoteComment);
-  onRemoteCommentRef.current = onRemoteComment;
   const loadFailedRef = useRef(loadFailed);
-  loadFailedRef.current = loadFailed;
+  const realtimeTokenRef = useRef(realtimeToken);
+  const hasRealtime = realtimeToken !== null;
+
+  // A atualização vai num efeito, não no corpo do render: escrever em
+  // ref.current durante o render é o que a regra react-hooks/refs
+  // (eslint-plugin-react-hooks 6) recusa, e com razão -- o render pode
+  // ser descartado ou reexecutado. Aqui é seguro porque nenhum leitor
+  // roda antes do commit: no mount a ref já nasce com o valor certo
+  // (useRef(valor)), e nos renders seguintes este efeito comita antes
+  // do próximo traço/timer poder ler.
+  useEffect(() => {
+    onSaveSnapshotRef.current = onSaveSnapshot;
+    onRemoteCommentRef.current = onRemoteComment;
+    loadFailedRef.current = loadFailed;
+    realtimeTokenRef.current = realtimeToken;
+  }, [onSaveSnapshot, onRemoteComment, loadFailed, realtimeToken]);
 
   const channelRef = useRef<ReturnType<typeof createBoardChannel>["channel"] | null>(null);
 
@@ -173,42 +193,32 @@ export function useBoardSync({
         });
     }
 
-    if (!realtimeToken) {
-      // Sem token não há canal privado -- degrada pra "sem sincronização
-      // ao vivo", salvar continua funcionando via o debounce abaixo.
-      const unsubOnChangeNoRealtime = api.onChange(() => {
-        if (!hasInteracted.current) return;
-        if (saveTimer) clearTimeout(saveTimer);
-        saveTimer = setTimeout(flushSave, SAVE_DEBOUNCE_MS);
-      });
-      return () => {
-        unsubPointerDown();
-        unsubPointerUp();
-        unsubOnChangeNoRealtime();
-        clearInterval(drainRetryTimer);
-        if (saveTimer) {
-          clearTimeout(saveTimer);
-          flushSave();
-        }
-      };
+    // Canal É opcional; salvar NÃO é. Um único caminho pros três casos
+    // (sem token, canal falhou ao construir, canal ok) de propósito: a
+    // versão anterior tinha três `return` separados, cada um precisando
+    // lembrar de registrar tudo -- e o ramo do catch esquecia justamente
+    // o api.onChange, então quando createBoardChannel lançava (o caso
+    // real: NEXT_PUBLIC_SUPABASE_* ausente ou filtrada no build, que é
+    // o que check-deploy-config.mjs existe pra pegar) o quadro nunca
+    // mais salvava NADA, sem nenhum sinal na tela. Agora existe uma
+    // inscrição de onChange e um cleanup só, e o canal é só um `null`
+    // a mais a checar.
+    let board: ReturnType<typeof createBoardChannel> | null = null;
+    let channel: ReturnType<typeof createBoardChannel>["channel"] | null = null;
+    if (realtimeTokenRef.current) {
+      try {
+        board = createBoardChannel(boardId, realtimeTokenRef.current);
+        channel = board.channel;
+        channelRef.current = channel;
+      } catch (err) {
+        console.warn((err as Error).message);
+        Sentry.captureException(err, { tags: { surface, boardId } });
+        board = null;
+        channel = null;
+      }
     }
 
-    let board: ReturnType<typeof createBoardChannel>;
-    try {
-      board = createBoardChannel(boardId, realtimeToken);
-    } catch (err) {
-      console.warn((err as Error).message);
-      Sentry.captureException(err, { tags: { surface, boardId } });
-      return () => {
-        unsubPointerDown();
-        unsubPointerUp();
-        clearInterval(drainRetryTimer);
-      };
-    }
-    const { channel } = board;
-    channelRef.current = channel;
-
-    channel.on("broadcast", { event: BOARD_EVENT }, ({ payload }: { payload: BoardPayload }) => {
+    channel?.on("broadcast", { event: BOARD_EVENT }, ({ payload }: { payload: BoardPayload }) => {
       // Passo 1 do plano §5.1: um throw aqui roda dentro de um callback
       // do Supabase e não alcança nenhum boundary -- mataria a
       // sincronização ao vivo silenciosamente.
@@ -231,7 +241,7 @@ export function useBoardSync({
       }
     });
 
-    channel.subscribe((status, err) => {
+    channel?.subscribe((status, err) => {
       subscribed.current = status === "SUBSCRIBED";
       if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         console.warn(
@@ -241,43 +251,71 @@ export function useBoardSync({
       }
     });
 
+    // Fatiar por tamanho em vez de desistir: o receive path é um merge de
+    // DELTA (reconcileElements trata payload parcial normalmente), então
+    // N mensagens menores convergem igual a uma grande. A versão anterior
+    // só pulava a rodada inteira acima do teto -- o que, num quadro
+    // grande, significava que o delta nunca era enviado (o watermark não
+    // avançava, então na rodada seguinte ele continuava grande demais) e
+    // que a resync de 20s, o backstop do B2, nunca funcionava justamente
+    // nos quadros que mais precisam dela.
+    function chunkBySize(elements: readonly OrderedExcalidrawElement[]): OrderedExcalidrawElement[][] {
+      const chunks: OrderedExcalidrawElement[][] = [];
+      let current: OrderedExcalidrawElement[] = [];
+      let currentSize = 2; // "[]"
+      for (const el of elements) {
+        const size = new TextEncoder().encode(JSON.stringify(el)).length + 1; // +1 pela vírgula
+        if (size > MAX_BROADCAST_BYTES) {
+          // Um elemento que sozinho passa do teto não tem como ser
+          // fatiado (um freedraw gigante, por exemplo). O save no
+          // Postgres continua cobrindo ele; os peers pegam no reload.
+          Sentry.captureMessage(`board.v2: elemento ${el.id} sozinho tem ${size} bytes, acima do teto`, {
+            tags: { surface, boardId },
+          });
+          continue;
+        }
+        if (currentSize + size > MAX_BROADCAST_BYTES && current.length > 0) {
+          chunks.push(current);
+          current = [];
+          currentSize = 2;
+        }
+        current.push(el);
+        currentSize += size;
+      }
+      if (current.length > 0) chunks.push(current);
+      return chunks;
+    }
+
+    // Caminho único de envio pros dois casos (delta do throttle e resync
+    // de 20s) -- a checagem de tamanho existir só num dos dois foi
+    // exatamente o bug acima.
+    function sendElements(elements: readonly OrderedExcalidrawElement[], label: string) {
+      if (!channel || !subscribed.current) return; // B4/gate: nunca antes de SUBSCRIBED
+      for (const chunk of chunkBySize(elements)) {
+        channel
+          .send({ type: "broadcast", event: BOARD_EVENT, payload: { kind: "elements", elements: chunk } })
+          .then((status) => {
+            if (status !== "ok") {
+              // B4: com broadcast:{ack:true} este status é um round-trip
+              // de verdade -- != 'ok' significa que o peer NÃO recebeu.
+              Sentry.captureException(new Error(`board.v2 ${label} devolveu "${status}"`), {
+                tags: { surface, boardId },
+              });
+              return;
+            }
+            for (const el of chunk) sent.set(el.id, { version: el.version, fingerprint: contentFingerprint(el) });
+          });
+      }
+    }
+
     function flushBroadcast() {
       broadcastTimer = null;
-      if (!subscribed.current) return; // B4/gate: nunca manda antes de SUBSCRIBED de verdade
-      const elements = api.getSceneElementsIncludingDeleted();
-      const dirty = computeDirtyElements(elements, sent);
-      if (dirty.length === 0) return;
-
-      const size = new TextEncoder().encode(JSON.stringify(dirty)).length;
-      if (size > MAX_BROADCAST_BYTES) {
-        // Acima do teto informal do canal -- pula esta rodada em vez de
-        // estourar o limite real do Supabase (256KB/mensagem no plano
-        // Free); os ids continuam dirty (sent[] não é tocado), a
-        // próxima resync de 20s ou o próximo save cobrem o conteúdo.
-        Sentry.captureMessage(`board.v2 broadcast pulado: payload de ${size} bytes acima do teto`, {
-          tags: { surface, boardId },
-        });
-        return;
-      }
-
-      channel
-        .send({ type: "broadcast", event: BOARD_EVENT, payload: { kind: "elements", elements: dirty } })
-        .then((status) => {
-          if (status !== "ok") {
-            // B4: com broadcast:{ack:true} este status é um round-trip
-            // de verdade -- != 'ok' significa que o peer NÃO recebeu.
-            Sentry.captureException(new Error(`board.v2 send() devolveu "${status}"`), {
-              tags: { surface, boardId },
-            });
-            return;
-          }
-          for (const el of dirty) sent.set(el.id, { version: el.version, fingerprint: contentFingerprint(el) });
-        });
+      sendElements(computeDirtyElements(api.getSceneElementsIncludingDeleted(), sent), "delta");
     }
 
     const unsubOnChange = api.onChange(() => {
       if (!hasInteracted.current) return; // B1
-      if (!broadcastTimer) {
+      if (channel && !broadcastTimer) {
         broadcastTimer = setTimeout(flushBroadcast, BROADCAST_THROTTLE_MS);
       }
       if (saveTimer) clearTimeout(saveTimer);
@@ -291,20 +329,8 @@ export function useBoardSync({
     // seja, nunca enquanto alguém ainda está desenhando -- exatamente a
     // janela onde a colisão do B2 acontece.
     const fullResyncTimer = setInterval(() => {
-      if (!subscribed.current || !hasInteracted.current) return;
-      const elements = api.getSceneElementsIncludingDeleted();
-      if (elements.length === 0) return;
-      channel
-        .send({ type: "broadcast", event: BOARD_EVENT, payload: { kind: "elements", elements } })
-        .then((status) => {
-          if (status === "ok") {
-            for (const el of elements) sent.set(el.id, { version: el.version, fingerprint: contentFingerprint(el) });
-          } else {
-            Sentry.captureException(new Error(`board.v2 resync de 20s devolveu "${status}"`), {
-              tags: { surface, boardId },
-            });
-          }
-        });
+      if (!hasInteracted.current) return;
+      sendElements(api.getSceneElementsIncludingDeleted(), "resync de 20s");
     }, SYNC_FULL_SCENE_INTERVAL_MS);
 
     return () => {
@@ -322,16 +348,20 @@ export function useBoardSync({
         clearTimeout(saveTimer);
         flushSave();
       }
-      channel.unsubscribe();
-      board.disconnect();
+      channel?.unsubscribe();
+      board?.disconnect();
       channelRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- onSaveSnapshot/
-    // onRemoteComment/loadFailed são lidos via ref (ver acima) de propósito:
-    // são recriados a cada render do Server Component pai (bind()), e um
-    // revalidatePath não relacionado (outra ação na mesma página) não pode
-    // reiniciar o canal/watermark deste quadro (achado do plano §5.1.2).
-  }, [excalidrawAPI, boardId, realtimeToken, surface]);
+    // onSaveSnapshot/onRemoteComment/loadFailed/realtimeToken são lidos via ref (ver acima)
+    // de propósito. Os callbacks são recriados a cada render do Server
+    // Component pai (bind()), e o token é RE-ASSINADO a cada render
+    // (mintBoardRealtimeToken faz setIssuedAt) -- tê-lo no array de deps
+    // fazia um revalidatePath não relacionado (criar um ambiente, convidar
+    // alguém, regerar o link) derrubar o canal, re-semear o watermark
+    // (marcando como "já enviado" o que ainda não foi) e zerar
+    // hasInteracted. O efeito só reinicia quando a sincronização ao vivo
+    // aparece/some de verdade, não quando o token roda.
+  }, [excalidrawAPI, boardId, surface, hasRealtime]);
 
   function notifyComment() {
     channelRef.current?.send({ type: "broadcast", event: BOARD_EVENT, payload: { kind: "comment" } });

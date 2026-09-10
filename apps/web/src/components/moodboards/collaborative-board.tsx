@@ -119,8 +119,9 @@ export function CollaborativeBoard({
       elements: result.elements as ExcalidrawElement[],
       viewBackgroundColor: result.viewBackgroundColor,
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- só reavalia
-    // quando o próprio scene muda; surface/boardId são estáveis por mount.
+    // Só reavalia quando o próprio scene muda; surface/boardId são
+    // estáveis por mount e só aparecem nos tags do Sentry acima.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialScene]);
 
   async function handleSendComment() {

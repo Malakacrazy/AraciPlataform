@@ -15,7 +15,12 @@ import { NextResponse } from "next/server";
 const SAFE_SEGMENT = /^[A-Za-z0-9._~-]+$/;
 
 export function isSafePathSegment(segment: string): boolean {
-  return SAFE_SEGMENT.test(segment);
+  // O `.` faz parte da classe acima (nome de arquivo com extensão), então
+  // a regex SOZINHA aceita "." e ".." -- e um ".." decodificado colapsa um
+  // componente do path upstream depois que o fetch normaliza. As duas
+  // recusas explícitas abaixo são a metade que faltava quando esta guarda
+  // foi extraída de api/v1/[...path]/route.ts:32, que sempre teve as duas.
+  return SAFE_SEGMENT.test(segment) && segment !== '..' && segment !== '.';
 }
 
 export function badRequest(message = "Caminho inválido."): NextResponse {
@@ -44,6 +49,12 @@ export async function relayGet(targetUrl: string, headers: Record<string, string
   return new NextResponse(buffer, {
     headers: {
       "Content-Type": upstream.headers.get("Content-Type") ?? "application/octet-stream",
+      // Repassa o disposition: o apps/api força `attachment` pra qualquer
+      // coisa fora da allowlist de imagem (ver normalizeImageMimeType em
+      // moodboard-files.service.ts); perder esse cabeçalho aqui
+      // desfaria a defesa no último hop, que é justamente o que roda na
+      // mesma origem do dashboard.
+      "Content-Disposition": upstream.headers.get("Content-Disposition") ?? "inline",
       "Cache-Control": upstream.headers.get("Cache-Control") ?? "private, max-age=31536000, immutable",
       // Achados A32/A45: defesa em profundidade -- mesmo que o upstream
       // já normalize o Content-Type, o navegador nunca tenta adivinhar

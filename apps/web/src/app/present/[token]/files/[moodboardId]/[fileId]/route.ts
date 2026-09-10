@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { withScheme } from "@/lib/url";
 import { badRequest, isSafePathSegment, relayGet, relayPut } from "@/lib/binaryProxy";
 
