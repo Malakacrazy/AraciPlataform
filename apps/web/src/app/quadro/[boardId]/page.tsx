@@ -57,6 +57,7 @@ export default async function QuadroBoardPage({ params }: { params: Promise<{ bo
 
       <CollaborativeBoard
         boardId={board.id}
+        surface="guest"
         initialSnapshot={board.snapshot}
         initialComments={comments}
         onSaveSnapshot={saveGuestSnapshot.bind(null, board.id)}

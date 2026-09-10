@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Tldraw, createTLStore, defaultShapeUtils, getSnapshot, loadSnapshot, type TLStoreSnapshot } from "tldraw";
 import "tldraw/tldraw.css";
+import * as Sentry from "@sentry/nextjs";
 import { createBoardChannel } from "@/lib/supabaseRealtime";
 import type { MoodboardComment } from "@/lib/types";
 
@@ -10,6 +11,11 @@ const SNAPSHOT_SAVE_DEBOUNCE_MS = 2000;
 
 interface Props {
   boardId: string;
+  // Tag de todo evento reportado ao Sentry por este componente (ver §6.1
+  // do plano de migração tldraw->Excalidraw) -- "staff" | "client" |
+  // "guest", os três surfaces que o embutem (mesmo vocabulário de
+  // MoodboardCommentAuthorType em moodboards.service.ts).
+  surface: "staff" | "client" | "guest";
   initialSnapshot: unknown;
   initialComments: MoodboardComment[];
   // Server action já parcialmente aplicada (bind) pelo chamador -- cada
@@ -52,6 +58,7 @@ type BroadcastPayload =
 // pra quem já está com a página aberta, nunca é a única cópia do dado.
 export function CollaborativeBoard({
   boardId,
+  surface,
   initialSnapshot,
   initialComments,
   onSaveSnapshot,
@@ -80,6 +87,7 @@ export function CollaborativeBoard({
       // vazio em vez disso; o conteúdo original continua no banco
       // (só não é exibido), então nada é perdido além da exibição.
       console.error(`[quadro] snapshot inválido, abrindo com o quadro vazio: ${(err as Error).message}`);
+      Sentry.captureException(err, { tags: { surface, boardId } });
       setSaveError("Não foi possível abrir o conteúdo salvo desta prancha — ela foi aberta em branco.");
     }
   }, [store, initialSnapshot]);
@@ -98,6 +106,7 @@ export function CollaborativeBoard({
       board = createBoardChannel(boardId, realtimeToken);
     } catch (err) {
       console.warn((err as Error).message);
+      Sentry.captureException(err, { tags: { surface, boardId } });
       return;
     }
     const { channel } = board;
@@ -114,7 +123,10 @@ export function CollaborativeBoard({
         // é quem sabe quem de fato escreveu (ver BroadcastPayload).
         onRefreshComments()
           .then(setComments)
-          .catch((err) => console.warn((err as Error).message));
+          .catch((err) => {
+            console.warn((err as Error).message);
+            Sentry.captureException(err, { tags: { surface, boardId } });
+          });
       }
     });
     // Sem este callback, falhar em entrar no canal era 100% silencioso --
@@ -130,6 +142,7 @@ export function CollaborativeBoard({
         console.warn(
           `[quadro] sincronização ao vivo indisponível (${status}): ${err?.message ?? "sem detalhe"} -- o quadro continua salvando normalmente.`,
         );
+        Sentry.captureException(err ?? new Error(`Supabase channel ${status}`), { tags: { surface, boardId } });
       }
     });
 
@@ -161,6 +174,7 @@ export function CollaborativeBoard({
         .then(() => setSaveError(null))
         .catch((err) => {
           console.error(`[quadro] falha ao salvar o snapshot: ${(err as Error).message}`);
+          Sentry.captureException(err, { tags: { surface, boardId } });
           setSaveError("Não foi possível salvar as últimas alterações desta prancha.");
         });
 
@@ -213,6 +227,7 @@ export function CollaborativeBoard({
       channelRef.current?.send({ type: "broadcast", event: "board", payload: { kind: "comment" } });
     } catch (err) {
       console.error((err as Error).message);
+      Sentry.captureException(err, { tags: { surface, boardId } });
     } finally {
       setSending(false);
     }

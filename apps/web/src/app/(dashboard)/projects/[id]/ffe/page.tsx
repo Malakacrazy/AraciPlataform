@@ -27,6 +27,7 @@ import {
 import { mintBoardRealtimeToken } from "@/lib/supabaseBoardToken";
 import { PresentationLinkPanel } from "@/components/moodboards/presentation-link-panel";
 import { CollaborativeBoard } from "@/components/moodboards/collaborative-board";
+import { BoardErrorBoundary } from "@/components/moodboards/board-error-boundary";
 import { WhiteboardGuestsSection } from "@/components/whiteboard-guests/whiteboard-guests-section";
 import { ExportFfeCsv } from "@/components/ffe/export-ffe-csv";
 
@@ -347,15 +348,18 @@ export default async function ProjectFfePage({ params }: { params: Promise<{ id:
           </div>
 
           <div className="mt-3">
-            <CollaborativeBoard
-              boardId={board.id}
-              initialSnapshot={boardDetailsByBoard[i].snapshot}
-              initialComments={commentsByBoard[i]}
-              onSaveSnapshot={saveMoodboardSnapshot.bind(null, board.id)}
-              onAddComment={addMoodboardComment.bind(null, board.id)}
-              onRefreshComments={listMoodboardComments.bind(null, board.id)}
-              realtimeToken={realtimeTokensByBoard[i]}
-            />
+            <BoardErrorBoundary boardId={board.id} surface="staff">
+              <CollaborativeBoard
+                boardId={board.id}
+                surface="staff"
+                initialSnapshot={boardDetailsByBoard[i].snapshot}
+                initialComments={commentsByBoard[i]}
+                onSaveSnapshot={saveMoodboardSnapshot.bind(null, board.id)}
+                onAddComment={addMoodboardComment.bind(null, board.id)}
+                onRefreshComments={listMoodboardComments.bind(null, board.id)}
+                realtimeToken={realtimeTokensByBoard[i]}
+              />
+            </BoardErrorBoundary>
           </div>
 
           {guestsByBoard[i] !== null && (

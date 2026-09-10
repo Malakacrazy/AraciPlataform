@@ -16,6 +16,7 @@ import {
 import { mintBoardRealtimeToken } from "@/lib/supabaseBoardToken";
 import { STAGE_LABELS } from "@/lib/pep-stages";
 import { CollaborativeBoard } from "@/components/moodboards/collaborative-board";
+import { BoardErrorBoundary } from "@/components/moodboards/board-error-boundary";
 
 // Pedido direto do usuário: plantas do SketchUp LayOut chegam aqui pelo
 // mesmo pipeline de "Documentos" já existente (Drive + visibleToClient).
@@ -160,15 +161,18 @@ export default async function PresentationPage({
             >
               <h3 className="font-medium text-zinc-900 dark:text-zinc-50">{board.name}</h3>
               <div className="mt-3">
-                <CollaborativeBoard
-                  boardId={board.id}
-                  initialSnapshot={board.snapshot}
-                  initialComments={comments}
-                  onSaveSnapshot={saveMoodboardSnapshot.bind(null, token, board.id)}
-                  onAddComment={addMoodboardComment.bind(null, token, board.id)}
-                  onRefreshComments={listMoodboardComments.bind(null, token, board.id)}
-                  realtimeToken={realtimeToken}
-                />
+                <BoardErrorBoundary boardId={board.id} surface="client">
+                  <CollaborativeBoard
+                    boardId={board.id}
+                    surface="client"
+                    initialSnapshot={board.snapshot}
+                    initialComments={comments}
+                    onSaveSnapshot={saveMoodboardSnapshot.bind(null, token, board.id)}
+                    onAddComment={addMoodboardComment.bind(null, token, board.id)}
+                    onRefreshComments={listMoodboardComments.bind(null, token, board.id)}
+                    realtimeToken={realtimeToken}
+                  />
+                </BoardErrorBoundary>
               </div>
             </div>
           ))}
